@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Chat = {
   id: string;
@@ -95,6 +95,10 @@ export default function InboxPage() {
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ✅ (PASSO 2) refs logo depois dos useState
+  const msgsAbortRef = useRef<AbortController | null>(null);
+  const msgsInFlightRef = useRef(false);
+
   const selectedChat = useMemo(
     () => chats.find((c) => c.id === selectedChatId) ?? null,
     [chats, selectedChatId]
@@ -120,22 +124,36 @@ export default function InboxPage() {
     }
   }
 
-  // ✅ ATUALIZADO (com cache-bust + no-store + no-cache)
-  async function loadMessages(chatId: string) {
-    setLoadingMsgs(true);
+  // ✅ (PASSO 3) Substituído: loadMessages com AbortController + in-flight + silent
+  async function loadMessages(chatId: string, opts?: { silent?: boolean }) {
+    // ✅ evita duas requisições ao mesmo tempo
+    if (msgsInFlightRef.current) return;
+    msgsInFlightRef.current = true;
+
+    // ✅ cancela a anterior (se tiver)
+    if (msgsAbortRef.current) msgsAbortRef.current.abort();
+    const controller = new AbortController();
+    msgsAbortRef.current = controller;
+
+    if (!opts?.silent) setLoadingMsgs(true);
     setError(null);
+
     try {
       const res = await fetch(`/api/chats/${chatId}/messages?t=${Date.now()}`, {
         cache: "no-store",
         headers: { "Cache-Control": "no-cache" },
+        signal: controller.signal,
       });
+
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Falha ao buscar mensagens");
       setMessages(json.messages || []);
     } catch (e: any) {
-      setError(e?.message ?? "Erro");
+      // ignora abort (isso é esperado quando cancela)
+      if (e?.name !== "AbortError") setError(e?.message ?? "Erro");
     } finally {
-      setLoadingMsgs(false);
+      msgsInFlightRef.current = false;
+      if (!opts?.silent) setLoadingMsgs(false);
     }
   }
 
@@ -147,20 +165,20 @@ export default function InboxPage() {
   useEffect(() => {
     if (selectedChatId) loadMessages(selectedChatId);
     else setMessages([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChatId]);
 
-  // ✅ AUTO-ATUALIZAÇÃO (resolve seu problema)
-  // - Se o chat estiver aberto, recarrega mensagens e chats a cada 2s
+  // ✅ Polling ajustado: silent no intervalo (sem piscar / sem enroscar)
   useEffect(() => {
     if (!selectedChatId) return;
 
-    // carrega na hora
+    // carrega na hora (normal)
     loadMessages(selectedChatId);
     loadChats();
 
     const timer = setInterval(() => {
-      // atualiza chat aberto + lista da esquerda
-      loadMessages(selectedChatId);
+      // ✅ atualiza mensagens sem ficar “carregando...”
+      loadMessages(selectedChatId, { silent: true });
       loadChats();
     }, 2000);
 
@@ -292,44 +310,43 @@ export default function InboxPage() {
         <SendBox
           disabled={!selectedChatId}
           onSend={async (text) => {
-  if (!selectedChatId) return;
+            if (!selectedChatId) return;
 
-  // ✅ 1) Mostra a mensagem na tela imediatamente (modo otimista)
-  const tempId = "temp-" + Date.now();
+            // ✅ 1) Mostra a mensagem na tela imediatamente (modo otimista)
+            const tempId = "temp-" + Date.now();
 
-  setMessages((prev) => [
-    ...prev,
-    {
-      id: tempId,
-      direction: "out",
-      text,
-      created_at: new Date().toISOString(),
-    },
-  ]);
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: tempId,
+                direction: "out",
+                text,
+                created_at: new Date().toISOString(),
+              },
+            ]);
 
-  setError(null);
+            setError(null);
 
-  try {
-    // ✅ 2) Envia para API (continua funcionando igual)
-    const res = await fetch("/api/messages/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: selectedChatId, text }),
-    });
+            try {
+              // ✅ 2) Envia para API (continua funcionando igual)
+              const res = await fetch("/api/messages/send", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ chat_id: selectedChatId, text }),
+              });
 
-    const json = await res.json();
-    if (!json.ok) {
-      setError(json.error || "Falha ao enviar");
-    }
-  } catch (err) {
-    setError("Erro ao enviar mensagem");
-  }
+              const json = await res.json();
+              if (!json.ok) {
+                setError(json.error || "Falha ao enviar");
+              }
+            } catch (err) {
+              setError("Erro ao enviar mensagem");
+            }
 
-  // ✅ 3) Depois sincroniza com banco
-  loadMessages(selectedChatId);
-  loadChats();
-}}
-  
+            // ✅ 3) Depois sincroniza com banco
+            loadMessages(selectedChatId);
+            loadChats();
+          }}
         />
       </main>
 

@@ -121,6 +121,25 @@ export default function InboxPage() {
     else setMessages([]);
   }, [selectedChatId]);
 
+  // ✅ AUTO-ATUALIZAÇÃO (resolve seu problema)
+  // - Se o chat estiver aberto, recarrega mensagens e chats a cada 2s
+  useEffect(() => {
+    if (!selectedChatId) return;
+
+    // carrega na hora
+    loadMessages(selectedChatId);
+    loadChats();
+
+    const timer = setInterval(() => {
+      // atualiza chat aberto + lista da esquerda
+      loadMessages(selectedChatId);
+      loadChats();
+    }, 2000);
+
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedChatId]);
+
   return (
     <div style={{ height: "100vh", display: "grid", gridTemplateColumns: "340px 1fr 320px" }}>
       {/* LEFT */}

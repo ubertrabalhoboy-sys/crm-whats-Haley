@@ -1,11 +1,40 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 
-export async function POST(req: Request) {
-  const body = await req.json();
+export const runtime = "nodejs";
 
-  const wa_chat_id = body?.chatId || body?.chat_id || body?.data?.chatId || body?.data?.chat_id;
-  const phone = body?.phone || body?.data?.from || body?.from || body?.data?.phone;
+// ✅ Isso evita 405 quando você abre no navegador (GET)
+export async function GET() {
+  return NextResponse.json({ ok: true, route: "uazapi" }, { status: 200 });
+}
+
+export async function POST(req: Request) {
+  // ✅ LOG IMEDIATO: se isso não aparecer no Render, o webhook não está chegando
+  console.log("[UAZAPI] WEBHOOK HIT", new Date().toISOString());
+
+  let body: any = null;
+  try {
+    body = await req.json();
+  } catch (e) {
+    console.log("[UAZAPI] INVALID JSON");
+    return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
+  }
+
+  console.log("[UAZAPI] BODY_KEYS", Object.keys(body || {}));
+  console.log("[UAZAPI] BODY_SAMPLE", JSON.stringify(body).slice(0, 1500));
+
+  const wa_chat_id =
+    body?.chatId ||
+    body?.chat_id ||
+    body?.data?.chatId ||
+    body?.data?.chat_id;
+
+  const phone =
+    body?.phone ||
+    body?.data?.from ||
+    body?.from ||
+    body?.data?.phone;
+
   const text =
     body?.text ||
     body?.message?.text ||
@@ -13,10 +42,21 @@ export async function POST(req: Request) {
     body?.data?.message?.text ||
     body?.data?.body?.text ||
     null;
-  const wa_message_id = body?.messageId || body?.data?.messageId || body?.data?.id || null;
+
+  const wa_message_id =
+    body?.messageId ||
+    body?.data?.messageId ||
+    body?.data?.id ||
+    null;
+
+  console.log("[UAZAPI] PARSED", { wa_chat_id, phone, hasText: !!text, wa_message_id });
 
   if (!wa_chat_id || !phone) {
-    return NextResponse.json({ ok: false, error: "Missing wa_chat_id or phone" }, { status: 400 });
+    console.log("[UAZAPI] MISSING FIELDS", { wa_chat_id, phone });
+    return NextResponse.json(
+      { ok: false, error: "Missing wa_chat_id or phone" },
+      { status: 400 }
+    );
   }
 
   // 1) upsert contact
@@ -26,7 +66,10 @@ export async function POST(req: Request) {
     .select("*")
     .single();
 
-  if (cErr) return NextResponse.json({ ok: false, error: cErr.message }, { status: 500 });
+  if (cErr) {
+    console.log("[UAZAPI] CONTACT UPSERT ERROR", cErr);
+    return NextResponse.json({ ok: false, error: cErr.message }, { status: 500 });
+  }
 
   // 2) upsert chat
   const { data: chat, error: chErr } = await supabaseServer
@@ -44,7 +87,10 @@ export async function POST(req: Request) {
     .select("*")
     .single();
 
-  if (chErr) return NextResponse.json({ ok: false, error: chErr.message }, { status: 500 });
+  if (chErr) {
+    console.log("[UAZAPI] CHAT UPSERT ERROR", chErr);
+    return NextResponse.json({ ok: false, error: chErr.message }, { status: 500 });
+  }
 
   // 3) insert message
   const { error: mErr } = await supabaseServer.from("messages").insert({
@@ -55,7 +101,10 @@ export async function POST(req: Request) {
     payload: body,
   });
 
-  if (mErr) return NextResponse.json({ ok: false, error: mErr.message }, { status: 500 });
+  if (mErr) {
+    console.log("[UAZAPI] MESSAGE INSERT ERROR", mErr);
+    return NextResponse.json({ ok: false, error: mErr.message }, { status: 500 });
+  }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true }, { status: 200 });
 }

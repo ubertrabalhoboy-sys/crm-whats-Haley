@@ -3,9 +3,9 @@ import { supabaseServer } from "@/lib/supabaseServer";
 
 export async function POST(
   _req: Request,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
-  const chatId = params.id;
+  const { id: chatId } = await ctx.params;
 
   const { error } = await supabaseServer
     .from("chats")

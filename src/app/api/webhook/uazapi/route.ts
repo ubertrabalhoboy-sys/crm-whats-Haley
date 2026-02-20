@@ -78,26 +78,35 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: cErr.message }, { status: 500 });
   }
 
-  // 2) upsert chat
-  const { data: chat, error: chErr } = await supabaseServer
-    .from("chats")
-    .upsert(
-      {
-        wa_chat_id,
-        contact_id: contact.id,
-        last_message: text,
-        unread_count: 1,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "wa_chat_id" }
-    )
-    .select("*")
-    .single();
+  // 2) upsert chat (sem mexer no unread_count)
+const { data: chat, error: chErr } = await supabaseServer
+  .from("chats")
+  .upsert(
+    {
+      wa_chat_id,
+      contact_id: contact.id,
+      last_message: text,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "wa_chat_id" }
+  )
+  .select("*")
+  .single();
 
-  if (chErr) {
-    console.log("[UAZAPI] CHAT UPSERT ERROR", chErr);
-    return NextResponse.json({ ok: false, error: chErr.message }, { status: 500 });
-  }
+if (chErr) {
+  console.log("[UAZAPI] CHAT UPSERT ERROR", chErr);
+  return NextResponse.json({ ok: false, error: chErr.message }, { status: 500 });
+}
+
+// ✅ incrementa unread_count
+const { error: incErr } = await supabaseServer.rpc("increment_unread", {
+  p_wa_chat_id: wa_chat_id,
+  p_last_message: text,
+});
+
+if (incErr) {
+  console.log("[UAZAPI] INCREMENT ERROR", incErr);
+}
 
  // 3) insert message (anti-duplicação)
 const { error: mErr } = await supabaseServer.from("messages").upsert(

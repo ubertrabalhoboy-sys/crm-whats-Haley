@@ -18,9 +18,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
   }
 
-  console.log("[UAZAPI] BODY_KEYS", Object.keys(body || {}));
-
-  // ✅ Payload real (pelo seu log): body.chat.wa_chatid e body.chat.phone
+  // ✅ parser corrigido pro payload real que você mostrou
   const wa_chat_id =
     body?.chat?.wa_chatid ||
     body?.chat?.wa_chatId ||
@@ -38,7 +36,6 @@ export async function POST(req: Request) {
     body?.data?.from ||
     body?.data?.phone;
 
-  // ✅ Texto (pode variar)
   const text =
     body?.message?.text ||
     body?.message?.message?.text ||
@@ -50,7 +47,6 @@ export async function POST(req: Request) {
     body?.data?.body?.text ||
     null;
 
-  // ✅ id da mensagem (tenta pegar do message)
   const wa_message_id =
     body?.message?.id ||
     body?.message?.messageId ||
@@ -78,49 +74,57 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: cErr.message }, { status: 500 });
   }
 
-  // 2) upsert chat (VOLTA PRO SIMPLES)
-const { data: chat, error: chErr } = await supabaseServer
-  .from("chats")
-  .upsert(
-    {
-      wa_chat_id,
-      contact_id: contact.id,
-      last_message: text,
-      unread_count: 1,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "wa_chat_id" }
-  )
-  .select("*")
-  .single();
+  // 2) upsert chat (mantém simples pra não quebrar)
+  const { data: chat, error: chErr } = await supabaseServer
+    .from("chats")
+    .upsert(
+      {
+        wa_chat_id,
+        contact_id: contact.id,
+        last_message: text,
+        unread_count: 1,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "wa_chat_id" }
+    )
+    .select("*")
+    .single();
 
-if (chErr) {
-  console.log("[UAZAPI] CHAT UPSERT ERROR", chErr);
-  return NextResponse.json({ ok: false, error: chErr.message }, { status: 500 });
-}
-// ✅ incrementa unread_count
-const { error: incErr } = await supabaseServer.rpc("increment_unread", {
-  p_wa_chat_id: wa_chat_id,
-  p_last_message: text,
-});
+  if (chErr) {
+    console.log("[UAZAPI] CHAT UPSERT ERROR", chErr);
+    return NextResponse.json({ ok: false, error: chErr.message }, { status: 500 });
+  }
 
-if (incErr) {
-  console.log("[UAZAPI] INCREMENT ERROR", incErr);
-}
+  // 3) Anti-duplicação segura (SEM upsert)
+  // Se tiver wa_message_id, checa se já existe
+  if (wa_message_id) {
+    const { data: exists, error: e1 } = await supabaseServer
+      .from("messages")
+      .select("id")
+      .eq("wa_message_id", wa_message_id)
+      .limit(1);
 
-// 3) insert message (VOLTA PRO INSERT)
-const { error: mErr } = await supabaseServer.from("messages").insert({
-  chat_id: chat.id,
-  direction: "in",
-  wa_message_id,
-  text,
-  payload: body,
-});
+    if (e1) {
+      console.log("[UAZAPI] DEDUPE CHECK ERROR", e1);
+    } else if (exists && exists.length > 0) {
+      // Já existe -> não insere de novo
+      return NextResponse.json({ ok: true, duplicated: true }, { status: 200 });
+    }
+  }
 
-if (mErr) {
-  console.log("[UAZAPI] MESSAGE INSERT ERROR", mErr);
-  return NextResponse.json({ ok: false, error: mErr.message }, { status: 500 });
-}
+  // 4) insert message (salva a mensagem recebida)
+  const { error: mErr } = await supabaseServer.from("messages").insert({
+    chat_id: chat.id,
+    direction: "in",
+    wa_message_id: wa_message_id ?? null,
+    text,
+    payload: body,
+  });
+
+  if (mErr) {
+    console.log("[UAZAPI] MESSAGE INSERT ERROR", mErr);
+    return NextResponse.json({ ok: false, error: mErr.message }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }

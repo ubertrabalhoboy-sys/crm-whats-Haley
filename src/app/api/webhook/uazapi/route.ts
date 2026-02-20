@@ -99,14 +99,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: chErr.message }, { status: 500 });
   }
 
-  // 3) insert message
-  const { error: mErr } = await supabaseServer.from("messages").insert({
+ // 3) insert message (anti-duplicação)
+const { error: mErr } = await supabaseServer.from("messages").upsert(
+  {
     chat_id: chat.id,
     direction: "in",
     wa_message_id,
     text,
     payload: body,
-  });
+  },
+  { onConflict: "wa_message_id" }
+);
 
   if (mErr) {
     console.log("[UAZAPI] MESSAGE INSERT ERROR", mErr);

@@ -20,6 +20,7 @@ type Msg = {
   direction: "in" | "out";
   text: string | null;
   created_at: string;
+  status?: "sent" | "delivered" | "read";
 };
 
 function SendBox({
@@ -35,11 +36,11 @@ function SendBox({
   return (
     <div
       style={{
-        marginTop: 10,
-        borderTop: "1px solid #eee",
-        paddingTop: 10,
+        padding: 12,
+        borderTop: "1px solid rgba(15, 23, 42, 0.08)",
         display: "flex",
-        gap: 8,
+        gap: 10,
+        background: "white",
       }}
     >
       <input
@@ -58,7 +59,14 @@ function SendBox({
         }}
         placeholder={disabled ? "Selecione uma conversa..." : "Digite sua mensagem"}
         disabled={disabled || sending}
-        style={{ flex: 1, padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
+        style={{
+          flex: 1,
+          padding: "12px 14px",
+          borderRadius: 12,
+          border: "1px solid rgba(15, 23, 42, 0.12)",
+          outline: "none",
+          background: disabled ? "#f8fafc" : "white",
+        }}
       />
       <button
         disabled={disabled || sending || !text.trim()}
@@ -71,10 +79,14 @@ function SendBox({
           onSend(msg).finally(() => setSending(false));
         }}
         style={{
-          padding: "10px 14px",
-          borderRadius: 10,
-          border: "1px solid #ddd",
-          cursor: "pointer",
+          padding: "12px 14px",
+          borderRadius: 12,
+          border: "1px solid rgba(15, 23, 42, 0.12)",
+          cursor: disabled || sending ? "not-allowed" : "pointer",
+          background: disabled || sending ? "#e5e7eb" : "#111827",
+          color: disabled || sending ? "#6b7280" : "white",
+          fontWeight: 700,
+          minWidth: 110,
         }}
       >
         {sending ? "Enviando..." : "Enviar"}
@@ -214,13 +226,12 @@ export default function InboxPage() {
   useEffect(() => {
     if (!selectedChatId) {
       setMessages([]);
-      setHasNewWhileUp(false); // ✅ NOVO
+      setHasNewWhileUp(false);
       return;
     }
 
-    // ao abrir chat, a intenção é estar no fim
     shouldAutoScrollRef.current = true;
-    setHasNewWhileUp(false); // ✅ NOVO
+    setHasNewWhileUp(false);
 
     loadMessages(selectedChatId);
 
@@ -248,238 +259,454 @@ export default function InboxPage() {
     if (!selectedChatId) return;
     if (!shouldAutoScrollRef.current) return;
 
-    // garante que o DOM já renderizou a msg antes de rolar
     requestAnimationFrame(() => scrollToBottom("smooth"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, selectedChatId]);
 
+  const pageBg = "linear-gradient(180deg, #f6f7fb 0%, #eef2ff 100%)";
+
   return (
-    <div style={{ height: "100vh", display: "grid", gridTemplateColumns: "340px 1fr 320px" }}>
-      {/* LEFT */}
-      <aside style={{ borderRight: "1px solid #eee", padding: 12, overflow: "auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Conversas</h2>
-          <button
-            onClick={loadChats}
-            style={{ marginLeft: "auto", padding: "6px 10px", cursor: "pointer" }}
-          >
-            {loadingChats ? "Carregando..." : "Atualizar"}
-          </button>
-        </div>
-
-        {error && (
-          <div style={{ background: "#fee", border: "1px solid #fbb", padding: 10, marginBottom: 10 }}>
-            {error}
-          </div>
-        )}
-
-        {chats.length === 0 && !loadingChats && (
-          <div style={{ color: "#666" }}>Sem conversas ainda. Envie um webhook de teste.</div>
-        )}
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {chats.map((c) => {
-            const active = c.id === selectedChatId;
-            const title = c.contacts?.name || c.contacts?.phone || c.wa_chat_id || "Sem nome";
-            return (
-              <button
-                key={c.id}
-                onClick={() => setSelectedChatId(c.id)}
-                style={{
-                  textAlign: "left",
-                  border: "1px solid #ddd",
-                  background: active ? "#f4f4f4" : "white",
-                  padding: 10,
-                  borderRadius: 10,
-                  cursor: "pointer",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {title}
-                  </div>
-                  {!!c.unread_count && c.unread_count > 0 && (
-                    <span
-                      style={{
-                        marginLeft: "auto",
-                        background: "#111",
-                        color: "white",
-                        fontSize: 12,
-                        padding: "2px 8px",
-                        borderRadius: 999,
-                      }}
-                    >
-                      {c.unread_count}
-                    </span>
-                  )}
-                </div>
-                <div style={{ color: "#555", fontSize: 13, marginTop: 6, overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {c.last_message || "(sem mensagem)"}
-                </div>
-                <div style={{ color: "#888", fontSize: 12, marginTop: 6 }}>
-                  Status: {c.kanban_status || "Novo"}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </aside>
-
-      {/* MIDDLE */}
-      <main style={{ padding: 12, display: "flex", flexDirection: "column" }}>
-        <div style={{ borderBottom: "1px solid #eee", paddingBottom: 10, marginBottom: 10 }}>
-          <div style={{ fontWeight: 800 }}>
-            {selectedChat
-              ? selectedChat.contacts?.name || selectedChat.contacts?.phone || selectedChat.wa_chat_id
-              : "Selecione uma conversa"}
-          </div>
-          <div style={{ color: "#777", fontSize: 12 }}>{selectedChat?.wa_chat_id ?? ""}</div>
-
-          {/* ✅ ADICIONADO NO LUGAR CORRETO: logo abaixo do header do chat */}
-          {selectedChat?.is_typing && (
-            <div style={{ fontSize: 12, color: "#22c55e", marginTop: 4 }}>
-              digitando...
-            </div>
-          )}
-        </div>
-
-        <div
-          ref={msgsWrapRef}
-          onScroll={handleMsgsScroll}
+    <div style={{ height: "100vh", background: pageBg, padding: 14 }}>
+      <div
+        style={{
+          height: "calc(100vh - 28px)",
+          display: "grid",
+          gridTemplateColumns: "360px 1fr 340px",
+          gap: 14,
+        }}
+      >
+        {/* LEFT - Conversas */}
+        <aside
           style={{
-            flex: 1,
-            overflow: "auto",
+            border: "1px solid rgba(15, 23, 42, 0.10)",
+            borderRadius: 16,
+            background: "white",
+            overflow: "hidden",
+            boxShadow: "0 10px 25px rgba(0,0,0,0.06)",
             display: "flex",
             flexDirection: "column",
-            gap: 8,
-            position: "relative", // ✅ NOVO (pra ajudar no overlay)
+            minHeight: 0,
           }}
         >
-          {loadingMsgs && <div style={{ color: "#666" }}>Carregando mensagens...</div>}
+          {/* Header fixo */}
+          <div
+            style={{
+              padding: 12,
+              borderBottom: "1px solid rgba(15, 23, 42, 0.08)",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              position: "sticky",
+              top: 0,
+              background: "white",
+              zIndex: 2,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 900, letterSpacing: 0.2 }}>Conversas</div>
+              <div style={{ fontSize: 12, color: "#64748b" }}>Inbox WhatsApp</div>
+            </div>
 
-          {!loadingMsgs && messages.length === 0 && selectedChatId && (
-            <div style={{ color: "#666" }}>Sem mensagens nesse chat.</div>
-          )}
-
-          {messages.map((m) => {
-            const isIn = m.direction === "in";
-            return (
-              <div
-                key={m.id}
-                style={{
-                  alignSelf: isIn ? "flex-start" : "flex-end",
-                  maxWidth: "70%",
-                  border: "1px solid #ddd",
-                  borderRadius: 12,
-                  padding: "8px 10px",
-                  background: isIn ? "white" : "#f4f4f4",
-                }}
-              >
-                <div style={{ whiteSpace: "pre-wrap" }}>{m.text || "(sem texto)"}</div>
-                <div style={{ marginTop: 6, fontSize: 11, color: "#777" }}>
-                  {new Date(m.created_at).toLocaleString("pt-BR")}
-                </div>
-              </div>
-            );
-          })}
-
-          {/* ✅ NOVO: botão "Novas mensagens" (sticky dentro do scroll) */}
-          {hasNewWhileUp && (
-            <div
+            <button
+              onClick={loadChats}
               style={{
-                position: "sticky",
-                bottom: 12,
-                display: "flex",
-                justifyContent: "center",
-                pointerEvents: "none",
+                marginLeft: "auto",
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(15, 23, 42, 0.12)",
+                background: "white",
+                cursor: "pointer",
+                fontWeight: 700,
               }}
             >
-              <button
-                onClick={() => {
-                  setHasNewWhileUp(false);
-                  shouldAutoScrollRef.current = true;
-                  requestAnimationFrame(() => scrollToBottom("smooth"));
-                }}
+              {loadingChats ? "Carregando..." : "Atualizar"}
+            </button>
+          </div>
+
+          {/* Conteúdo com scroll */}
+          <div style={{ padding: 12, overflow: "auto", minHeight: 0 }}>
+            {error && (
+              <div
                 style={{
-                  pointerEvents: "auto",
-                  padding: "8px 12px",
-                  borderRadius: 999,
-                  border: "1px solid #ddd",
-                  background: "white",
-                  cursor: "pointer",
-                  boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
+                  background: "#fff1f2",
+                  border: "1px solid #fecdd3",
+                  color: "#9f1239",
+                  padding: 10,
+                  borderRadius: 12,
+                  marginBottom: 10,
+                  fontSize: 13,
                   fontWeight: 700,
                 }}
               >
-                ⬇️ Novas mensagens
-              </button>
-            </div>
-          )}
-
-          {/* âncora do fim */}
-          <div ref={bottomRef} />
-        </div>
-
-        <SendBox
-          disabled={!selectedChatId}
-          onSend={async (text) => {
-            if (!selectedChatId) return;
-
-            // ao enviar, a intenção é ficar no fim
-            shouldAutoScrollRef.current = true;
-            setHasNewWhileUp(false); // ✅ NOVO
-
-            const tempId = "temp-" + Date.now();
-            setMessages((prev) => [
-              ...prev,
-              { id: tempId, direction: "out", text, created_at: new Date().toISOString() },
-            ]);
-
-            setError(null);
-
-            try {
-              const res = await fetch("/api/messages/send", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ chat_id: selectedChatId, text }),
-              });
-
-              const json = await res.json();
-              if (!json.ok) setError(json.error || "Falha ao enviar");
-            } catch {
-              setError("Erro ao enviar mensagem");
-            }
-
-            loadMessages(selectedChatId);
-            loadChats();
-          }}
-        />
-      </main>
-
-      {/* RIGHT */}
-      <aside style={{ borderLeft: "1px solid #eee", padding: 12, overflow: "auto" }}>
-        <h3 style={{ marginTop: 0 }}>Detalhes</h3>
-        {!selectedChat && <div style={{ color: "#666" }}>Selecione uma conversa.</div>}
-        {selectedChat && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ border: "1px solid #eee", borderRadius: 10, padding: 10 }}>
-              <div style={{ fontWeight: 700 }}>Contato</div>
-              <div style={{ marginTop: 6, color: "#444" }}>Nome: {selectedChat.contacts?.name || "-"}</div>
-              <div style={{ color: "#444" }}>Telefone: {selectedChat.contacts?.phone || "-"}</div>
-            </div>
-
-            <div style={{ border: "1px solid #eee", borderRadius: 10, padding: 10 }}>
-              <div style={{ fontWeight: 700 }}>Kanban</div>
-              <div style={{ marginTop: 6, color: "#444" }}>
-                Status atual: {selectedChat.kanban_status || "Novo"}
+                {error}
               </div>
-              <div style={{ marginTop: 6, color: "#777", fontSize: 12 }}>
-                Próximo passo: dropdown pra mudar status e disparar automação.
+            )}
+
+            {chats.length === 0 && !loadingChats && (
+              <div style={{ color: "#64748b", fontSize: 13 }}>
+                Sem conversas ainda. Envie um webhook de teste.
               </div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {chats.map((c) => {
+                const active = c.id === selectedChatId;
+                const title = c.contacts?.name || c.contacts?.phone || c.wa_chat_id || "Sem nome";
+
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => setSelectedChatId(c.id)}
+                    style={{
+                      textAlign: "left",
+                      border: active
+                        ? "1px solid rgba(99, 102, 241, 0.45)"
+                        : "1px solid rgba(15, 23, 42, 0.10)",
+                      background: active ? "rgba(99, 102, 241, 0.10)" : "white",
+                      padding: 12,
+                      borderRadius: 14,
+                      cursor: "pointer",
+                      boxShadow: active ? "0 10px 24px rgba(99,102,241,0.12)" : "none",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontWeight: 900,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            fontSize: 14,
+                          }}
+                        >
+                          {title}
+                        </div>
+                        <div
+                          style={{
+                            color: "#64748b",
+                            fontSize: 12,
+                            marginTop: 4,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {c.last_message || "(sem mensagem)"}
+                        </div>
+                      </div>
+
+                      {!!c.unread_count && c.unread_count > 0 && (
+                        <span
+                          style={{
+                            background: "#111827",
+                            color: "white",
+                            fontSize: 12,
+                            padding: "2px 8px",
+                            borderRadius: 999,
+                            fontWeight: 900,
+                          }}
+                        >
+                          {c.unread_count}
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span
+                        style={{
+                          fontSize: 12,
+                          padding: "4px 10px",
+                          borderRadius: 999,
+                          border: "1px solid rgba(15, 23, 42, 0.10)",
+                          color: "#334155",
+                          background: "#f8fafc",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {c.kanban_status || "Novo"}
+                      </span>
+                      <span style={{ fontSize: 12, color: "#94a3b8" }}>
+                        {c.updated_at ? new Date(c.updated_at).toLocaleString("pt-BR") : ""}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
-        )}
-      </aside>
+        </aside>
+
+        {/* MIDDLE - Chat */}
+        <main
+          style={{
+            border: "1px solid rgba(15, 23, 42, 0.10)",
+            borderRadius: 16,
+            background: "white",
+            overflow: "hidden",
+            boxShadow: "0 10px 25px rgba(0,0,0,0.06)",
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+          }}
+        >
+          {/* Header fixo */}
+          <div
+            style={{
+              padding: 12,
+              borderBottom: "1px solid rgba(15, 23, 42, 0.08)",
+              position: "sticky",
+              top: 0,
+              background: "white",
+              zIndex: 2,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 950, fontSize: 14 }}>
+                  {selectedChat
+                    ? selectedChat.contacts?.name ||
+                      selectedChat.contacts?.phone ||
+                      selectedChat.wa_chat_id
+                    : "Selecione uma conversa"}
+                </div>
+                <div style={{ color: "#64748b", fontSize: 12 }}>
+                  {selectedChat?.wa_chat_id ?? ""}
+                </div>
+              </div>
+
+              <span
+                style={{
+                  fontSize: 12,
+                  padding: "6px 10px",
+                  borderRadius: 999,
+                  border: "1px solid rgba(15, 23, 42, 0.10)",
+                  background: "#f8fafc",
+                  color: "#334155",
+                  fontWeight: 800,
+                }}
+              >
+                {selectedChat?.kanban_status || "Novo"}
+              </span>
+            </div>
+
+            {selectedChat?.is_typing && (
+              <div style={{ fontSize: 12, color: "#22c55e", marginTop: 6, fontWeight: 800 }}>
+                digitando...
+              </div>
+            )}
+          </div>
+
+          {/* Mensagens com scroll */}
+          <div
+            ref={msgsWrapRef}
+            onScroll={handleMsgsScroll}
+            style={{
+              flex: 1,
+              overflow: "auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              padding: 14,
+              minHeight: 0,
+              background:
+                "radial-gradient(1200px 400px at 50% 0%, rgba(99,102,241,0.12) 0%, rgba(255,255,255,1) 45%)",
+              position: "relative",
+            }}
+          >
+            {loadingMsgs && <div style={{ color: "#64748b" }}>Carregando mensagens...</div>}
+
+            {!loadingMsgs && messages.length === 0 && selectedChatId && (
+              <div style={{ color: "#64748b" }}>Sem mensagens nesse chat.</div>
+            )}
+
+            {messages.map((m) => {
+              const isIn = m.direction === "in";
+
+              return (
+                <div
+                  key={m.id}
+                  style={{
+                    alignSelf: isIn ? "flex-start" : "flex-end",
+                    maxWidth: "72%",
+                    border: "1px solid rgba(15, 23, 42, 0.10)",
+                    borderRadius: 14,
+                    padding: "10px 12px",
+                    background: isIn ? "white" : "rgba(99, 102, 241, 0.10)",
+                    boxShadow: "0 8px 20px rgba(0,0,0,0.04)",
+                  }}
+                >
+                  {/* ✅ TEXTO (tava faltando no seu map) */}
+                  <div style={{ whiteSpace: "pre-wrap", color: "#0f172a", fontSize: 14 }}>
+                    {m.text || "(sem texto)"}
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 8,
+                      fontSize: 11,
+                      color: "#64748b",
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      gap: 8,
+                      alignItems: "center",
+                    }}
+                  >
+                    <span>{new Date(m.created_at).toLocaleString("pt-BR")}</span>
+
+                    {m.direction === "out" && (
+                      <span style={{ fontWeight: 900 }}>
+                        {m.status === "sent" && "✓"}
+                        {m.status === "delivered" && "✓✓"}
+                        {m.status === "read" && <span style={{ color: "#3b82f6" }}>✓✓</span>}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* ✅ botão "Novas mensagens" (sticky dentro do scroll) */}
+            {hasNewWhileUp && (
+              <div
+                style={{
+                  position: "sticky",
+                  bottom: 12,
+                  display: "flex",
+                  justifyContent: "center",
+                  pointerEvents: "none",
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setHasNewWhileUp(false);
+                    shouldAutoScrollRef.current = true;
+                    requestAnimationFrame(() => scrollToBottom("smooth"));
+                  }}
+                  style={{
+                    pointerEvents: "auto",
+                    padding: "10px 14px",
+                    borderRadius: 999,
+                    border: "1px solid rgba(15, 23, 42, 0.12)",
+                    background: "white",
+                    cursor: "pointer",
+                    boxShadow: "0 14px 30px rgba(0,0,0,0.10)",
+                    fontWeight: 900,
+                  }}
+                >
+                  ⬇️ Novas mensagens
+                </button>
+              </div>
+            )}
+
+            <div ref={bottomRef} />
+          </div>
+
+          <SendBox
+            disabled={!selectedChatId}
+            onSend={async (text) => {
+              if (!selectedChatId) return;
+
+              shouldAutoScrollRef.current = true;
+              setHasNewWhileUp(false);
+
+              const tempId = "temp-" + Date.now();
+              setMessages((prev) => [
+                ...prev,
+                { id: tempId, direction: "out", text, created_at: new Date().toISOString() },
+              ]);
+
+              setError(null);
+
+              try {
+                const res = await fetch("/api/messages/send", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ chat_id: selectedChatId, text }),
+                });
+
+                const json = await res.json();
+                if (!json.ok) setError(json.error || "Falha ao enviar");
+              } catch {
+                setError("Erro ao enviar mensagem");
+              }
+
+              loadMessages(selectedChatId);
+              loadChats();
+            }}
+          />
+        </main>
+
+        {/* RIGHT - Detalhes */}
+        <aside
+          style={{
+            border: "1px solid rgba(15, 23, 42, 0.10)",
+            borderRadius: 16,
+            background: "white",
+            overflow: "hidden",
+            boxShadow: "0 10px 25px rgba(0,0,0,0.06)",
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+          }}
+        >
+          {/* Header fixo */}
+          <div
+            style={{
+              padding: 12,
+              borderBottom: "1px solid rgba(15, 23, 42, 0.08)",
+              position: "sticky",
+              top: 0,
+              background: "white",
+              zIndex: 2,
+            }}
+          >
+            <div style={{ fontSize: 14, fontWeight: 950 }}>Detalhes</div>
+            <div style={{ fontSize: 12, color: "#64748b" }}>Perfil e Kanban</div>
+          </div>
+
+          {/* Conteúdo scroll */}
+          <div style={{ padding: 12, overflow: "auto", minHeight: 0 }}>
+            {!selectedChat && <div style={{ color: "#64748b" }}>Selecione uma conversa.</div>}
+
+            {selectedChat && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div
+                  style={{
+                    border: "1px solid rgba(15, 23, 42, 0.10)",
+                    borderRadius: 14,
+                    padding: 12,
+                    background: "#f8fafc",
+                  }}
+                >
+                  <div style={{ fontWeight: 950, marginBottom: 8 }}>Contato</div>
+                  <div style={{ color: "#334155", fontSize: 13 }}>
+                    <div>Nome: {selectedChat.contacts?.name || "-"}</div>
+                    <div>Telefone: {selectedChat.contacts?.phone || "-"}</div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    border: "1px solid rgba(15, 23, 42, 0.10)",
+                    borderRadius: 14,
+                    padding: 12,
+                    background: "#f8fafc",
+                  }}
+                >
+                  <div style={{ fontWeight: 950, marginBottom: 8 }}>Kanban</div>
+                  <div style={{ color: "#334155", fontSize: 13 }}>
+                    <div>Status atual: {selectedChat.kanban_status || "Novo"}</div>
+                  </div>
+                  <div style={{ marginTop: 8, color: "#64748b", fontSize: 12 }}>
+                    Próximo passo: dropdown pra mudar status e disparar automação.
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }

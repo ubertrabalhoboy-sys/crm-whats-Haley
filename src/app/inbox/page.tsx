@@ -84,7 +84,10 @@ export default function InboxPage() {
     setLoadingChats(true);
     setError(null);
     try {
-      const res = await fetch("/api/chats");
+      const res = await fetch("/api/chats", {
+  cache: "no-store",
+  headers: { "Cache-Control": "no-cache" },
+});
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Falha ao buscar chats");
       setChats(json.chats || []);
@@ -100,7 +103,10 @@ export default function InboxPage() {
     setLoadingMsgs(true);
     setError(null);
     try {
-      const res = await fetch(`/api/chats/${chatId}/messages`);
+      const res = await fetch(`/api/chats/${chatId}/messages`, {
+  cache: "no-store",
+  headers: { "Cache-Control": "no-cache" },
+});
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Falha ao buscar mensagens");
       setMessages(json.messages || []);

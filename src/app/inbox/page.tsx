@@ -48,11 +48,8 @@ function SendBox({
             const msg = text.trim();
             if (!msg || disabled || sending) return;
 
-            // limpa na hora
             setText("");
             setSending(true);
-
-            // manda sem travar o input
             onSend(msg).finally(() => setSending(false));
           }
         }}
@@ -66,11 +63,8 @@ function SendBox({
           const msg = text.trim();
           if (!msg) return;
 
-          // limpa na hora
           setText("");
           setSending(true);
-
-          // manda sem travar o input
           onSend(msg).finally(() => setSending(false));
         }}
         style={{
@@ -94,14 +88,41 @@ export default function InboxPage() {
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ refs logo depois dos useState
+  // ✅ NOVO: botão "Novas mensagens"
+  const [hasNewWhileUp, setHasNewWhileUp] = useState(false);
+
+  // ✅ refs da busca de mensagens (abort + in-flight)
   const msgsAbortRef = useRef<AbortController | null>(null);
   const msgsInFlightRef = useRef(false);
+
+  // ✅ refs do scroll inteligente
+  const msgsWrapRef = useRef<HTMLDivElement | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const shouldAutoScrollRef = useRef(true);
 
   const selectedChat = useMemo(
     () => chats.find((c) => c.id === selectedChatId) ?? null,
     [chats, selectedChatId]
   );
+
+  function scrollToBottom(behavior: ScrollBehavior = "smooth") {
+    bottomRef.current?.scrollIntoView({ behavior, block: "end" });
+  }
+
+  function handleMsgsScroll() {
+    const el = msgsWrapRef.current;
+    if (!el) return;
+
+    // “perto do final” = auto-scroll habilitado
+    const threshold = 120; // px
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    shouldAutoScrollRef.current = distanceFromBottom <= threshold;
+
+    // ✅ NOVO: se voltou pro fim, some com o botão
+    if (shouldAutoScrollRef.current && hasNewWhileUp) {
+      setHasNewWhileUp(false);
+    }
+  }
 
   // ✅ ATUALIZADO (com cache-bust + no-store + no-cache)
   async function loadChats() {
@@ -125,11 +146,9 @@ export default function InboxPage() {
 
   // ✅ loadMessages com AbortController + in-flight + silent
   async function loadMessages(chatId: string, opts?: { silent?: boolean }) {
-    // ✅ evita duas requisições ao mesmo tempo
     if (msgsInFlightRef.current) return;
     msgsInFlightRef.current = true;
 
-    // ✅ cancela a anterior (se tiver)
     if (msgsAbortRef.current) msgsAbortRef.current.abort();
     const controller = new AbortController();
     msgsAbortRef.current = controller;
@@ -147,32 +166,35 @@ export default function InboxPage() {
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Falha ao buscar mensagens");
 
-      // ✅ SUBSTITUÍDO: mantém as temp enquanto o servidor não traz
+      // ✅ merge com mensagens temp- (pra não piscar/sumir)
       setMessages((prev) => {
         const serverMsgs: Msg[] = json.messages || [];
-
-        // pega as mensagens otimistas (temp-)
         const tempMsgs = prev.filter((m) => String(m.id).startsWith("temp-"));
 
-        // mantém só as temp que ainda não existem no server (match simples por text+direction)
         const stillPending = tempMsgs.filter((t) => {
           return !serverMsgs.some(
             (s) => s.direction === t.direction && (s.text || "") === (t.text || "")
           );
         });
 
-        // junta: server + temp pendentes
         const merged = [...serverMsgs, ...stillPending];
+        merged.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
-        // ordena por created_at pra não bagunçar
-        merged.sort(
-          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-        );
+        // ✅ NOVO: se chegou msg nova enquanto usuário está "lá em cima", mostra botão (sem puxar)
+        const prevMax = prev.length
+          ? Math.max(...prev.map((m) => new Date(m.created_at).getTime()))
+          : 0;
+        const mergedMax = merged.length
+          ? Math.max(...merged.map((m) => new Date(m.created_at).getTime()))
+          : 0;
+
+        if (mergedMax > prevMax && !shouldAutoScrollRef.current) {
+          setHasNewWhileUp(true);
+        }
 
         return merged;
       });
     } catch (e: any) {
-      // ignora abort (isso é esperado quando cancela)
       if (e?.name !== "AbortError") setError(e?.message ?? "Erro");
     } finally {
       msgsInFlightRef.current = false;
@@ -189,23 +211,24 @@ export default function InboxPage() {
   useEffect(() => {
     if (!selectedChatId) {
       setMessages([]);
+      setHasNewWhileUp(false); // ✅ NOVO
       return;
     }
 
-    // carrega mensagens
+    // ao abrir chat, a intenção é estar no fim
+    shouldAutoScrollRef.current = true;
+    setHasNewWhileUp(false); // ✅ NOVO
+
     loadMessages(selectedChatId);
 
-    // 🔥 marca como lido (zera unread_count)
-    fetch(`/api/chats/${selectedChatId}/read`, {
-      method: "POST",
-    }).then(() => {
-      loadChats(); // atualiza lista da esquerda
+    fetch(`/api/chats/${selectedChatId}/read`, { method: "POST" }).then(() => {
+      loadChats();
     });
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChatId]);
 
-  // ✅ Polling SEM loop duplo (somente mensagens)
+  // ✅ polling somente mensagens
   useEffect(() => {
     if (!selectedChatId) return;
 
@@ -216,6 +239,16 @@ export default function InboxPage() {
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChatId]);
+
+  // ✅ SCROLL INTELIGENTE: quando messages muda, só desce se usuário estiver no fim
+  useEffect(() => {
+    if (!selectedChatId) return;
+    if (!shouldAutoScrollRef.current) return;
+
+    // garante que o DOM já renderizou a msg antes de rolar
+    requestAnimationFrame(() => scrollToBottom("smooth"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, selectedChatId]);
 
   return (
     <div style={{ height: "100vh", display: "grid", gridTemplateColumns: "340px 1fr 320px" }}>
@@ -277,15 +310,7 @@ export default function InboxPage() {
                     </span>
                   )}
                 </div>
-                <div
-                  style={{
-                    color: "#555",
-                    fontSize: 13,
-                    marginTop: 6,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
+                <div style={{ color: "#555", fontSize: 13, marginTop: 6, overflow: "hidden", textOverflow: "ellipsis" }}>
                   {c.last_message || "(sem mensagem)"}
                 </div>
                 <div style={{ color: "#888", fontSize: 12, marginTop: 6 }}>
@@ -308,7 +333,18 @@ export default function InboxPage() {
           <div style={{ color: "#777", fontSize: 12 }}>{selectedChat?.wa_chat_id ?? ""}</div>
         </div>
 
-        <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div
+          ref={msgsWrapRef}
+          onScroll={handleMsgsScroll}
+          style={{
+            flex: 1,
+            overflow: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+            position: "relative", // ✅ NOVO (pra ajudar no overlay)
+          }}
+        >
           {loadingMsgs && <div style={{ color: "#666" }}>Carregando mensagens...</div>}
 
           {!loadingMsgs && messages.length === 0 && selectedChatId && (
@@ -336,6 +372,42 @@ export default function InboxPage() {
               </div>
             );
           })}
+
+          {/* ✅ NOVO: botão "Novas mensagens" (sticky dentro do scroll) */}
+          {hasNewWhileUp && (
+            <div
+              style={{
+                position: "sticky",
+                bottom: 12,
+                display: "flex",
+                justifyContent: "center",
+                pointerEvents: "none",
+              }}
+            >
+              <button
+                onClick={() => {
+                  setHasNewWhileUp(false);
+                  shouldAutoScrollRef.current = true;
+                  requestAnimationFrame(() => scrollToBottom("smooth"));
+                }}
+                style={{
+                  pointerEvents: "auto",
+                  padding: "8px 12px",
+                  borderRadius: 999,
+                  border: "1px solid #ddd",
+                  background: "white",
+                  cursor: "pointer",
+                  boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
+                  fontWeight: 700,
+                }}
+              >
+                ⬇️ Novas mensagens
+              </button>
+            </div>
+          )}
+
+          {/* âncora do fim */}
+          <div ref={bottomRef} />
         </div>
 
         <SendBox
@@ -343,16 +415,14 @@ export default function InboxPage() {
           onSend={async (text) => {
             if (!selectedChatId) return;
 
-            const tempId = "temp-" + Date.now();
+            // ao enviar, a intenção é ficar no fim
+            shouldAutoScrollRef.current = true;
+            setHasNewWhileUp(false); // ✅ NOVO
 
+            const tempId = "temp-" + Date.now();
             setMessages((prev) => [
               ...prev,
-              {
-                id: tempId,
-                direction: "out",
-                text,
-                created_at: new Date().toISOString(),
-              },
+              { id: tempId, direction: "out", text, created_at: new Date().toISOString() },
             ]);
 
             setError(null);
@@ -365,10 +435,8 @@ export default function InboxPage() {
               });
 
               const json = await res.json();
-              if (!json.ok) {
-                setError(json.error || "Falha ao enviar");
-              }
-            } catch (err) {
+              if (!json.ok) setError(json.error || "Falha ao enviar");
+            } catch {
               setError("Erro ao enviar mensagem");
             }
 

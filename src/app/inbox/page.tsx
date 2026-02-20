@@ -95,7 +95,7 @@ export default function InboxPage() {
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ (PASSO 2) refs logo depois dos useState
+  // ✅ refs logo depois dos useState
   const msgsAbortRef = useRef<AbortController | null>(null);
   const msgsInFlightRef = useRef(false);
 
@@ -124,7 +124,7 @@ export default function InboxPage() {
     }
   }
 
-  // ✅ (PASSO 3) Substituído: loadMessages com AbortController + in-flight + silent
+  // ✅ loadMessages com AbortController + in-flight + silent
   async function loadMessages(chatId: string, opts?: { silent?: boolean }) {
     // ✅ evita duas requisições ao mesmo tempo
     if (msgsInFlightRef.current) return;
@@ -162,9 +162,23 @@ export default function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ✅ SUBSTITUÍDO: ao trocar chat, carrega msgs + marca como lido
   useEffect(() => {
-    if (selectedChatId) loadMessages(selectedChatId);
-    else setMessages([]);
+    if (!selectedChatId) {
+      setMessages([]);
+      return;
+    }
+
+    // carrega mensagens
+    loadMessages(selectedChatId);
+
+    // 🔥 marca como lido (zera unread_count)
+    fetch(`/api/chats/${selectedChatId}/read`, {
+      method: "POST",
+    }).then(() => {
+      loadChats(); // atualiza lista da esquerda
+    });
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChatId]);
 
@@ -312,7 +326,6 @@ export default function InboxPage() {
           onSend={async (text) => {
             if (!selectedChatId) return;
 
-            // ✅ 1) Mostra a mensagem na tela imediatamente (modo otimista)
             const tempId = "temp-" + Date.now();
 
             setMessages((prev) => [
@@ -328,7 +341,6 @@ export default function InboxPage() {
             setError(null);
 
             try {
-              // ✅ 2) Envia para API (continua funcionando igual)
               const res = await fetch("/api/messages/send", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -343,7 +355,6 @@ export default function InboxPage() {
               setError("Erro ao enviar mensagem");
             }
 
-            // ✅ 3) Depois sincroniza com banco
             loadMessages(selectedChatId);
             loadChats();
           }}

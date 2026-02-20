@@ -3,47 +3,71 @@ import { supabaseServer } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
-// ✅ Isso evita 405 quando você abre no navegador (GET)
 export async function GET() {
   return NextResponse.json({ ok: true, route: "uazapi" }, { status: 200 });
 }
 
+function normalizePhone(input: string | null | undefined) {
+  if (!input) return null;
+  // pega só números (remove +, espaços, etc)
+  const digits = input.replace(/\D/g, "");
+  return digits.length ? digits : null;
+}
+
+function phoneFromChatId(chatId: string | null | undefined) {
+  if (!chatId) return null;
+  // ex: "5531920056443@s.whatsapp.net" -> "5531920056443"
+  const left = chatId.split("@")[0] ?? "";
+  return normalizePhone(left);
+}
+
 export async function POST(req: Request) {
-  // ✅ LOG IMEDIATO: se isso não aparecer no Render, o webhook não está chegando
   console.log("[UAZAPI] WEBHOOK HIT", new Date().toISOString());
 
   let body: any = null;
   try {
     body = await req.json();
-  } catch (e) {
+  } catch {
     console.log("[UAZAPI] INVALID JSON");
     return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
   }
 
-  console.log("[UAZAPI] BODY_KEYS", Object.keys(body || {}));
-  console.log("[UAZAPI] BODY_SAMPLE", JSON.stringify(body).slice(0, 1500));
-
+  // --- ✅ PARSER CORRIGIDO PARA O FORMATO REAL DA UAZAPI ---
   const wa_chat_id =
+    body?.chat?.wa_chatid || // ✅ principal (você mostrou no payload)
+    body?.chat?.wa_chatId ||
+    body?.chat?.id ||
     body?.chatId ||
     body?.chat_id ||
     body?.data?.chatId ||
-    body?.data?.chat_id;
+    body?.data?.chat_id ||
+    null;
 
   const phone =
-    body?.phone ||
-    body?.data?.from ||
-    body?.from ||
-    body?.data?.phone;
+    normalizePhone(body?.chat?.phone) || // ✅ principal (você mostrou "+55 31 920056443")
+    normalizePhone(body?.phone) ||
+    normalizePhone(body?.from) ||
+    normalizePhone(body?.data?.from) ||
+    normalizePhone(body?.data?.phone) ||
+    phoneFromChatId(body?.chat?.wa_chatid) || // fallback
+    phoneFromChatId(body?.chatId) ||
+    null;
 
   const text =
-    body?.text ||
     body?.message?.text ||
+    body?.message?.body?.text ||
+    body?.message?.body ||
+    body?.message?.caption ||
+    body?.message?.conversation ||
+    body?.text ||
     body?.data?.text ||
     body?.data?.message?.text ||
     body?.data?.body?.text ||
     null;
 
   const wa_message_id =
+    body?.message?.id ||
+    body?.message?.key?.id ||
     body?.messageId ||
     body?.data?.messageId ||
     body?.data?.id ||

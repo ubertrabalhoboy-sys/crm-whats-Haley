@@ -42,19 +42,18 @@ function SendBox({
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
-        onKeyDown={async (e) => {
+        onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
             const msg = text.trim();
             if (!msg || disabled || sending) return;
 
+            // limpa na hora
+            setText("");
             setSending(true);
-            try {
-              await onSend(msg);
-              setText("");
-            } finally {
-              setSending(false);
-            }
+
+            // manda sem travar o input
+            onSend(msg).finally(() => setSending(false));
           }
         }}
         placeholder={disabled ? "Selecione uma conversa..." : "Digite sua mensagem"}
@@ -63,16 +62,16 @@ function SendBox({
       />
       <button
         disabled={disabled || sending || !text.trim()}
-        onClick={async () => {
+        onClick={() => {
           const msg = text.trim();
           if (!msg) return;
+
+          // limpa na hora
+          setText("");
           setSending(true);
-          try {
-            await onSend(msg);
-            setText("");
-          } finally {
-            setSending(false);
-          }
+
+          // manda sem travar o input
+          onSend(msg).finally(() => setSending(false));
         }}
         style={{
           padding: "10px 14px",

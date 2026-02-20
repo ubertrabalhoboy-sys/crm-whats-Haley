@@ -42,6 +42,21 @@ function SendBox({
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
+        onKeyDown={async (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            const msg = text.trim();
+            if (!msg || disabled || sending) return;
+
+            setSending(true);
+            try {
+              await onSend(msg);
+              setText("");
+            } finally {
+              setSending(false);
+            }
+          }
+        }}
         placeholder={disabled ? "Selecione uma conversa..." : "Digite sua mensagem"}
         disabled={disabled || sending}
         style={{ flex: 1, padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
@@ -59,7 +74,12 @@ function SendBox({
             setSending(false);
           }
         }}
-        style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #ddd", cursor: "pointer" }}
+        style={{
+          padding: "10px 14px",
+          borderRadius: 10,
+          border: "1px solid #ddd",
+          cursor: "pointer",
+        }}
       >
         {sending ? "Enviando..." : "Enviar"}
       </button>
@@ -80,14 +100,15 @@ export default function InboxPage() {
     [chats, selectedChatId]
   );
 
+  // ✅ ATUALIZADO (com cache-bust + no-store + no-cache)
   async function loadChats() {
     setLoadingChats(true);
     setError(null);
     try {
-      const res = await fetch("/api/chats", {
-  cache: "no-store",
-  headers: { "Cache-Control": "no-cache" },
-});
+      const res = await fetch(`/api/chats?t=${Date.now()}`, {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache" },
+      });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Falha ao buscar chats");
       setChats(json.chats || []);
@@ -99,14 +120,15 @@ export default function InboxPage() {
     }
   }
 
+  // ✅ ATUALIZADO (com cache-bust + no-store + no-cache)
   async function loadMessages(chatId: string) {
     setLoadingMsgs(true);
     setError(null);
     try {
-      const res = await fetch(`/api/chats/${chatId}/messages`, {
-  cache: "no-store",
-  headers: { "Cache-Control": "no-cache" },
-});
+      const res = await fetch(`/api/chats/${chatId}/messages?t=${Date.now()}`, {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache" },
+      });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Falha ao buscar mensagens");
       setMessages(json.messages || []);
@@ -206,7 +228,15 @@ export default function InboxPage() {
                     </span>
                   )}
                 </div>
-                <div style={{ color: "#555", fontSize: 13, marginTop: 6, overflow: "hidden", textOverflow: "ellipsis" }}>
+                <div
+                  style={{
+                    color: "#555",
+                    fontSize: 13,
+                    marginTop: 6,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
                   {c.last_message || "(sem mensagem)"}
                 </div>
                 <div style={{ color: "#888", fontSize: 12, marginTop: 6 }}>
@@ -226,9 +256,7 @@ export default function InboxPage() {
               ? selectedChat.contacts?.name || selectedChat.contacts?.phone || selectedChat.wa_chat_id
               : "Selecione uma conversa"}
           </div>
-          <div style={{ color: "#777", fontSize: 12 }}>
-            {selectedChat?.wa_chat_id ?? ""}
-          </div>
+          <div style={{ color: "#777", fontSize: 12 }}>{selectedChat?.wa_chat_id ?? ""}</div>
         </div>
 
         <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -264,24 +292,44 @@ export default function InboxPage() {
         <SendBox
           disabled={!selectedChatId}
           onSend={async (text) => {
-            if (!selectedChatId) return;
+  if (!selectedChatId) return;
 
-            setError(null);
-            const res = await fetch("/api/messages/send", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ chat_id: selectedChatId, text }),
-            });
+  // ✅ 1) Mostra a mensagem na tela imediatamente (modo otimista)
+  const tempId = "temp-" + Date.now();
 
-            const json = await res.json();
-            if (!json.ok) {
-              setError(json.error || "Falha ao enviar");
-              return;
-            }
+  setMessages((prev) => [
+    ...prev,
+    {
+      id: tempId,
+      direction: "out",
+      text,
+      created_at: new Date().toISOString(),
+    },
+  ]);
 
-            await loadMessages(selectedChatId);
-            await loadChats();
-          }}
+  setError(null);
+
+  try {
+    // ✅ 2) Envia para API (continua funcionando igual)
+    const res = await fetch("/api/messages/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: selectedChatId, text }),
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      setError(json.error || "Falha ao enviar");
+    }
+  } catch (err) {
+    setError("Erro ao enviar mensagem");
+  }
+
+  // ✅ 3) Depois sincroniza com banco
+  loadMessages(selectedChatId);
+  loadChats();
+}}
+  
         />
       </main>
 
@@ -293,9 +341,7 @@ export default function InboxPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ border: "1px solid #eee", borderRadius: 10, padding: 10 }}>
               <div style={{ fontWeight: 700 }}>Contato</div>
-              <div style={{ marginTop: 6, color: "#444" }}>
-                Nome: {selectedChat.contacts?.name || "-"}
-              </div>
+              <div style={{ marginTop: 6, color: "#444" }}>Nome: {selectedChat.contacts?.name || "-"}</div>
               <div style={{ color: "#444" }}>Telefone: {selectedChat.contacts?.phone || "-"}</div>
             </div>
 

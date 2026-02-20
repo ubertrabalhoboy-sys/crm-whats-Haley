@@ -162,7 +162,7 @@ export default function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ SUBSTITUÍDO: ao trocar chat, carrega msgs + marca como lido
+  // ✅ ao trocar chat: carrega msgs + marca como lido
   useEffect(() => {
     if (!selectedChatId) {
       setMessages([]);
@@ -182,18 +182,12 @@ export default function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChatId]);
 
-  // ✅ Polling ajustado: silent no intervalo (sem piscar / sem enroscar)
+  // ✅ Polling SEM loop duplo (somente mensagens)
   useEffect(() => {
     if (!selectedChatId) return;
 
-    // carrega na hora (normal)
-    loadMessages(selectedChatId);
-    loadChats();
-
     const timer = setInterval(() => {
-      // ✅ atualiza mensagens sem ficar “carregando...”
       loadMessages(selectedChatId, { silent: true });
-      loadChats();
     }, 2000);
 
     return () => clearInterval(timer);

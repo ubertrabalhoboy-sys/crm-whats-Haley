@@ -1,23 +1,31 @@
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 
-export async function GET(
-  _req: NextRequest,
-  context: { params: Promise<Record<string, string>> }
-) {
-  const params = await context.params;
-  const id = params.id;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
+export async function GET() {
   const { data, error } = await supabaseServer
-    .from("messages")
-    .select("id, direction, text, created_at")
-    .eq("chat_id", id)
-    .order("created_at", { ascending: true });
+    .from("chats")
+    .select(`
+      id,
+      wa_chat_id,
+      kanban_status,
+      last_message,
+      unread_count,
+      updated_at,
+      contacts ( phone, name )
+    `)
+    .order("updated_at", { ascending: false });
 
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (error) {
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 }
+    );
+  }
 
-  return NextResponse.json({ ok: true, messages: data });
-
-  
+  const res = NextResponse.json({ ok: true, chats: data ?? [] });
+  res.headers.set("Cache-Control", "no-store");
+  return res;
 }

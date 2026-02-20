@@ -10,6 +10,9 @@ type Chat = {
   unread_count: number | null;
   updated_at: string | null;
   contacts?: { phone: string | null; name: string | null } | null;
+
+  // ✅ NOVO (pra não quebrar TS ao usar selectedChat?.is_typing)
+  is_typing?: boolean | null;
 };
 
 type Msg = {
@@ -331,6 +334,13 @@ export default function InboxPage() {
               : "Selecione uma conversa"}
           </div>
           <div style={{ color: "#777", fontSize: 12 }}>{selectedChat?.wa_chat_id ?? ""}</div>
+
+          {/* ✅ ADICIONADO NO LUGAR CORRETO: logo abaixo do header do chat */}
+          {selectedChat?.is_typing && (
+            <div style={{ fontSize: 12, color: "#22c55e", marginTop: 4 }}>
+              digitando...
+            </div>
+          )}
         </div>
 
         <div

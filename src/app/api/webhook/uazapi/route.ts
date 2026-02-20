@@ -18,6 +18,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
   }
 
+  // ✅ PRESENCE UPDATE (digitando/pausado) — inserido no lugar correto
+  if (body.event === "presence.update" && body.status === "composing") {
+    await supabaseServer
+      .from("chats")
+      .update({ is_typing: true })
+      .eq("wa_chat_id", body.chatId);
+
+    return NextResponse.json({ ok: true, presence: "composing" }, { status: 200 });
+  }
+
+  if (body.event === "presence.update" && body.status === "paused") {
+    await supabaseServer
+      .from("chats")
+      .update({ is_typing: false })
+      .eq("wa_chat_id", body.chatId);
+
+    return NextResponse.json({ ok: true, presence: "paused" }, { status: 200 });
+  }
+
   // ✅ parser corrigido pro payload real que você mostrou
   const wa_chat_id =
     body?.chat?.wa_chatid ||

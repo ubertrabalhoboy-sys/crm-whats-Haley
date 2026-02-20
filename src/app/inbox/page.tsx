@@ -146,7 +146,31 @@ export default function InboxPage() {
 
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Falha ao buscar mensagens");
-      setMessages(json.messages || []);
+
+      // ✅ SUBSTITUÍDO: mantém as temp enquanto o servidor não traz
+      setMessages((prev) => {
+        const serverMsgs: Msg[] = json.messages || [];
+
+        // pega as mensagens otimistas (temp-)
+        const tempMsgs = prev.filter((m) => String(m.id).startsWith("temp-"));
+
+        // mantém só as temp que ainda não existem no server (match simples por text+direction)
+        const stillPending = tempMsgs.filter((t) => {
+          return !serverMsgs.some(
+            (s) => s.direction === t.direction && (s.text || "") === (t.text || "")
+          );
+        });
+
+        // junta: server + temp pendentes
+        const merged = [...serverMsgs, ...stillPending];
+
+        // ordena por created_at pra não bagunçar
+        merged.sort(
+          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+
+        return merged;
+      });
     } catch (e: any) {
       // ignora abort (isso é esperado quando cancela)
       if (e?.name !== "AbortError") setError(e?.message ?? "Erro");

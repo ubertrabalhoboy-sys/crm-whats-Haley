@@ -90,15 +90,18 @@ export async function POST(req: Request) {
     url: webhookUrl,
     events: ["messages", "connection", "messages_update"],
     excludeMessages: ["wasSentByApi", "isGroupYes"],
-    addUrlEvents: true,
-    addUrlTypesMessages: true,
+    addUrlEvents: false,
+    addUrlTypesMessages: false,
   };
 
   const upstream = await fetch(
     `${normalizeBaseUrl(baseUrl)}/webhook?token=${encodeURIComponent(context.instanceToken)}`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        token: context.instanceToken,
+      },
       body: JSON.stringify(payload),
       cache: "no-store",
     }
@@ -107,7 +110,7 @@ export async function POST(req: Request) {
   const raw = await upstream.text();
   const data = parseJsonSafe(raw);
 
-  if (!upstream.ok) {
+  if (!upstream.ok || upstream.status !== 200) {
     return NextResponse.json(
       { ok: false, error: data?.error || "UAZAPI_WEBHOOK_CONFIG_FAILED" },
       { status: upstream.status || 502 }

@@ -94,6 +94,9 @@ export async function GET() {
     `${normalizeBaseUrl(baseUrl)}/webhook?token=${encodeURIComponent(restaurant.uaz_instance_token)}`,
     {
       method: "GET",
+      headers: {
+        token: restaurant.uaz_instance_token,
+      },
       cache: "no-store",
     }
   );

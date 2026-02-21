@@ -29,7 +29,7 @@ type WebhookResponse = {
 
 type InspectWebhookResponse = {
   ok: boolean;
-  webhook?: unknown;
+  webhook?: any;
   error?: string;
 };
 
@@ -91,7 +91,7 @@ export default function WhatsAppSettingsPage() {
   const [webhookConfigured, setWebhookConfigured] = useState<boolean | null>(null);
   const [webhookUrl, setWebhookUrl] = useState<string | null>("/api/webhook/uazapi");
   const [webhookEvents, setWebhookEvents] = useState<string[]>([]);
-  const [webhookInspect, setWebhookInspect] = useState<unknown | null>(null);
+  const [webhookInspect, setWebhookInspect] = useState<any>(null);
   const [webhookFeedback, setWebhookFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -344,11 +344,11 @@ export default function WhatsAppSettingsPage() {
           )}
         </div>
 
-        {webhookInspect && (
+        {webhookInspect !== null && (
           <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
             <p className="mb-2 font-medium text-slate-700">Webhook JSON</p>
             <pre className="overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">
-              {JSON.stringify(webhookInspect, null, 2)}
+              {String(JSON.stringify(webhookInspect, null, 2) ?? "")}
             </pre>
           </div>
         )}

@@ -27,6 +27,12 @@ type WebhookResponse = {
   error?: string;
 };
 
+type InspectWebhookResponse = {
+  ok: boolean;
+  webhook?: unknown;
+  error?: string;
+};
+
 type StatusObject = {
   connected?: boolean;
   loggedIn?: boolean;
@@ -81,9 +87,11 @@ export default function WhatsAppSettingsPage() {
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [loadingWebhookConfig, setLoadingWebhookConfig] = useState(false);
   const [loadingWebhookStatus, setLoadingWebhookStatus] = useState(false);
+  const [loadingWebhookInspect, setLoadingWebhookInspect] = useState(false);
   const [webhookConfigured, setWebhookConfigured] = useState<boolean | null>(null);
   const [webhookUrl, setWebhookUrl] = useState<string | null>("/api/webhook/uazapi");
   const [webhookEvents, setWebhookEvents] = useState<string[]>([]);
+  const [webhookInspect, setWebhookInspect] = useState<unknown | null>(null);
   const [webhookFeedback, setWebhookFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -197,6 +205,23 @@ export default function WhatsAppSettingsPage() {
     setWebhookEvents(Array.isArray(json.events) ? json.events : []);
   }
 
+  async function inspectWebhook() {
+    setLoadingWebhookInspect(true);
+    setError(null);
+    setWebhookFeedback(null);
+
+    const res = await fetch("/api/whatsapp/webhook/inspect", { cache: "no-store" });
+    const json = (await res.json()) as InspectWebhookResponse;
+    setLoadingWebhookInspect(false);
+
+    if (!json.ok) {
+      setError(json.error || "webhook_inspect_failed");
+      return;
+    }
+
+    setWebhookInspect(json.webhook ?? null);
+  }
+
   function handlePairing(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     connect("pairing", phone.trim() || undefined);
@@ -293,6 +318,13 @@ export default function WhatsAppSettingsPage() {
           >
             {loadingWebhookStatus ? "Atualizando webhook..." : "Atualizar webhook"}
           </button>
+          <button
+            onClick={() => inspectWebhook()}
+            disabled={loadingWebhookInspect}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
+          >
+            {loadingWebhookInspect ? "Inspecionando..." : "Inspecionar Webhook"}
+          </button>
         </div>
 
         <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
@@ -311,6 +343,15 @@ export default function WhatsAppSettingsPage() {
             </p>
           )}
         </div>
+
+        {webhookInspect && (
+          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+            <p className="mb-2 font-medium text-slate-700">Webhook JSON</p>
+            <pre className="overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">
+              {JSON.stringify(webhookInspect, null, 2)}
+            </pre>
+          </div>
+        )}
 
         <form onSubmit={handlePairing} className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end">
           <div className="flex-1">

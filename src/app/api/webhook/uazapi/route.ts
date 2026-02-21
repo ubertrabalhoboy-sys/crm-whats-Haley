@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { extractButtonClicked } from "@/lib/uazapi/triggers";
+import { runAutomations } from "@/lib/automations/engine";
 
 export const runtime = "nodejs";
 
@@ -8,14 +10,17 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  let body: any = null;
+  const reqUrl = new URL(req.url);
+  let parsedBody: unknown = null;
   try {
-    body = await req.json();
+    parsedBody = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
   }
-
-  const reqUrl = new URL(req.url);
+  if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
+    return NextResponse.json({ ok: false, error: "invalid_payload" }, { status: 400 });
+  }
+  const body = parsedBody as Record<string, any>;
 
   const readString = (...values: unknown[]) => {
     for (const value of values) {
@@ -30,22 +35,17 @@ export async function POST(req: Request) {
     return false;
   };
 
-  const instanceToken = readString(
-    reqUrl.searchParams.get("token"),
-    body?.token,
-    body?.instanceToken,
-    body?.instance?.token,
-    body?.data?.token,
-    body?.data?.instance?.token
-  );
-
   const instanceId = readString(
-    reqUrl.searchParams.get("instanceId"),
-    reqUrl.searchParams.get("instance_id"),
     body?.instance?.id,
     body?.instanceId,
     body?.instance_id,
     body?.data?.instance?.id
+  );
+  const instanceName = readString(
+    body?.instanceName,
+    body?.instance?.name,
+    body?.data?.instanceName,
+    body?.data?.instance?.name
   );
   const instanceRestaurantRef = readString(
     body?.instance?.adminField01,
@@ -53,19 +53,38 @@ export async function POST(req: Request) {
     body?.adminField01,
     body?.data?.adminField01
   );
+  const instanceOwner = readString(
+    body?.instance?.owner,
+    body?.data?.instance?.owner,
+    body?.owner,
+    body?.data?.owner
+  );
+  const instanceToken = readString(
+    body?.instance?.token,
+    body?.data?.instance?.token,
+    body?.token,
+    body?.data?.token,
+    reqUrl.searchParams.get("token")
+  );
 
   let restaurant: { id: string } | null = null;
 
-  if (instanceId) {
-    const { data } = await supabaseServer
+  if (instanceName) {
+    const { data, error } = await supabaseServer
       .from("restaurants")
       .select("id")
-      .eq("uaz_instance_id", instanceId)
+      .eq("uaz_instance_name", instanceName)
       .maybeSingle();
+
+    if (error) {
+      console.warn("[webhook/uazapi] instanceName resolution failed, fallback to legacy resolver", {
+        error: error.message,
+      });
+    }
     if (data) restaurant = data;
   }
 
-  if (!restaurant && instanceRestaurantRef) {
+  if (instanceRestaurantRef) {
     const { data } = await supabaseServer
       .from("restaurants")
       .select("id")
@@ -74,17 +93,63 @@ export async function POST(req: Request) {
     if (data) restaurant = data;
   }
 
-  if (!restaurant && instanceToken) {
+  if (!restaurant && instanceId) {
     const { data } = await supabaseServer
       .from("restaurants")
       .select("id")
-      .eq("uaz_instance_token", instanceToken)
+      .eq("uaz_instance_id", instanceId)
       .maybeSingle();
     if (data) restaurant = data;
   }
 
+  if (!restaurant && instanceToken) {
+    const { data, error } = await supabaseServer
+      .from("restaurants")
+      .select("id")
+      .eq("uaz_instance_token", instanceToken)
+      .maybeSingle();
+    if (error) {
+      console.warn("[webhook/uazapi] instance token resolution failed", { error: error.message });
+    }
+    if (data) restaurant = data;
+  }
+
+  if (!restaurant && instanceOwner) {
+    const { data, error } = await supabaseServer
+      .from("restaurants")
+      .select("id")
+      .eq("uaz_instance_owner", instanceOwner)
+      .maybeSingle();
+    if (error) {
+      console.warn("[webhook/uazapi] instance owner resolution failed", { error: error.message });
+    }
+    if (data) restaurant = data;
+  }
+
   if (!restaurant) {
-    return NextResponse.json({ ok: false, error: "INSTANCE_NOT_MAPPED" }, { status: 400 });
+    try {
+      const { error: webhookEventError } = await supabaseServer.from("webhook_events").insert({
+        provider: "uazapi",
+        payload: body,
+        instance_name: instanceName,
+        instance_id: instanceId,
+        created_at: new Date().toISOString(),
+      });
+      if (webhookEventError) {
+        console.warn("[webhook/uazapi] webhook_events insert skipped", webhookEventError.message);
+      }
+    } catch (e) {
+      console.warn("[webhook/uazapi] webhook_events table not available");
+    }
+
+    console.warn("[webhook/uazapi] restaurant unresolved", {
+      instanceName,
+      instanceId,
+      instanceRestaurantRef,
+      instanceOwner,
+      hasInstanceToken: Boolean(instanceToken),
+    });
+    return NextResponse.json({ ok: true, reason: "tenant_unresolved" }, { status: 200 });
   }
 
   const restaurantId = restaurant.id;
@@ -106,15 +171,29 @@ export async function POST(req: Request) {
       body?.data?.message?.isGroupYes
   );
 
-  if (wasSentByApi || isGroupYes) {
+  const fromMe = toBool(
+    body?.fromMe ??
+      body?.message?.fromMe ??
+      body?.data?.fromMe ??
+      body?.data?.message?.fromMe ??
+      body?.key?.fromMe ??
+      body?.message?.key?.fromMe ??
+      body?.data?.key?.fromMe ??
+      body?.data?.message?.key?.fromMe
+  );
+
+  if (wasSentByApi || isGroupYes || fromMe) {
     return NextResponse.json({ ok: true, ignored: true }, { status: 200 });
   }
 
   const waMessageId = readString(
     body?.message?.id,
+    body?.message?.key?.id,
     body?.message?.messageId,
+    body?.key?.id,
     body?.messageId,
     body?.id,
+    body?.data?.message?.key?.id,
     body?.data?.messageId,
     body?.data?.id
   );
@@ -296,7 +375,6 @@ export async function POST(req: Request) {
     const { data: exists, error: dedupeError } = await supabaseServer
       .from("messages")
       .select("id")
-      .eq("restaurant_id", restaurantId)
       .eq("wa_message_id", waMessageId)
       .limit(1);
 
@@ -305,7 +383,7 @@ export async function POST(req: Request) {
     }
 
     if (exists && exists.length > 0) {
-      return NextResponse.json({ ok: true, duplicated: true }, { status: 200 });
+      return NextResponse.json({ ok: true, deduped: true }, { status: 200 });
     }
   }
 
@@ -319,7 +397,37 @@ export async function POST(req: Request) {
   });
 
   if (messageInsertError) {
+    const isDuplicateKey =
+      (messageInsertError as any)?.code === "23505" ||
+      String((messageInsertError as any)?.message || "").toLowerCase().includes("duplicate key") ||
+      String((messageInsertError as any)?.message || "").includes("messages_wa_message_id_uq");
+    if (isDuplicateKey) {
+      return NextResponse.json({ ok: true, deduped: true }, { status: 200 });
+    }
     return NextResponse.json({ ok: false, error: messageInsertError.message }, { status: 500 });
+  }
+
+  try {
+    const buttonClicked = extractButtonClicked(body);
+    if (buttonClicked?.buttonId && buttonClicked?.chatId && buttonClicked?.messageId) {
+      const fingerprint = `btn:${buttonClicked.chatId}:${buttonClicked.messageId}`;
+      await runAutomations({
+        restaurant_id: restaurantId,
+        chat_id: chatId,
+        trigger: "button_clicked",
+        fingerprint,
+        context: {
+          buttonId: buttonClicked.buttonId,
+          displayText: buttonClicked.displayText,
+          messageId: buttonClicked.messageId,
+          chatId: buttonClicked.chatId,
+          waChatId,
+          instanceName,
+        },
+      });
+    }
+  } catch (automationError) {
+    console.error("[webhook/uazapi] automation button_clicked failed", automationError);
   }
 
   return NextResponse.json({ ok: true }, { status: 200 });

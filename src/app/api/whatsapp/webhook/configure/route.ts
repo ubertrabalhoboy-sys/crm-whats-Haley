@@ -87,6 +87,7 @@ export async function POST(req: Request) {
 
   const webhookUrl = `${normalizeBaseUrl(publicBaseUrl)}/api/webhook/uazapi`;
   const payload = {
+    enabled: true,
     url: webhookUrl,
     events: ["messages", "connection", "messages_update"],
     excludeMessages: ["wasSentByApi", "isGroupYes"],

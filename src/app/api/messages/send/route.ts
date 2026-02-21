@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabaseServer";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 function normalizeBaseUrl(url: string) {
   return url.replace(/\/$/, "");
@@ -12,6 +12,30 @@ function guessNumberFromChatId(waChatId: string | null) {
 }
 
 export async function POST(req: Request) {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("restaurant_id")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    return NextResponse.json({ ok: false, error: profileError.message }, { status: 500 });
+  }
+
+  const restaurantId = profile?.restaurant_id ?? null;
+  if (!restaurantId) {
+    return NextResponse.json({ ok: false, error: "RESTAURANT_NOT_SET" }, { status: 409 });
+  }
+
   const body = await req.json();
 
   const chat_id: string | undefined = body?.chat_id;
@@ -22,10 +46,11 @@ export async function POST(req: Request) {
   }
 
   // Pega chat + contato (pra ter phone)
-  const { data: chat, error: chErr } = await supabaseServer
+  const { data: chat, error: chErr } = await supabase
     .from("chats")
     .select("id, wa_chat_id, contacts(phone)")
     .eq("id", chat_id)
+    .eq("restaurant_id", restaurantId)
     .single();
 
   if (chErr || !chat) {
@@ -86,8 +111,9 @@ export async function POST(req: Request) {
   const wa_message_id = uazJson?.id || uazJson?.messageId || null;
 
   // salva no banco como mensagem enviada
-  const { error: mErr } = await supabaseServer.from("messages").insert({
+  const { error: mErr } = await supabase.from("messages").insert({
     chat_id: (chat as any).id,
+    restaurant_id: restaurantId,
     direction: "out",
     wa_message_id,
     text,
@@ -98,10 +124,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: mErr.message }, { status: 500 });
   }
 
-  await supabaseServer
+  await supabase
     .from("chats")
     .update({ last_message: text, updated_at: new Date().toISOString() })
-    .eq("id", (chat as any).id);
+    .eq("id", (chat as any).id)
+    .eq("restaurant_id", restaurantId);
 
   return NextResponse.json({ ok: true, uaz: uazJson ?? raw });
 }

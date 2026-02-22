@@ -11,7 +11,11 @@ function parseJsonSafe(text: string) {
   }
 }
 
-export async function POST() {
+export async function POST(req: Request) {
+  const reqUrl = new URL(req.url);
+  const forceParam = (reqUrl.searchParams.get("force") || "").toLowerCase();
+  const forceRecreate = forceParam === "1" || forceParam === "true";
+
   const baseUrl = process.env.UAZAPI_BASE_URL;
   const adminToken = process.env.UAZAPI_ADMIN_TOKEN;
 
@@ -68,7 +72,7 @@ export async function POST() {
     );
   }
 
-  if (restaurant.uaz_instance_token) {
+  if (!forceRecreate && restaurant.uaz_instance_token) {
     return NextResponse.json(
       {
         ok: true,
@@ -79,8 +83,29 @@ export async function POST() {
     );
   }
 
+  if (forceRecreate) {
+    const resetPayload: Record<string, unknown> = {
+      uaz_instance_id: null,
+      uaz_instance_token: null,
+      uaz_status: "disconnected",
+      uaz_phone: null,
+    };
+    if (hasExpiresColumn) {
+      resetPayload.uaz_expires_at = null;
+    }
+
+    const { error: resetError } = await supabase
+      .from("restaurants")
+      .update(resetPayload)
+      .eq("id", restaurant.id);
+
+    if (resetError) {
+      return NextResponse.json({ ok: false, error: resetError.message }, { status: 500 });
+    }
+  }
+
   const payload = {
-    name: `r-${restaurantId}`,
+    name: `r-${restaurantId}-${Date.now()}`,
     systemName: "my-saas",
     adminField01: restaurantId,
     adminField02: user.id,

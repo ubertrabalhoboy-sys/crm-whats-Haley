@@ -58,8 +58,22 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!restaurant.uaz_instance_token) {
-    return NextResponse.json({ ok: false, error: "INSTANCE_TOKEN_MISSING" }, { status: 400 });
+  const { data: freshRestaurant, error: freshRestaurantError } = await supabase
+    .from("restaurants")
+    .select("uaz_instance_token")
+    .eq("id", restaurantId)
+    .single();
+
+  if (freshRestaurantError || !freshRestaurant) {
+    return NextResponse.json(
+      { ok: false, error: freshRestaurantError?.message || "restaurant_not_found" },
+      { status: 500 }
+    );
+  }
+
+  const instanceToken = freshRestaurant.uaz_instance_token;
+  if (!instanceToken) {
+    return NextResponse.json({ ok: false, error: "INSTANCE_NOT_READY" }, { status: 409 });
   }
 
   let body: ConnectBody = {};
@@ -74,7 +88,7 @@ export async function POST(req: Request) {
 
   try {
     const upstream = await fetch(
-      `${baseUrl}/instance/connect?token=${encodeURIComponent(restaurant.uaz_instance_token)}`,
+      `${baseUrl}/instance/connect?token=${encodeURIComponent(instanceToken)}`,
       {
       method: "POST",
       headers: {

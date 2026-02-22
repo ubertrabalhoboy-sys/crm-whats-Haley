@@ -93,6 +93,7 @@ export default function WhatsAppSettingsPage() {
   const [webhookEvents, setWebhookEvents] = useState<string[]>([]);
   const [webhookInspect, setWebhookInspect] = useState<any>(null);
   const [webhookFeedback, setWebhookFeedback] = useState<string | null>(null);
+  const [instanceFeedback, setInstanceFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const hasVisualCode = useMemo(() => !!qrcode || !!paircode, [qrcode, paircode]);
@@ -120,7 +121,8 @@ export default function WhatsAppSettingsPage() {
   async function ensureInstance() {
     setLoadingEnsure(true);
     setError(null);
-    const res = await fetch("/api/whatsapp/instance/ensure", { method: "POST" });
+    setInstanceFeedback(null);
+    const res = await fetch("/api/whatsapp/instance/ensure?force=1", { method: "POST" });
     const json = await res.json();
     setLoadingEnsure(false);
 
@@ -132,6 +134,9 @@ export default function WhatsAppSettingsPage() {
     const normalized = normalizeStatus(json.status);
     setStatusText(normalized.text);
     setJid(normalized.jid ?? null);
+    setQrcode(null);
+    setPaircode(null);
+    setInstanceFeedback("Instância recriada. Agora gere o QR Code.");
     return true;
   }
 
@@ -280,6 +285,7 @@ export default function WhatsAppSettingsPage() {
         </div>
 
         {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
+        {instanceFeedback && <p className="mt-3 text-sm text-emerald-600">{instanceFeedback}</p>}
         {webhookFeedback && <p className="mt-3 text-sm text-emerald-600">{webhookFeedback}</p>}
 
         <div className="mt-5 flex flex-wrap gap-3">

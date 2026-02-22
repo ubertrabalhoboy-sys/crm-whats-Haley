@@ -47,8 +47,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "MISSING_CHAT_OR_TRIGGER" }, { status: 400 });
   }
 
-  const fingerprint =
-    body.fingerprint || `test:${body.trigger}:${body.chat_id}:${Math.floor(Date.now() / 1000)}`;
+  const contextChatId = body.context?.chatid;
+  const contextMessageId = body.context?.messageid;
+  const fingerprint = body.fingerprint
+    ? body.fingerprint
+    : body.trigger === "button_clicked" &&
+        typeof contextChatId === "string" &&
+        contextChatId &&
+        typeof contextMessageId === "string" &&
+        contextMessageId
+      ? `btn:${contextChatId}:${contextMessageId}`
+      : `test:${body.trigger}:${body.chat_id}:${Math.floor(Date.now() / 1000)}`;
 
   const result = await runAutomations({
     restaurant_id: restaurantId,
@@ -58,6 +67,14 @@ export async function POST(req: Request) {
     context: body.context ?? {},
   });
 
-  return NextResponse.json({ ok: true, result }, { status: 200 });
+  return NextResponse.json(
+    {
+      ok: true,
+      status: (result as any)?.status ?? ((result as any)?.ok ? "success" : "failed"),
+      fingerprint,
+      run_id: (result as any)?.run_id ?? null,
+      result,
+    },
+    { status: 200 }
+  );
 }
-

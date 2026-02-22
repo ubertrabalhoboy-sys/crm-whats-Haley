@@ -123,59 +123,6 @@ export async function runAutomations(params: RunParams) {
   const now = new Date().toISOString();
   const context: AutomationContext = params.context ?? {};
 
-  const { data: run, error: runInsertError } = await supabaseServer
-    .from("automation_runs")
-    .insert({
-      restaurant_id: params.restaurant_id,
-      chat_id: params.chat_id,
-      trigger: params.trigger,
-      fingerprint: params.fingerprint,
-      status: "queued",
-      context,
-      created_at: now,
-    })
-    .select("id")
-    .single();
-
-  if (runInsertError || !run?.id) {
-    if (isUniqueViolation(runInsertError)) {
-      return { ok: true, status: "skipped", reason: "duplicate_fingerprint" };
-    }
-    return { ok: false, error: runInsertError?.message || "automation_run_insert_failed" };
-  }
-
-  const runId = run.id as string;
-
-  const { data: duplicateRuns, error: duplicateError } = await supabaseServer
-    .from("automation_runs")
-    .select("id")
-    .eq("restaurant_id", params.restaurant_id)
-    .eq("fingerprint", params.fingerprint)
-    .in("status", ["queued", "running", "success"])
-    .neq("id", runId)
-    .limit(1);
-
-  if (duplicateError) {
-    await supabaseServer
-      .from("automation_runs")
-      .update({ status: "failed", error: duplicateError.message, executed_at: new Date().toISOString() })
-      .eq("id", runId);
-    return { ok: false, error: duplicateError.message, run_id: runId };
-  }
-
-  if (duplicateRuns && duplicateRuns.length > 0) {
-    await supabaseServer
-      .from("automation_runs")
-      .update({ status: "skipped", error: "IDEMPOTENT_DUPLICATE", executed_at: new Date().toISOString() })
-      .eq("id", runId);
-    return { ok: true, skipped: true, run_id: runId };
-  }
-
-  await supabaseServer
-    .from("automation_runs")
-    .update({ status: "running", started_at: new Date().toISOString() })
-    .eq("id", runId);
-
   let currentStageId: string | null = null;
   if (params.trigger === "button_clicked") {
     const { data: chatStageRow, error: chatStageError } = await supabaseServer
@@ -186,16 +133,7 @@ export async function runAutomations(params: RunParams) {
       .maybeSingle();
 
     if (chatStageError) {
-      await supabaseServer
-        .from("automation_runs")
-        .update({
-          status: "failed",
-          error: chatStageError.message,
-          finished_at: new Date().toISOString(),
-          executed_at: new Date().toISOString(),
-        })
-        .eq("id", runId);
-      return { ok: false, error: chatStageError.message, run_id: runId };
+      return { ok: false, error: chatStageError.message };
     }
 
     const currentStageName =
@@ -204,16 +142,7 @@ export async function runAutomations(params: RunParams) {
         : "";
 
     if (!currentStageName) {
-      await supabaseServer
-        .from("automation_runs")
-        .update({
-          status: "skipped",
-          error: "NO_CHAT_STAGE",
-          finished_at: new Date().toISOString(),
-          executed_at: new Date().toISOString(),
-        })
-        .eq("id", runId);
-      return { ok: true, run_id: runId, status: "skipped", reason: "no_chat_stage" };
+      return { ok: true, status: "skipped", reason: "no_chat_stage" };
     }
 
     const { data: currentStage, error: currentStageError } = await supabaseServer
@@ -224,29 +153,11 @@ export async function runAutomations(params: RunParams) {
       .maybeSingle();
 
     if (currentStageError) {
-      await supabaseServer
-        .from("automation_runs")
-        .update({
-          status: "failed",
-          error: currentStageError.message,
-          finished_at: new Date().toISOString(),
-          executed_at: new Date().toISOString(),
-        })
-        .eq("id", runId);
-      return { ok: false, error: currentStageError.message, run_id: runId };
+      return { ok: false, error: currentStageError.message };
     }
 
     if (!(currentStage as any)?.id) {
-      await supabaseServer
-        .from("automation_runs")
-        .update({
-          status: "skipped",
-          error: "UNKNOWN_CHAT_STAGE",
-          finished_at: new Date().toISOString(),
-          executed_at: new Date().toISOString(),
-        })
-        .eq("id", runId);
-      return { ok: true, run_id: runId, status: "skipped", reason: "unknown_chat_stage" };
+      return { ok: true, status: "skipped", reason: "unknown_chat_stage" };
     }
 
     currentStageId = String((currentStage as any).id);
@@ -268,16 +179,14 @@ export async function runAutomations(params: RunParams) {
   const { data: automations, error: automationsError } = await automationsQuery;
 
   if (automationsError) {
-    await supabaseServer
-      .from("automation_runs")
-      .update({ status: "failed", error: automationsError.message, executed_at: new Date().toISOString() })
-      .eq("id", runId);
-    return { ok: false, error: automationsError.message, run_id: runId };
+    return { ok: false, error: automationsError.message };
   }
 
   let sentCount = 0;
   let failedCount = 0;
-  let firstExecutedAutomationId: string | null = null;
+  let skippedCount = 0;
+  let firstRunId: string | null = null;
+  let matchedAny = false;
 
   for (const automation of automations ?? []) {
     const onlyIfRaw = (automation as any).only_if;
@@ -291,26 +200,81 @@ export async function runAutomations(params: RunParams) {
         : onlyIfRaw;
 
     if (!matchesOnlyIf(onlyIfForMatch, context)) continue;
+    matchedAny = true;
+    const automationId = String((automation as any).id);
+    const runFingerprint = `${params.fingerprint}:${automationId}`;
 
-    if (!firstExecutedAutomationId && (automation as any)?.id) {
-      firstExecutedAutomationId = String((automation as any).id);
-      const { error: runBindError } = await supabaseServer
-        .from("automation_runs")
-        .update({ automation_id: firstExecutedAutomationId })
-        .eq("id", runId);
-      if (runBindError) {
-        await supabaseServer
-          .from("automation_runs")
-          .update({
-            status: "failed",
-            error: runBindError.message,
-            finished_at: new Date().toISOString(),
-            executed_at: new Date().toISOString(),
-          })
-          .eq("id", runId);
-        return { ok: false, error: runBindError.message, run_id: runId };
+    const { data: run, error: runInsertError } = await supabaseServer
+      .from("automation_runs")
+      .insert({
+        restaurant_id: params.restaurant_id,
+        automation_id: automationId,
+        chat_id: params.chat_id,
+        trigger: params.trigger,
+        fingerprint: runFingerprint,
+        status: "queued",
+        context,
+        created_at: now,
+      })
+      .select("id")
+      .single();
+
+    if (runInsertError || !run?.id) {
+      if (isUniqueViolation(runInsertError)) {
+        skippedCount += 1;
+        continue;
       }
+      return { ok: false, error: runInsertError?.message || "automation_run_insert_failed" };
     }
+
+    const runId = String(run.id);
+    if (!firstRunId) firstRunId = runId;
+
+    const { data: duplicateRuns, error: duplicateError } = await supabaseServer
+      .from("automation_runs")
+      .select("id")
+      .eq("restaurant_id", params.restaurant_id)
+      .eq("fingerprint", runFingerprint)
+      .in("status", ["queued", "running", "success"])
+      .neq("id", runId)
+      .limit(1);
+
+    if (duplicateError) {
+      await supabaseServer
+        .from("automation_runs")
+        .update({
+          status: "failed",
+          error: duplicateError.message,
+          finished_at: new Date().toISOString(),
+          executed_at: new Date().toISOString(),
+        })
+        .eq("id", runId);
+      return { ok: false, error: duplicateError.message, run_id: runId };
+    }
+
+    if (duplicateRuns && duplicateRuns.length > 0) {
+      skippedCount += 1;
+      await supabaseServer
+        .from("automation_runs")
+        .update({
+          status: "skipped",
+          error: "IDEMPOTENT_DUPLICATE",
+          finished_at: new Date().toISOString(),
+          executed_at: new Date().toISOString(),
+        })
+        .eq("id", runId);
+      continue;
+    }
+
+    await supabaseServer
+      .from("automation_runs")
+      .update({ status: "running", started_at: new Date().toISOString() })
+      .eq("id", runId);
+
+    let runSent = 0;
+    let runFailed = 0;
+    let runStatus: "success" | "failed" | "skipped" = "success";
+    let runError: string | null = null;
 
     if ((automation as any).run_once_per_chat) {
       const { error: lockError } = await supabaseServer.from("automation_run_locks").insert({
@@ -320,6 +284,7 @@ export async function runAutomations(params: RunParams) {
       });
       if (lockError) {
         if (isUniqueViolation(lockError)) {
+          skippedCount += 1;
           await supabaseServer
             .from("automation_runs")
             .update({
@@ -329,9 +294,21 @@ export async function runAutomations(params: RunParams) {
               executed_at: new Date().toISOString(),
             })
             .eq("id", runId);
-          return { ok: true, run_id: runId, status: "skipped", reason: "run_once_lock" };
+          continue;
         }
+        runFailed += 1;
         failedCount += 1;
+        runStatus = "failed";
+        runError = lockError.message ?? "RUN_LOCK_ERROR";
+        await supabaseServer
+          .from("automation_runs")
+          .update({
+            status: runStatus,
+            error: runError,
+            finished_at: new Date().toISOString(),
+            executed_at: new Date().toISOString(),
+          })
+          .eq("id", runId);
         continue;
       }
     }
@@ -349,6 +326,7 @@ export async function runAutomations(params: RunParams) {
             : undefined;
 
         if (!toStageId) {
+          runFailed += 1;
           failedCount += 1;
           continue;
         }
@@ -364,6 +342,7 @@ export async function runAutomations(params: RunParams) {
           typeof (targetStage as any)?.name === "string" ? (targetStage as any).name : null;
 
         if (targetStageError || !targetStageName) {
+          runFailed += 1;
           failedCount += 1;
           continue;
         }
@@ -375,18 +354,44 @@ export async function runAutomations(params: RunParams) {
           .eq("restaurant_id", params.restaurant_id);
 
         if (moveError) {
+          runFailed += 1;
           failedCount += 1;
           continue;
         }
 
+        runSent += 1;
         sentCount += 1;
       } catch {
+        runFailed += 1;
         failedCount += 1;
       }
+      runStatus = runFailed > 0 && runSent === 0 ? "failed" : "success";
+      runError = runStatus === "failed" ? "AUTOMATION_ACTIONS_FAILED" : null;
+      await supabaseServer
+        .from("automation_runs")
+        .update({
+          status: runStatus,
+          error: runError,
+          finished_at: new Date().toISOString(),
+          executed_at: new Date().toISOString(),
+        })
+        .eq("id", runId);
       continue;
     }
 
-    if ((automation as any).action_type !== "send_template") continue;
+    if ((automation as any).action_type !== "send_template") {
+      skippedCount += 1;
+      await supabaseServer
+        .from("automation_runs")
+        .update({
+          status: "skipped",
+          error: "UNSUPPORTED_ACTION",
+          finished_at: new Date().toISOString(),
+          executed_at: new Date().toISOString(),
+        })
+        .eq("id", runId);
+      continue;
+    }
 
     try {
       const delaySeconds = Number((automation as any).delay_seconds ?? 0);
@@ -415,45 +420,57 @@ export async function runAutomations(params: RunParams) {
       }
 
       if (!templateText || !templateText.trim()) {
+        runFailed += 1;
         failedCount += 1;
-        continue;
+      } else {
+        const text = renderTemplate(templateText, context);
+        if (!text.trim()) {
+          runFailed += 1;
+          failedCount += 1;
+        } else {
+          await sendTextForChat({
+            restaurant_id: params.restaurant_id,
+            chat_id: params.chat_id,
+            text,
+          });
+          runSent += 1;
+          sentCount += 1;
+        }
       }
-
-      const text = renderTemplate(templateText, context);
-      if (!text.trim()) {
-        failedCount += 1;
-        continue;
-      }
-
-      await sendTextForChat({
-        restaurant_id: params.restaurant_id,
-        chat_id: params.chat_id,
-        text,
-      });
-      sentCount += 1;
     } catch {
+      runFailed += 1;
       failedCount += 1;
     }
+
+    runStatus = runFailed > 0 && runSent === 0 ? "failed" : "success";
+    runError = runStatus === "failed" ? "AUTOMATION_ACTIONS_FAILED" : null;
+    await supabaseServer
+      .from("automation_runs")
+      .update({
+        status: runStatus,
+        error: runError,
+        finished_at: new Date().toISOString(),
+        executed_at: new Date().toISOString(),
+      })
+      .eq("id", runId);
+  }
+
+  if (!matchedAny) {
+    return { ok: true, status: "skipped", reason: "no_automation_match" };
+  }
+
+  if (sentCount === 0 && failedCount === 0 && skippedCount > 0) {
+    return { ok: true, run_id: firstRunId, status: "skipped", skipped: skippedCount, sent: 0, failed: 0 };
   }
 
   const finalStatus = failedCount > 0 && sentCount === 0 ? "failed" : "success";
-  const finalError = failedCount > 0 && sentCount === 0 ? "AUTOMATION_ACTIONS_FAILED" : null;
-
-  await supabaseServer
-    .from("automation_runs")
-    .update({
-      status: finalStatus,
-      error: finalError,
-      finished_at: new Date().toISOString(),
-      executed_at: new Date().toISOString(),
-    })
-    .eq("id", runId);
 
   return {
     ok: true,
-    run_id: runId,
+    run_id: firstRunId,
     status: finalStatus,
     sent: sentCount,
     failed: failedCount,
+    skipped: skippedCount,
   };
 }

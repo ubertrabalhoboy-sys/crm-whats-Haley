@@ -143,6 +143,11 @@ export async function POST(req: Request) {
     upstreamData?.instance_token ??
     upstreamData?.instanceToken ??
     null;
+  const instanceName =
+    upstreamData?.instance?.name ??
+    upstreamData?.instance_name ??
+    upstreamData?.instanceName ??
+    null;
   const status = upstreamData?.instance?.status ?? upstreamData?.status ?? "disconnected";
 
   if (!instanceId || !instanceToken) {
@@ -155,6 +160,9 @@ export async function POST(req: Request) {
     uaz_status: status,
     uaz_phone: null,
   };
+  if (instanceName) {
+    updatePayload.uaz_instance_name = instanceName;
+  }
   if (hasExpiresColumn) {
     updatePayload.uaz_expires_at = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   }

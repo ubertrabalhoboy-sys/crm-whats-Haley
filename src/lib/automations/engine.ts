@@ -25,6 +25,10 @@ function normalizeBaseUrl(url: string) {
   return url.replace(/\/$/, "");
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function guessNumberFromChatId(waChatId: string | null) {
   if (!waChatId) return null;
   return waChatId.split("@")[0] ?? null;
@@ -167,11 +171,16 @@ export async function runAutomations(params: RunParams) {
     return { ok: true, skipped: true, run_id: runId };
   }
 
-  await supabaseServer.from("automation_runs").update({ status: "running" }).eq("id", runId);
+  await supabaseServer
+    .from("automation_runs")
+    .update({ status: "running", started_at: new Date().toISOString() })
+    .eq("id", runId);
 
   const { data: automations, error: automationsError } = await supabaseServer
     .from("automations")
-    .select("id, trigger, enabled, only_if, template_text, run_once_per_chat")
+    .select(
+      "id, trigger, enabled, action_type, template_text, delay_seconds, cooldown_seconds, only_if, run_once_per_chat"
+    )
     .eq("restaurant_id", params.restaurant_id)
     .eq("enabled", true)
     .eq("trigger", params.trigger);
@@ -188,7 +197,15 @@ export async function runAutomations(params: RunParams) {
   let failedCount = 0;
 
   for (const automation of automations ?? []) {
-    if (!matchesOnlyIf((automation as any).only_if, context)) continue;
+    const onlyIfRaw = (automation as any).only_if;
+    const onlyIfForMatch =
+      onlyIfRaw && typeof onlyIfRaw === "object" && !Array.isArray(onlyIfRaw)
+        ? Object.fromEntries(
+            Object.entries(onlyIfRaw as Record<string, unknown>).filter(([key]) => key !== "template_id")
+          )
+        : onlyIfRaw;
+
+    if (!matchesOnlyIf(onlyIfForMatch, context)) continue;
 
     if ((automation as any).run_once_per_chat) {
       const { error: lockError } = await supabaseServer.from("automation_run_locks").insert({
@@ -198,65 +215,69 @@ export async function runAutomations(params: RunParams) {
       });
       if (lockError) {
         if (isUniqueViolation(lockError)) {
-          return { ok: true, run_id: runId, status: "skipped", reason: "run_lock_exists" };
+          await supabaseServer
+            .from("automation_runs")
+            .update({
+              status: "skipped",
+              error: "RUN_ONCE_LOCK",
+              finished_at: new Date().toISOString(),
+              executed_at: new Date().toISOString(),
+            })
+            .eq("id", runId);
+          return { ok: true, run_id: runId, status: "skipped", reason: "run_once_lock" };
         }
         failedCount += 1;
         continue;
       }
     }
 
-    const { data: actions, error: actionsError } = await supabaseServer
-      .from("automation_actions")
-      .select("id, action_type, template_id, order_index")
-      .eq("automation_id", (automation as any).id)
-      .order("order_index", { ascending: true });
+    if ((automation as any).action_type !== "send_template") continue;
 
-    if (actionsError) {
-      failedCount += 1;
-      continue;
-    }
+    try {
+      const delaySeconds = Number((automation as any).delay_seconds ?? 0);
+      if (Number.isFinite(delaySeconds) && delaySeconds > 0) {
+        await sleep(delaySeconds * 1000);
+      }
 
-    for (const action of actions ?? []) {
-      if ((action as any).action_type !== "send_template") continue;
+      let templateText = ((automation as any).template_text as string | null) ?? null;
 
-      try {
-        let templateText: string | null = null;
+      if (!templateText || !templateText.trim()) {
+        const templateId =
+          onlyIfRaw && typeof onlyIfRaw === "object" && !Array.isArray(onlyIfRaw)
+            ? ((onlyIfRaw as Record<string, unknown>).template_id as string | undefined)
+            : undefined;
 
-        const templateId = (action as any).template_id as string | null;
         if (templateId) {
           const { data: template } = await supabaseServer
             .from("message_templates")
-            .select("template_text")
+            .select("id, content, is_active")
             .eq("id", templateId)
             .eq("restaurant_id", params.restaurant_id)
+            .eq("is_active", true)
             .maybeSingle();
-          templateText = (template as any)?.template_text ?? null;
+          templateText = (template as any)?.content ?? null;
         }
-
-        if (!templateText) {
-          templateText = ((automation as any).template_text as string | null) ?? null;
-        }
-
-        if (!templateText) {
-          failedCount += 1;
-          continue;
-        }
-
-        const text = renderTemplate(templateText, context);
-        if (!text.trim()) {
-          failedCount += 1;
-          continue;
-        }
-
-        await sendTextForChat({
-          restaurant_id: params.restaurant_id,
-          chat_id: params.chat_id,
-          text,
-        });
-        sentCount += 1;
-      } catch {
-        failedCount += 1;
       }
+
+      if (!templateText || !templateText.trim()) {
+        failedCount += 1;
+        continue;
+      }
+
+      const text = renderTemplate(templateText, context);
+      if (!text.trim()) {
+        failedCount += 1;
+        continue;
+      }
+
+      await sendTextForChat({
+        restaurant_id: params.restaurant_id,
+        chat_id: params.chat_id,
+        text,
+      });
+      sentCount += 1;
+    } catch {
+      failedCount += 1;
     }
   }
 
@@ -268,6 +289,7 @@ export async function runAutomations(params: RunParams) {
     .update({
       status: finalStatus,
       error: finalError,
+      finished_at: new Date().toISOString(),
       executed_at: new Date().toISOString(),
     })
     .eq("id", runId);

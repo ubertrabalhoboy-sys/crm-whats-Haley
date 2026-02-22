@@ -123,46 +123,6 @@ export async function runAutomations(params: RunParams) {
   const now = new Date().toISOString();
   const context: AutomationContext = params.context ?? {};
 
-  let currentStageId: string | null = null;
-  if (params.trigger === "button_clicked") {
-    const { data: chatStageRow, error: chatStageError } = await supabaseServer
-      .from("chats")
-      .select("kanban_status")
-      .eq("id", params.chat_id)
-      .eq("restaurant_id", params.restaurant_id)
-      .maybeSingle();
-
-    if (chatStageError) {
-      return { ok: false, error: chatStageError.message };
-    }
-
-    const currentStageName =
-      typeof (chatStageRow as any)?.kanban_status === "string"
-        ? (chatStageRow as any).kanban_status.trim()
-        : "";
-
-    if (!currentStageName) {
-      return { ok: true, status: "skipped", reason: "no_chat_stage" };
-    }
-
-    const { data: currentStage, error: currentStageError } = await supabaseServer
-      .from("kanban_stages")
-      .select("id")
-      .eq("restaurant_id", params.restaurant_id)
-      .eq("name", currentStageName)
-      .maybeSingle();
-
-    if (currentStageError) {
-      return { ok: false, error: currentStageError.message };
-    }
-
-    if (!(currentStage as any)?.id) {
-      return { ok: true, status: "skipped", reason: "unknown_chat_stage" };
-    }
-
-    currentStageId = String((currentStage as any).id);
-  }
-
   let automationsQuery = supabaseServer
     .from("automations")
     .select(
@@ -171,10 +131,6 @@ export async function runAutomations(params: RunParams) {
     .eq("restaurant_id", params.restaurant_id)
     .eq("enabled", true)
     .eq("trigger", params.trigger);
-
-  if (params.trigger === "button_clicked" && currentStageId) {
-    automationsQuery = automationsQuery.eq("stage_id", currentStageId);
-  }
 
   const { data: automations, error: automationsError } = await automationsQuery;
 
@@ -198,6 +154,15 @@ export async function runAutomations(params: RunParams) {
             )
           )
         : onlyIfRaw;
+
+    const onlyIfButtonId =
+      onlyIfRaw && typeof onlyIfRaw === "object" && !Array.isArray(onlyIfRaw)
+        ? (onlyIfRaw as Record<string, unknown>).buttonId
+        : undefined;
+
+    if (params.trigger === "button_clicked") {
+      if (typeof onlyIfButtonId !== "string" || !onlyIfButtonId.trim()) continue;
+    }
 
     if (!matchesOnlyIf(onlyIfForMatch, context)) continue;
     matchedAny = true;

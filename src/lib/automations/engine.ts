@@ -277,6 +277,7 @@ export async function runAutomations(params: RunParams) {
 
   let sentCount = 0;
   let failedCount = 0;
+  let firstExecutedAutomationId: string | null = null;
 
   for (const automation of automations ?? []) {
     const onlyIfRaw = (automation as any).only_if;
@@ -317,6 +318,14 @@ export async function runAutomations(params: RunParams) {
 
     if ((automation as any).action_type === "move_stage") {
       try {
+        if (!firstExecutedAutomationId && (automation as any)?.id) {
+          firstExecutedAutomationId = String((automation as any).id);
+          await supabaseServer
+            .from("automation_runs")
+            .update({ automation_id: firstExecutedAutomationId })
+            .eq("id", runId);
+        }
+
         const delaySeconds = Number((automation as any).delay_seconds ?? 0);
         if (Number.isFinite(delaySeconds) && delaySeconds > 0) {
           await sleep(delaySeconds * 1000);
@@ -368,6 +377,14 @@ export async function runAutomations(params: RunParams) {
     if ((automation as any).action_type !== "send_template") continue;
 
     try {
+      if (!firstExecutedAutomationId && (automation as any)?.id) {
+        firstExecutedAutomationId = String((automation as any).id);
+        await supabaseServer
+          .from("automation_runs")
+          .update({ automation_id: firstExecutedAutomationId })
+          .eq("id", runId);
+      }
+
       const delaySeconds = Number((automation as any).delay_seconds ?? 0);
       if (Number.isFinite(delaySeconds) && delaySeconds > 0) {
         await sleep(delaySeconds * 1000);

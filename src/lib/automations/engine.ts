@@ -150,7 +150,7 @@ export async function runAutomations(params: RunParams) {
       onlyIfRaw && typeof onlyIfRaw === "object" && !Array.isArray(onlyIfRaw)
         ? Object.fromEntries(
             Object.entries(onlyIfRaw as Record<string, unknown>).filter(
-              ([key]) => key !== "template_id" && key !== "to_stage_id"
+              ([key]) => key !== "template_id" && key !== "to_stage_id" && key !== "to_stage_name"
             )
           )
         : onlyIfRaw;
@@ -289,49 +289,65 @@ export async function runAutomations(params: RunParams) {
           onlyIfRaw && typeof onlyIfRaw === "object" && !Array.isArray(onlyIfRaw)
             ? ((onlyIfRaw as Record<string, unknown>).to_stage_id as string | undefined)
             : undefined;
+        const toStageNameRaw =
+          onlyIfRaw && typeof onlyIfRaw === "object" && !Array.isArray(onlyIfRaw)
+            ? ((onlyIfRaw as Record<string, unknown>).to_stage_name as string | undefined)
+            : undefined;
+        const toStageName =
+          typeof toStageNameRaw === "string" && toStageNameRaw.trim() ? toStageNameRaw.trim() : null;
 
-        if (!toStageId) {
+        if (!toStageName && !toStageId) {
           runFailed += 1;
           failedCount += 1;
-          continue;
+          runError = "missing_destination";
+        } else {
+          let targetStageQuery = supabaseServer
+            .from("kanban_stages")
+            .select("id, name")
+            .eq("restaurant_id", params.restaurant_id);
+
+          if (toStageName) {
+            targetStageQuery = targetStageQuery.eq("name", toStageName);
+          } else if (toStageId) {
+            targetStageQuery = targetStageQuery.eq("id", toStageId);
+          }
+
+          const { data: targetStage, error: targetStageError } = await targetStageQuery.maybeSingle();
+
+          const targetStageName =
+            typeof (targetStage as any)?.name === "string" ? (targetStage as any).name : null;
+
+          if (targetStageError) {
+            runFailed += 1;
+            failedCount += 1;
+            runError = targetStageError.message;
+          } else if (!targetStageName) {
+            runFailed += 1;
+            failedCount += 1;
+            runError = "stage_not_found";
+          } else {
+            const { error: moveError } = await supabaseServer
+              .from("chats")
+              .update({ kanban_status: targetStageName, updated_at: new Date().toISOString() })
+              .eq("id", params.chat_id)
+              .eq("restaurant_id", params.restaurant_id);
+
+            if (moveError) {
+              runFailed += 1;
+              failedCount += 1;
+              runError = moveError.message;
+            } else {
+              runSent += 1;
+              sentCount += 1;
+            }
+          }
         }
-
-        const { data: targetStage, error: targetStageError } = await supabaseServer
-          .from("kanban_stages")
-          .select("id, name")
-          .eq("restaurant_id", params.restaurant_id)
-          .eq("id", toStageId)
-          .maybeSingle();
-
-        const targetStageName =
-          typeof (targetStage as any)?.name === "string" ? (targetStage as any).name : null;
-
-        if (targetStageError || !targetStageName) {
-          runFailed += 1;
-          failedCount += 1;
-          continue;
-        }
-
-        const { error: moveError } = await supabaseServer
-          .from("chats")
-          .update({ kanban_status: targetStageName, updated_at: new Date().toISOString() })
-          .eq("id", params.chat_id)
-          .eq("restaurant_id", params.restaurant_id);
-
-        if (moveError) {
-          runFailed += 1;
-          failedCount += 1;
-          continue;
-        }
-
-        runSent += 1;
-        sentCount += 1;
       } catch {
         runFailed += 1;
         failedCount += 1;
       }
       runStatus = runFailed > 0 && runSent === 0 ? "failed" : "success";
-      runError = runStatus === "failed" ? "AUTOMATION_ACTIONS_FAILED" : null;
+      runError = runStatus === "failed" ? runError ?? "AUTOMATION_ACTIONS_FAILED" : null;
       await supabaseServer
         .from("automation_runs")
         .update({

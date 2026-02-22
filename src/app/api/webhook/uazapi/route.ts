@@ -408,23 +408,64 @@ export async function POST(req: Request) {
   }
 
   try {
-    const buttonClicked = extractButtonClicked(body);
-    if (buttonClicked?.buttonId && buttonClicked?.chatId && buttonClicked?.messageId) {
-      const fingerprint = `btn:${buttonClicked.chatId}:${buttonClicked.messageId}`;
-      await runAutomations({
-        restaurant_id: restaurantId,
-        chat_id: chatId,
-        trigger: "button_clicked",
-        fingerprint,
-        context: {
-          buttonId: buttonClicked.buttonId,
-          displayText: buttonClicked.displayText,
-          messageId: buttonClicked.messageId,
-          chatId: buttonClicked.chatId,
-          waChatId,
-          instanceName,
-        },
-      });
+    const bodyRoot = body?.BODY;
+    const bodyEventType = readString(bodyRoot?.EventType);
+    const bodyMessageType = readString(bodyRoot?.message?.messageType);
+    const bodyFromMe = toBool(bodyRoot?.message?.fromMe);
+
+    const bodyButtonId = readString(
+      bodyRoot?.message?.buttonOrListid,
+      bodyRoot?.message?.content?.selectedButtonID
+    );
+    const bodyDisplayText = readString(bodyRoot?.message?.content?.Response?.SelectedDisplayText);
+    const bodyChatId = readString(bodyRoot?.message?.chatid);
+    const bodyMessageId = readString(bodyRoot?.message?.messageid);
+
+    if (
+      bodyEventType?.toLowerCase() === "messages" &&
+      bodyMessageType === "ButtonsResponseMessage" &&
+      !bodyFromMe &&
+      bodyButtonId &&
+      bodyChatId &&
+      bodyMessageId
+    ) {
+      if (!restaurantId || !chatId) {
+        console.warn("[webhook/uazapi] button_clicked skipped: missing tenant/chat context");
+      } else {
+        const fingerprint = `btn:${bodyChatId}:${bodyMessageId}`;
+        await runAutomations({
+          restaurant_id: restaurantId,
+          chat_id: chatId,
+          trigger: "button_clicked",
+          fingerprint,
+          context: {
+            chatid: bodyChatId,
+            messageid: bodyMessageId,
+            buttonId: bodyButtonId,
+            displayText: bodyDisplayText,
+            quoted: bodyRoot?.message?.quoted ?? null,
+          },
+        });
+      }
+    } else {
+      const buttonClicked = extractButtonClicked(body);
+      if (buttonClicked?.buttonId && buttonClicked?.chatId && buttonClicked?.messageId) {
+        const fingerprint = `btn:${buttonClicked.chatId}:${buttonClicked.messageId}`;
+        await runAutomations({
+          restaurant_id: restaurantId,
+          chat_id: chatId,
+          trigger: "button_clicked",
+          fingerprint,
+          context: {
+            buttonId: buttonClicked.buttonId,
+            displayText: buttonClicked.displayText,
+            messageId: buttonClicked.messageId,
+            chatId: buttonClicked.chatId,
+            waChatId,
+            instanceName,
+          },
+        });
+      }
     }
   } catch (automationError) {
     console.error("[webhook/uazapi] automation button_clicked failed", automationError);

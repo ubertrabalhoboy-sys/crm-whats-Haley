@@ -176,14 +176,96 @@ export async function runAutomations(params: RunParams) {
     .update({ status: "running", started_at: new Date().toISOString() })
     .eq("id", runId);
 
-  const { data: automations, error: automationsError } = await supabaseServer
+  let currentStageId: string | null = null;
+  if (params.trigger === "button_clicked") {
+    const { data: chatStageRow, error: chatStageError } = await supabaseServer
+      .from("chats")
+      .select("kanban_status")
+      .eq("id", params.chat_id)
+      .eq("restaurant_id", params.restaurant_id)
+      .maybeSingle();
+
+    if (chatStageError) {
+      await supabaseServer
+        .from("automation_runs")
+        .update({
+          status: "failed",
+          error: chatStageError.message,
+          finished_at: new Date().toISOString(),
+          executed_at: new Date().toISOString(),
+        })
+        .eq("id", runId);
+      return { ok: false, error: chatStageError.message, run_id: runId };
+    }
+
+    const currentStageName =
+      typeof (chatStageRow as any)?.kanban_status === "string"
+        ? (chatStageRow as any).kanban_status.trim()
+        : "";
+
+    if (!currentStageName) {
+      await supabaseServer
+        .from("automation_runs")
+        .update({
+          status: "skipped",
+          error: "NO_CHAT_STAGE",
+          finished_at: new Date().toISOString(),
+          executed_at: new Date().toISOString(),
+        })
+        .eq("id", runId);
+      return { ok: true, run_id: runId, status: "skipped", reason: "no_chat_stage" };
+    }
+
+    const { data: currentStage, error: currentStageError } = await supabaseServer
+      .from("kanban_stages")
+      .select("id")
+      .eq("restaurant_id", params.restaurant_id)
+      .eq("name", currentStageName)
+      .maybeSingle();
+
+    if (currentStageError) {
+      await supabaseServer
+        .from("automation_runs")
+        .update({
+          status: "failed",
+          error: currentStageError.message,
+          finished_at: new Date().toISOString(),
+          executed_at: new Date().toISOString(),
+        })
+        .eq("id", runId);
+      return { ok: false, error: currentStageError.message, run_id: runId };
+    }
+
+    if (!(currentStage as any)?.id) {
+      await supabaseServer
+        .from("automation_runs")
+        .update({
+          status: "skipped",
+          error: "UNKNOWN_CHAT_STAGE",
+          finished_at: new Date().toISOString(),
+          executed_at: new Date().toISOString(),
+        })
+        .eq("id", runId);
+      return { ok: true, run_id: runId, status: "skipped", reason: "unknown_chat_stage" };
+    }
+
+    currentStageId = String((currentStage as any).id);
+  }
+
+  let automationsQuery = supabaseServer
     .from("automations")
     .select(
-      "id, trigger, enabled, action_type, template_text, delay_seconds, cooldown_seconds, only_if, run_once_per_chat"
+      "id, restaurant_id, stage_id, trigger, enabled, action_type, template_text, delay_seconds, cooldown_seconds, only_if, run_once_per_chat"
     )
     .eq("restaurant_id", params.restaurant_id)
     .eq("enabled", true)
     .eq("trigger", params.trigger);
+
+  if (params.trigger === "button_clicked" && currentStageId) {
+    automationsQuery = automationsQuery.eq("stage_id", currentStageId);
+  }
+
+  const { data: automations, error: automationsError } = await automationsQuery;
 
   if (automationsError) {
     await supabaseServer
@@ -201,7 +283,9 @@ export async function runAutomations(params: RunParams) {
     const onlyIfForMatch =
       onlyIfRaw && typeof onlyIfRaw === "object" && !Array.isArray(onlyIfRaw)
         ? Object.fromEntries(
-            Object.entries(onlyIfRaw as Record<string, unknown>).filter(([key]) => key !== "template_id")
+            Object.entries(onlyIfRaw as Record<string, unknown>).filter(
+              ([key]) => key !== "template_id" && key !== "to_stage_id"
+            )
           )
         : onlyIfRaw;
 
@@ -229,6 +313,56 @@ export async function runAutomations(params: RunParams) {
         failedCount += 1;
         continue;
       }
+    }
+
+    if ((automation as any).action_type === "move_stage") {
+      try {
+        const delaySeconds = Number((automation as any).delay_seconds ?? 0);
+        if (Number.isFinite(delaySeconds) && delaySeconds > 0) {
+          await sleep(delaySeconds * 1000);
+        }
+
+        const toStageId =
+          onlyIfRaw && typeof onlyIfRaw === "object" && !Array.isArray(onlyIfRaw)
+            ? ((onlyIfRaw as Record<string, unknown>).to_stage_id as string | undefined)
+            : undefined;
+
+        if (!toStageId) {
+          failedCount += 1;
+          continue;
+        }
+
+        const { data: targetStage, error: targetStageError } = await supabaseServer
+          .from("kanban_stages")
+          .select("id, name")
+          .eq("restaurant_id", params.restaurant_id)
+          .eq("id", toStageId)
+          .maybeSingle();
+
+        const targetStageName =
+          typeof (targetStage as any)?.name === "string" ? (targetStage as any).name : null;
+
+        if (targetStageError || !targetStageName) {
+          failedCount += 1;
+          continue;
+        }
+
+        const { error: moveError } = await supabaseServer
+          .from("chats")
+          .update({ kanban_status: targetStageName, updated_at: new Date().toISOString() })
+          .eq("id", params.chat_id)
+          .eq("restaurant_id", params.restaurant_id);
+
+        if (moveError) {
+          failedCount += 1;
+          continue;
+        }
+
+        sentCount += 1;
+      } catch {
+        failedCount += 1;
+      }
+      continue;
     }
 
     if ((automation as any).action_type !== "send_template") continue;

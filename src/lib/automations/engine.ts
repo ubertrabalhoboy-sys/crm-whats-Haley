@@ -292,6 +292,26 @@ export async function runAutomations(params: RunParams) {
 
     if (!matchesOnlyIf(onlyIfForMatch, context)) continue;
 
+    if (!firstExecutedAutomationId && (automation as any)?.id) {
+      firstExecutedAutomationId = String((automation as any).id);
+      const { error: runBindError } = await supabaseServer
+        .from("automation_runs")
+        .update({ automation_id: firstExecutedAutomationId })
+        .eq("id", runId);
+      if (runBindError) {
+        await supabaseServer
+          .from("automation_runs")
+          .update({
+            status: "failed",
+            error: runBindError.message,
+            finished_at: new Date().toISOString(),
+            executed_at: new Date().toISOString(),
+          })
+          .eq("id", runId);
+        return { ok: false, error: runBindError.message, run_id: runId };
+      }
+    }
+
     if ((automation as any).run_once_per_chat) {
       const { error: lockError } = await supabaseServer.from("automation_run_locks").insert({
         restaurant_id: params.restaurant_id,
@@ -318,14 +338,6 @@ export async function runAutomations(params: RunParams) {
 
     if ((automation as any).action_type === "move_stage") {
       try {
-        if (!firstExecutedAutomationId && (automation as any)?.id) {
-          firstExecutedAutomationId = String((automation as any).id);
-          await supabaseServer
-            .from("automation_runs")
-            .update({ automation_id: firstExecutedAutomationId })
-            .eq("id", runId);
-        }
-
         const delaySeconds = Number((automation as any).delay_seconds ?? 0);
         if (Number.isFinite(delaySeconds) && delaySeconds > 0) {
           await sleep(delaySeconds * 1000);
@@ -377,14 +389,6 @@ export async function runAutomations(params: RunParams) {
     if ((automation as any).action_type !== "send_template") continue;
 
     try {
-      if (!firstExecutedAutomationId && (automation as any)?.id) {
-        firstExecutedAutomationId = String((automation as any).id);
-        await supabaseServer
-          .from("automation_runs")
-          .update({ automation_id: firstExecutedAutomationId })
-          .eq("id", runId);
-      }
-
       const delaySeconds = Number((automation as any).delay_seconds ?? 0);
       if (Number.isFinite(delaySeconds) && delaySeconds > 0) {
         await sleep(delaySeconds * 1000);

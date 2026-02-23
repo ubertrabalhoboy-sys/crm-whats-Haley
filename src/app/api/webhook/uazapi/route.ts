@@ -467,7 +467,60 @@ export async function POST(req: Request) {
         });
       }
     }
-	 } catch (automationError) {
+
+    const b = body?.BODY ?? body;
+    const fiqonIsButtonClick =
+      b?.EventType === "messages" &&
+      !!(
+        b?.message?.messageType === "ButtonsResponseMessage" ||
+        b?.message?.buttonOrListid ||
+        b?.message?.content?.selectedButtonID
+      );
+
+    if (fiqonIsButtonClick) {
+      const fiqonWebhookUrl = process.env.FIQON_WEBHOOK_URL;
+      if (!fiqonWebhookUrl) {
+        console.warn("[fiqon-forward] missing_env");
+      } else {
+        const buttonId =
+          readString(b?.message?.buttonOrListid, b?.message?.content?.selectedButtonID) ?? null;
+        const messageid = readString(b?.message?.messageid) ?? null;
+        const payload = {
+          event: "button_clicked",
+          instanceName: readString(b?.instanceName),
+          chatid: readString(b?.message?.chatid),
+          messageid,
+          buttonId,
+          displayText:
+            readString(b?.message?.vote, b?.message?.content?.Response?.SelectedDisplayText) ?? null,
+          timestamp: b?.message?.messageTimestamp ?? null,
+          owner: readString(b?.owner),
+        };
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        fetch(fiqonWebhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        })
+          .then((resp) => {
+            console.log("[fiqon-forward] sent", { status: resp.status, buttonId, messageid });
+          })
+          .catch((err) => {
+            console.error("[fiqon-forward] fail", {
+              error: String(err),
+              buttonId,
+              messageid,
+            });
+          })
+          .finally(() => {
+            clearTimeout(timeout);
+          });
+      }
+    }
+  } catch (automationError) {
     console.error("[webhook/uazapi] automation button_clicked failed", automationError);
   }
 

@@ -14,6 +14,11 @@ type Chat = {
   contacts?: { phone: string | null; name: string | null } | null;
 };
 
+// ✅ Tipo REAL que vem do Supabase (contacts vem como array)
+type ChatRow = Omit<Chat, "contacts"> & {
+  contacts: { phone: string | null; name: string | null }[] | null;
+};
+
 function formatDate(value: string | null) {
   if (!value) return "-";
   const date = new Date(value);
@@ -93,7 +98,13 @@ export default async function KanbanPage() {
   }
 
   const stageList = (stages ?? []) as Stage[];
-  const chatList = (chats ?? []) as Chat[];
+
+  // ✅ Converte o retorno REAL (contacts[]) para o seu Chat (contacts objeto)
+  const chatRows = (chats ?? []) as ChatRow[];
+  const chatList: Chat[] = chatRows.map((c) => ({
+    ...c,
+    contacts: c.contacts?.[0] ?? null,
+  }));
 
   return (
     <div className="space-y-6">

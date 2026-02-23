@@ -469,26 +469,20 @@ export async function POST(req: Request) {
     }
 
     const b = body?.BODY ?? body;
-    const fiqonIsButtonClick =
-      b?.EventType === "messages" &&
-      !!(
-        b?.message?.messageType === "ButtonsResponseMessage" ||
-        b?.message?.buttonOrListid ||
-        b?.message?.content?.selectedButtonID
-      );
+    const buttonClicked = extractButtonClicked(body);
 
-    if (fiqonIsButtonClick) {
+if (buttonClicked?.buttonId && buttonClicked?.chatId && buttonClicked?.messageId) {
+  // forward
+}
+
+    if (buttonClicked) {
       const fiqonWebhookUrl = process.env.FIQON_WEBHOOK_URL;
       if (!fiqonWebhookUrl) {
         console.warn("[fiqon-forward] missing_env");
       } else {
         const buttonId =
-          readString(
-            b?.message?.buttonOrListid,
-            b?.message?.content?.selectedButtonID,
-            b?.buttonId
-          ) ?? null;
-        const messageid = readString(b?.message?.messageid) ?? null;
+          readString(b?.message?.buttonOrListid, b?.message?.content?.selectedButtonID) ?? null;
+		   const messageid = readString(b?.message?.messageid) ?? null;
         const payload = {
           event: "button_clicked",
           instanceName: readString(b?.instanceName),
@@ -509,9 +503,9 @@ export async function POST(req: Request) {
           body: JSON.stringify(payload),
           signal: controller.signal,
         })
-          .then(() => {
-            console.log("[fiqon-forward] sent", { buttonId, messageid });
-          })
+          .then((resp) => {
+            console.log("[fiqon-forward] sent", { status: resp.status, buttonId, messageid });
+			  })
           .catch((err) => {
             console.error("[fiqon-forward] fail", {
               error: String(err),

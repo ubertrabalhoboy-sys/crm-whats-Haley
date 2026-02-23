@@ -69,7 +69,7 @@ export default function ChatPanel({
       <div
         ref={msgsWrapRef}
         onScroll={onMsgsScroll}
-        className="relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-auto bg-[radial-gradient(1200px_400px_at_50%_0%,rgba(99,102,241,0.12)_0%,rgba(255,255,255,1)_45%)] p-3.5"
+        className="relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto bg-[radial-gradient(1200px_400px_at_50%_0%,rgba(99,102,241,0.12)_0%,rgba(255,255,255,1)_45%)] p-3.5"
       >
         {loadingMsgs && <div className="text-slate-500">Carregando mensagens...</div>}
 

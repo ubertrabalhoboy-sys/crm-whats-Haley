@@ -34,7 +34,9 @@ export default function InboxPage() {
   const [hasNewWhileUp, setHasNewWhileUp] = useState(false);
 
   const msgsAbortRef = useRef<AbortController | null>(null);
+  const msgsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const msgsInFlightRef = useRef(false);
+  const messagesByChatIdRef = useRef<Record<string, Msg[]>>({});
   const msgsWrapRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
@@ -61,6 +63,35 @@ export default function InboxPage() {
     }
   }
 
+  function sameMsgsQuick(a: Msg[], b: Msg[]) {
+    if (a === b) return true;
+    if (a.length !== b.length) return false;
+    if (a.length === 0) return true;
+    const aLast = a[a.length - 1];
+    const bLast = b[b.length - 1];
+    return (
+      aLast?.id === bLast?.id &&
+      aLast?.created_at === bLast?.created_at &&
+      aLast?.status === bLast?.status
+    );
+  }
+
+  function sameChatsQuick(a: Chat[], b: Chat[]) {
+    if (a === b) return true;
+    if (a.length !== b.length) return false;
+    if (a.length === 0) return true;
+    const aFirst = a[0];
+    const bFirst = b[0];
+    const aLast = a[a.length - 1];
+    const bLast = b[b.length - 1];
+    return (
+      aFirst?.id === bFirst?.id &&
+      aFirst?.updated_at === bFirst?.updated_at &&
+      aLast?.id === bLast?.id &&
+      aLast?.updated_at === bLast?.updated_at
+    );
+  }
+
   async function loadChats() {
     setLoadingChats(true);
     setError(null);
@@ -71,7 +102,8 @@ export default function InboxPage() {
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Falha ao buscar chats");
-      setChats(json.chats || []);
+      const nextChats: Chat[] = json.chats || [];
+      setChats((prev) => (sameChatsQuick(prev, nextChats) ? prev : nextChats));
       if (!selectedChatId && json.chats?.[0]?.id) setSelectedChatId(json.chats[0].id);
     } catch (e: any) {
       setError(e?.message ?? "Erro");
@@ -80,7 +112,12 @@ export default function InboxPage() {
     }
   }
 
-  async function loadMessages(chatId: string, opts?: { silent?: boolean }) {
+  async function loadMessages(chatId: string, opts?: { silent?: boolean; force?: boolean }) {
+    if (msgsInFlightRef.current && !opts?.force) return;
+    if (opts?.force && msgsAbortRef.current) {
+      msgsAbortRef.current.abort();
+      msgsInFlightRef.current = false;
+    }
     if (msgsInFlightRef.current) return;
     msgsInFlightRef.current = true;
 
@@ -103,7 +140,11 @@ export default function InboxPage() {
 
       setMessages((prev) => {
         const serverMsgs: Msg[] = json.messages || [];
-        const tempMsgs = prev.filter((m) => String(m.id).startsWith("temp-"));
+        const cachedMsgs = messagesByChatIdRef.current[chatId] || [];
+        const tempMsgs = [...cachedMsgs, ...prev].filter(
+          (m, index, arr) =>
+            String(m.id).startsWith("temp-") && arr.findIndex((x) => x.id === m.id) === index
+        );
 
         const stillPending = tempMsgs.filter((t) => {
           return !serverMsgs.some(
@@ -125,6 +166,12 @@ export default function InboxPage() {
           setHasNewWhileUp(true);
         }
 
+        if (sameMsgsQuick(prev, merged)) {
+          messagesByChatIdRef.current[chatId] = prev;
+          return prev;
+        }
+
+        messagesByChatIdRef.current[chatId] = merged;
         return merged;
       });
     } catch (e: any) {
@@ -141,7 +188,20 @@ export default function InboxPage() {
   }, []);
 
   useEffect(() => {
+    const timer = setInterval(() => {
+      loadChats();
+    }, 5000);
+
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedChatId]);
+
+  useEffect(() => {
     if (!selectedChatId) {
+      if (msgsTimerRef.current) {
+        clearInterval(msgsTimerRef.current);
+        msgsTimerRef.current = null;
+      }
       setMessages([]);
       setHasNewWhileUp(false);
       return;
@@ -149,6 +209,17 @@ export default function InboxPage() {
 
     shouldAutoScrollRef.current = true;
     setHasNewWhileUp(false);
+    if (msgsTimerRef.current) {
+      clearInterval(msgsTimerRef.current);
+      msgsTimerRef.current = null;
+    }
+
+    const cached = messagesByChatIdRef.current[selectedChatId];
+    if (cached?.length) {
+      setMessages((prev) => (sameMsgsQuick(prev, cached) ? prev : cached));
+    } else {
+      setMessages([]);
+    }
 
     loadMessages(selectedChatId);
 
@@ -160,13 +231,22 @@ export default function InboxPage() {
   }, [selectedChatId]);
 
   useEffect(() => {
+    if (msgsTimerRef.current) {
+      clearInterval(msgsTimerRef.current);
+      msgsTimerRef.current = null;
+    }
     if (!selectedChatId) return;
 
-    const timer = setInterval(() => {
+    msgsTimerRef.current = setInterval(() => {
       loadMessages(selectedChatId, { silent: true });
     }, 2000);
 
-    return () => clearInterval(timer);
+    return () => {
+      if (msgsTimerRef.current) {
+        clearInterval(msgsTimerRef.current);
+        msgsTimerRef.current = null;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChatId]);
 
@@ -179,15 +259,19 @@ export default function InboxPage() {
   }, [messages, selectedChatId]);
 
   return (
-    <div className="h-screen bg-[linear-gradient(180deg,#f6f7fb_0%,#eef2ff_100%)] p-3.5">
-      <div className="grid h-[calc(100vh-28px)] grid-cols-[360px_minmax(0,1fr)_340px] gap-3.5">
+    <div className="h-screen overflow-hidden bg-[linear-gradient(180deg,#f6f7fb_0%,#eef2ff_100%)] p-3.5">
+      <div className="grid h-[calc(100vh-28px)] grid-cols-[360px_minmax(0,1fr)_340px] gap-3.5 overflow-hidden">
         <SidebarChats
           chats={chats}
           selectedChatId={selectedChatId}
           loadingChats={loadingChats}
           error={error}
           onRefresh={loadChats}
-          onSelectChat={setSelectedChatId}
+          onSelectChat={(chatId) => {
+            if (chatId === selectedChatId) return;
+            setSelectedChatId(chatId);
+            loadMessages(chatId, { force: true });
+          }}
         />
 
         <ChatPanel
@@ -211,10 +295,14 @@ export default function InboxPage() {
             setHasNewWhileUp(false);
 
             const tempId = "temp-" + Date.now();
-            setMessages((prev) => [
-              ...prev,
-              { id: tempId, direction: "out", text, created_at: new Date().toISOString() },
-            ]);
+            setMessages((prev) => {
+              const next = [
+                ...prev,
+                { id: tempId, direction: "out", text, created_at: new Date().toISOString() },
+              ];
+              messagesByChatIdRef.current[selectedChatId] = next;
+              return next;
+            });
 
             setError(null);
 

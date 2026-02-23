@@ -41,7 +41,7 @@ export default function SidebarChats({
         </button>
       </div>
 
-      <div className="min-h-0 overflow-auto p-3">
+      <div className="min-h-0 overflow-y-auto p-3">
         {error && (
           <div className="mb-2.5 rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-[13px] font-bold text-rose-800">
             {error}

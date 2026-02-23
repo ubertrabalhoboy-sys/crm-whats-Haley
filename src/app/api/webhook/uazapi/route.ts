@@ -420,15 +420,11 @@ export async function POST(req: Request) {
     const bodyDisplayText = readString(bodyRoot?.message?.content?.Response?.SelectedDisplayText);
     const bodyChatId = readString(bodyRoot?.message?.chatid);
     const bodyMessageId = readString(bodyRoot?.message?.messageid);
+    const isButtonClickEvent =
+      bodyEventType === "messages" &&
+      (!!bodyButtonId || bodyMessageType === "ButtonsResponseMessage");
 
-    if (
-      bodyEventType?.toLowerCase() === "messages" &&
-      bodyMessageType === "ButtonsResponseMessage" &&
-      !bodyFromMe &&
-      bodyButtonId &&
-      bodyChatId &&
-      bodyMessageId
-    ) {
+    if (isButtonClickEvent && !bodyFromMe && bodyButtonId && bodyChatId && bodyMessageId) {
       if (!restaurantId || !chatId) {
         console.warn("[webhook/uazapi] button_clicked skipped: missing tenant/chat context");
       } else {
@@ -447,6 +443,7 @@ export async function POST(req: Request) {
           },
         });
       }
+
     } else {
       const buttonClicked = extractButtonClicked(body);
       if (buttonClicked?.buttonId && buttonClicked?.chatId && buttonClicked?.messageId) {
@@ -465,6 +462,59 @@ export async function POST(req: Request) {
             instanceName,
           },
         });
+      }
+    }
+
+    const b = body?.BODY ?? body;
+    const fiqonIsButtonClick =
+      b?.EventType === "messages" &&
+      !!(
+        b?.message?.messageType === "ButtonsResponseMessage" ||
+        b?.message?.buttonOrListid ||
+        b?.message?.content?.selectedButtonID
+      );
+
+    if (fiqonIsButtonClick) {
+      const fiqonWebhookUrl = process.env.FIQON_WEBHOOK_URL;
+      if (!fiqonWebhookUrl) {
+        console.warn("[fiqon-forward] missing_env");
+      } else {
+        const buttonId =
+          readString(b?.message?.buttonOrListid, b?.message?.content?.selectedButtonID) ?? null;
+        const messageid = readString(b?.message?.messageid) ?? null;
+        const fiqonPayload = {
+          event: "button_clicked",
+          instanceName: readString(b?.instanceName),
+          chatid: readString(b?.message?.chatid),
+          messageid,
+          buttonId,
+          displayText:
+            readString(b?.message?.vote, b?.message?.content?.Response?.SelectedDisplayText) ?? null,
+          timestamp: b?.message?.messageTimestamp ?? null,
+          owner: readString(b?.owner),
+        };
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        fetch(fiqonWebhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(fiqonPayload),
+          signal: controller.signal,
+        })
+          .then((resp) => {
+            console.log("[fiqon-forward] sent", { status: resp.status, buttonId, messageid });
+          })
+          .catch((err) => {
+            console.error("[fiqon-forward] fail", {
+              error: String(err),
+              buttonId,
+              messageid,
+            });
+          })
+          .finally(() => {
+            clearTimeout(timeout);
+          });
       }
     }
   } catch (automationError) {

@@ -483,7 +483,11 @@ export async function POST(req: Request) {
         console.warn("[fiqon-forward] missing_env");
       } else {
         const buttonId =
-          readString(b?.message?.buttonOrListid, b?.message?.content?.selectedButtonID) ?? null;
+          readString(
+            b?.message?.buttonOrListid,
+            b?.message?.content?.selectedButtonID,
+            b?.buttonId
+          ) ?? null;
         const messageid = readString(b?.message?.messageid) ?? null;
         const payload = {
           event: "button_clicked",
@@ -505,8 +509,8 @@ export async function POST(req: Request) {
           body: JSON.stringify(payload),
           signal: controller.signal,
         })
-          .then((resp) => {
-            console.log("[fiqon-forward] sent", { status: resp.status, buttonId, messageid });
+          .then(() => {
+            console.log("[fiqon-forward] sent", { buttonId, messageid });
           })
           .catch((err) => {
             console.error("[fiqon-forward] fail", {

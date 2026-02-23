@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
 export const runtime = "nodejs";
 
@@ -11,19 +12,41 @@ function parseJsonSafe(text: string) {
   }
 }
 
+async function createRouteSupabaseClient() {
+  const cookieStore = await cookies();
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+          } catch {
+            // no-op in route contexts where cookies are read-only
+          }
+        },
+      },
+    }
+  );
+}
+
 export async function GET() {
   const baseUrl = process.env.UAZAPI_BASE_URL;
   if (!baseUrl) {
     return NextResponse.json({ ok: false, error: "UAZAPI_NOT_CONFIGURED" }, { status: 501 });
   }
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createRouteSupabaseClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -78,6 +101,21 @@ export async function GET() {
     }
 
     const status = data?.status ?? data?.data?.status ?? restaurant.uaz_status ?? "disconnected";
+    const qrcodeRaw =
+      data?.qrcode ??
+      data?.instance?.qrcode ??
+      data?.data?.qrcode ??
+      data?.instance?.qrcode?.base64 ??
+      null;
+    const paircodeRaw =
+      data?.paircode ?? data?.instance?.paircode ?? data?.data?.paircode ?? null;
+    const jid =
+      data?.jid ??
+      data?.instance?.jid ??
+      data?.data?.jid ??
+      data?.instance?.owner ??
+      data?.owner ??
+      null;
     const connected =
       typeof data?.connected === "boolean"
         ? data.connected
@@ -91,12 +129,28 @@ export async function GET() {
 
     await supabase.from("restaurants").update({ uaz_status: status }).eq("id", restaurant.id);
 
+    const qrcode =
+      typeof qrcodeRaw === "string"
+        ? qrcodeRaw
+        : typeof qrcodeRaw?.base64 === "string"
+          ? qrcodeRaw.base64
+          : undefined;
+    const paircode =
+      typeof paircodeRaw === "string"
+        ? paircodeRaw
+        : paircodeRaw != null
+          ? String(paircodeRaw)
+          : undefined;
+
     return NextResponse.json(
       {
         ok: true,
         status,
         connected,
         loggedIn,
+        ...(qrcode ? { qrcode } : {}),
+        ...(paircode ? { paircode } : {}),
+        ...(jid ? { jid: String(jid) } : {}),
       },
       { status: 200 }
     );

@@ -16,6 +16,9 @@ type StatusResponse = {
   status?: unknown;
   connected?: boolean;
   loggedIn?: boolean;
+  qrcode?: string;
+  paircode?: string;
+  jid?: string;
   error?: string;
 };
 
@@ -98,8 +101,7 @@ export default function WhatsAppSettingsPage() {
 
   const hasVisualCode = useMemo(() => !!qrcode || !!paircode, [qrcode, paircode]);
   const isConnecting = statusText === "connecting";
-
-  async function refreshStatus() {
+   async function refreshStatus() {
     setLoadingStatus(true);
     const res = await fetch("/api/whatsapp/status", { cache: "no-store" });
     const json = (await res.json()) as StatusResponse;
@@ -116,7 +118,7 @@ export default function WhatsAppSettingsPage() {
     setConnected(normalized.connected ?? !!json.connected);
     setLoggedIn(normalized.loggedIn ?? !!json.loggedIn);
     setJid(normalized.jid ?? null);
-  }
+	}
 
   async function ensureInstance() {
     setLoadingEnsure(true);
@@ -161,13 +163,13 @@ export default function WhatsAppSettingsPage() {
       return;
     }
 
-    setStatusText(asStatusString(json.status) || "connecting");
+    setStatusText(asStatusString(json.status) || "connecting"); setStatusText("connecting");
     setJid(null);
     setConnected(false);
     setLoggedIn(false);
     setQrcode(json.qrcode || null);
     setPaircode(json.paircode || null);
-  }
+	}
 
   async function configureWebhook() {
     setLoadingWebhookConfig(true);

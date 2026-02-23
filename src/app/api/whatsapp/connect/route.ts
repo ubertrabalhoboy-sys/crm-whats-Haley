@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -14,7 +15,6 @@ type ConnectResult = {
   paircode?: string;
   status?: string;
 };
-
 export async function POST(req: Request) {
   const baseUrl = process.env.UAZAPI_BASE_URL;
   if (!baseUrl) {
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
   const { data: restaurant, error: restaurantError } = await supabase
     .from("restaurants")
     .select("id, uaz_instance_token")
-    .eq("id", restaurantId)
+	 .eq("id", restaurantId)
     .single();
 
   if (restaurantError || !restaurant) {
@@ -74,7 +74,7 @@ export async function POST(req: Request) {
   const instanceToken = freshRestaurant.uaz_instance_token;
   if (!instanceToken) {
     return NextResponse.json({ ok: false, error: "INSTANCE_NOT_READY" }, { status: 409 });
-  }
+	}
 
   let body: ConnectBody = {};
 
@@ -140,12 +140,11 @@ export async function POST(req: Request) {
     if (qrcode) response.qrcode = qrcode;
     if (paircode) response.paircode = paircode;
     if (statusStr) response.status = statusStr;
-
-    await supabase
+	 await supabase
       .from("restaurants")
       .update({
         uaz_status: statusStr ?? "connecting",
-        uaz_phone: body.phone ?? null,
+		  uaz_phone: body.phone ?? null,
       })
       .eq("id", restaurant.id);
 

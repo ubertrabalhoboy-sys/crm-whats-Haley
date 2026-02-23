@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -10,28 +9,6 @@ function parseJsonSafe(text: string) {
   } catch {
     return {};
   }
-}
-
-async function createRouteSupabaseClient() {
-  const cookieStore = await cookies();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
-          } catch {
-            // no-op
-          }
-        },
-      },
-    }
-  );
 }
 
 export async function POST(req: Request) {
@@ -46,13 +23,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "UAZAPI_NOT_CONFIGURED" }, { status: 501 });
   }
 
-  const supabase = await createRouteSupabaseClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -126,17 +103,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: resetError.message }, { status: 500 });
     }
 
-    const optionalResetFields = ["uaz_instance_name", "uaz_instance_owner"] as const;
-    for (const field of optionalResetFields) {
-      const { error } = await supabase
-        .from("restaurants")
-        .update({ [field]: null })
-        .eq("id", restaurant.id);
-      if (error && !error.message.toLowerCase().includes(field.toLowerCase())) {
-        return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-      }
-    }
-  }
+ }
 
   const payload = {
     name: `r-${restaurantId}-${Date.now()}`,
@@ -182,12 +149,7 @@ export async function POST(req: Request) {
     upstreamData?.instance_name ??
     upstreamData?.instanceName ??
     null;
-  const instanceOwner =
-    upstreamData?.instance?.owner ??
-    upstreamData?.owner ??
-    upstreamData?.instance_owner ??
-    null;
-  const status = upstreamData?.instance?.status ?? upstreamData?.status ?? "disconnected";
+	const status = upstreamData?.instance?.status ?? upstreamData?.status ?? "disconnected";
 
   if (!instanceId || !instanceToken) {
     return NextResponse.json({ ok: false, error: "UAZAPI_INVALID_RESPONSE" }, { status: 502 });
@@ -214,16 +176,5 @@ export async function POST(req: Request) {
   if (updateError) {
     return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
   }
-
-  if (instanceOwner) {
-    const { error } = await supabase
-      .from("restaurants")
-      .update({ uaz_instance_owner: instanceOwner })
-      .eq("id", restaurant.id);
-    if (error && !error.message.toLowerCase().includes("uaz_instance_owner")) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    }
-  }
-
-  return NextResponse.json({ ok: true, status, phone: null }, { status: 200 });
+ return NextResponse.json({ ok: true, status, phone: null }, { status: 200 });
 }

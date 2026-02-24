@@ -1,3 +1,33 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+/* ====== SaaS Dark / Glass helpers ====== */
+:root {
+  --bg-0: #05060a;
+  --bg-1: #070a12;
+  --stroke: rgba(255, 255, 255, 0.08);
+  --glass: rgba(255, 255, 255, 0.04);
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg-0);
+}
+
+/* Noise overlay (leve, moderno) */
+.bg-noise {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+}
+
+/* Glass panel */
+.glass-panel {
+  background: var(--glass);
+  border: 1px solid var(--stroke);
+  backdrop-filter: blur(10px);
+}
+
+/* Scrollbar mais clean */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); }

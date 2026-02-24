@@ -263,7 +263,7 @@ export default function InboxPage() {
 
   return (
     // ✅ Mudança VISUAL: fixa a tela pra eliminar scroll “de fora”
-    <div className="fixed inset-0 overflow-hidden bg-[linear-gradient(180deg,#f6f7fb_0%,#eef2ff_100%)] p-3.5">
+    <div className="h-full w-full overflow-hidden bg-transparent p-3.5">
       {/* ✅ sem calc: usa h-full dentro do fixed */}
       <div className="grid h-full grid-cols-[360px_minmax(0,1fr)_340px] gap-3.5 overflow-hidden">
         <SidebarChats

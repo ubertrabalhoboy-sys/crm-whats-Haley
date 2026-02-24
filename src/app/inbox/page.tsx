@@ -296,9 +296,15 @@ export default function InboxPage() {
 
             const tempId = "temp-" + Date.now();
             setMessages((prev) => {
-              const next = [
+              const optimisticMsg: Msg = {
+                id: tempId,
+                direction: "out",
+                text,
+                created_at: new Date().toISOString(),
+              };
+              const next: Msg[] = [
                 ...prev,
-                { id: tempId, direction: "out", text, created_at: new Date().toISOString() },
+                optimisticMsg,
               ];
               messagesByChatIdRef.current[selectedChatId] = next;
               return next;

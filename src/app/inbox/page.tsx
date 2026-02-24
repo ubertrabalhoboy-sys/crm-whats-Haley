@@ -92,8 +92,9 @@ export default function InboxPage() {
     );
   }
 
-  async function loadChats() {
-    setLoadingChats(true);
+  // ✅ Mudança VISUAL: adiciona "silent" pra refresh automático não ficar piscando loading
+  async function loadChats(opts?: { silent?: boolean }) {
+    if (!opts?.silent) setLoadingChats(true);
     setError(null);
     try {
       const res = await fetch(`/api/chats?t=${Date.now()}`, {
@@ -108,7 +109,7 @@ export default function InboxPage() {
     } catch (e: any) {
       setError(e?.message ?? "Erro");
     } finally {
-      setLoadingChats(false);
+      if (!opts?.silent) setLoadingChats(false);
     }
   }
 
@@ -189,7 +190,8 @@ export default function InboxPage() {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      loadChats();
+      // ✅ Mudança VISUAL: refresh automático sem “loading” piscando
+      loadChats({ silent: true });
     }, 5000);
 
     return () => clearInterval(timer);
@@ -224,7 +226,8 @@ export default function InboxPage() {
     loadMessages(selectedChatId);
 
     fetch(`/api/chats/${selectedChatId}/read`, { method: "POST" }).then(() => {
-      loadChats();
+      // ✅ também silencioso pra não piscar
+      loadChats({ silent: true });
     });
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -259,8 +262,10 @@ export default function InboxPage() {
   }, [messages, selectedChatId]);
 
   return (
-    <div className="h-screen overflow-hidden bg-[linear-gradient(180deg,#f6f7fb_0%,#eef2ff_100%)] p-3.5">
-      <div className="grid h-[calc(100vh-28px)] grid-cols-[360px_minmax(0,1fr)_340px] gap-3.5 overflow-hidden">
+    // ✅ Mudança VISUAL: fixa a tela pra eliminar scroll “de fora”
+    <div className="fixed inset-0 overflow-hidden bg-[linear-gradient(180deg,#f6f7fb_0%,#eef2ff_100%)] p-3.5">
+      {/* ✅ sem calc: usa h-full dentro do fixed */}
+      <div className="grid h-full grid-cols-[360px_minmax(0,1fr)_340px] gap-3.5 overflow-hidden">
         <SidebarChats
           chats={chats}
           selectedChatId={selectedChatId}
@@ -302,10 +307,7 @@ export default function InboxPage() {
                 text,
                 created_at: new Date().toISOString(),
               };
-              const next: Msg[] = [
-                ...prev,
-                optimisticMsg,
-              ];
+              const next: Msg[] = [...prev, optimisticMsg];
               messagesByChatIdRef.current[selectedChatId] = next;
               return next;
             });
@@ -326,7 +328,8 @@ export default function InboxPage() {
             }
 
             loadMessages(selectedChatId);
-            loadChats();
+            // ✅ após envio pode atualizar chats sem piscar
+            loadChats({ silent: true });
           }}
         />
 

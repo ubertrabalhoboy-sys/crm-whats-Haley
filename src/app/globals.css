@@ -158,3 +158,96 @@ html, body {
 .glass-card:hover::after {
   opacity: 1;
 }
+/* ================================
+   Cursor-follow CTA Button (public)
+================================ */
+
+.cursor-follow-cta {
+  position: relative;
+  overflow: hidden;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(15, 23, 42, 1); /* slate-900 */
+  background: linear-gradient(135deg, rgb(249, 115, 22), rgb(245, 158, 11)); /* orange-500 -> amber-500 */
+  box-shadow: 0 0 2px 1px rgba(249, 115, 22, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.35s cubic-bezier(1, 0, 0, 1),
+    filter 0.25s ease, background 0.25s ease;
+}
+
+.cursor-follow-cta:hover {
+  box-shadow: 0 0 22px 0 rgba(249, 115, 22, 0.55);
+  filter: brightness(1.03);
+}
+
+.cursor-follow-cta:active {
+  transform: translateY(1px);
+}
+
+/* 2 “sombras” laterais que somem no hover */
+.cursor-follow-cta .cf-left,
+.cursor-follow-cta .cf-right {
+  position: absolute;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  transition: all 0.25s ease;
+}
+
+.cursor-follow-cta .cf-left {
+  left: 0;
+  background-image: radial-gradient(
+    circle at 0% 45%,
+    rgba(16, 5, 36, 0.90) 18%,
+    rgba(16, 5, 36, 0.22) 46%,
+    rgba(16, 5, 36, 0) 100%
+  );
+}
+
+.cursor-follow-cta .cf-right {
+  right: 0;
+  background-image: radial-gradient(
+    circle at 100% 45%,
+    rgba(16, 5, 36, 0.90) 18%,
+    rgba(16, 5, 36, 0.22) 46%,
+    rgba(16, 5, 36, 0) 100%
+  );
+}
+
+.cursor-follow-cta:hover .cf-left,
+.cursor-follow-cta:hover .cf-right {
+  width: 0;
+  opacity: 0;
+}
+
+/* brilho que segue o cursor */
+.cursor-follow-cta::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  opacity: 0.0;
+  transition: opacity 0.2s ease;
+  background: radial-gradient(
+    160px circle at var(--cursor-x, 50%) var(--cursor-y, 50%),
+    rgba(255, 255, 255, 0.35),
+    rgba(255, 255, 255, 0.10) 35%,
+    rgba(255, 255, 255, 0.00) 70%
+  );
+}
+
+.cursor-follow-cta:hover::after {
+  opacity: 1;
+}
+
+/* versão “glass” (se quiser botão transparente) */
+.cursor-follow-cta.glass {
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 0 2px 1px rgba(255, 255, 255, 0.14);
+}
+.cursor-follow-cta.glass:hover {
+  box-shadow: 0 0 18px 0 rgba(255, 255, 255, 0.20);
+}

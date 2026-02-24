@@ -1,9 +1,10 @@
 export default function Home() {
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-black text-slate-100">
+    <main className="relative min-h-screen text-slate-100">
+      {/* pequenos glows locais (bem leve) */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-24 left-10 h-72 w-72 rounded-full bg-orange-500/20 blur-3xl" />
-        <div className="absolute top-10 right-10 h-72 w-72 rounded-full bg-amber-400/10 blur-3xl" />
+        <div className="absolute -top-24 left-10 h-72 w-72 rounded-full bg-orange-500/12 blur-3xl" />
+        <div className="absolute top-10 right-10 h-72 w-72 rounded-full bg-amber-400/8 blur-3xl" />
       </div>
 
       <div className="relative mx-auto max-w-6xl px-6 py-10">

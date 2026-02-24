@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef } from "react";
 
@@ -14,7 +14,9 @@ export default function NexbotAuraBackground() {
 
     const vsSource = `
       attribute vec2 position;
-      void main() { gl_Position = vec4(position, 0.0, 1.0); }
+      void main() {
+        gl_Position = vec4(position, 0.0, 1.0);
+      }
     `;
 
     const fsSource = `
@@ -22,135 +24,143 @@ export default function NexbotAuraBackground() {
       uniform float iTime;
       uniform vec2 iResolution;
 
-      mat2 rotate2d(float a){ return mat2(cos(a), -sin(a), sin(a), cos(a)); }
-
-      float var(vec2 v1, vec2 v2, float s, float sp) {
-          return sin(dot(normalize(v1), normalize(v2)) * s + iTime * sp) / 100.0;
+      mat2 rot(float a) {
+        float c = cos(a);
+        float s = sin(a);
+        return mat2(c, -s, s, c);
       }
 
-      vec3 circle(vec2 uv, vec2 c, float r, float w) {
-          vec2 d = c - uv;
-          float l = length(d);
-          l += var(d, vec2(0.0, 1.0), 5.0, 2.0);
-          l -= var(d, vec2(1.0, 0.0), 5.0, 2.0);
-          float e = smoothstep(r - w, r, l) - smoothstep(r, r + w, l);
-          return vec3(e);
+      float ring(vec2 p, float r, float w) {
+        float d = abs(length(p) - r);
+        return smoothstep(w, 0.0, d);
       }
 
       void main() {
-          vec2 uv = gl_FragCoord.xy / iResolution.xy;
-          float aspect = iResolution.x / iResolution.y;
-          uv.x *= aspect;
+        vec2 uv = gl_FragCoord.xy / iResolution.xy;
+        vec2 p = uv * 2.0 - 1.0;
+        p.x *= iResolution.x / iResolution.y;
 
-          vec2 center = vec2(0.5 * aspect, 0.5);
+        float t = iTime * 0.55;
+        vec2 q = rot(t * 0.7) * p;
+        vec2 q2 = rot(-t * 0.4) * p;
 
-          vec3 col = vec3(0.0);
-          float rad = 0.42;
+        float r1 = ring(q, 0.44 + sin(t * 1.3) * 0.01, 0.03);
+        float r2 = ring(q2, 0.36 + cos(t * 1.1) * 0.01, 0.015);
+        float core = ring(p, 0.28, 0.007);
 
-          col += circle(uv, center, rad, 0.05);
-          col += circle(uv, center, rad, 0.02);
-          col += circle(uv, center, rad - 0.04, 0.01);
+        float sweep = smoothstep(0.98, 1.0, cos(atan(q.y, q.x) * 3.0 - t * 2.2));
+        vec3 c1 = vec3(1.0, 0.45, 0.12) * r1;
+        vec3 c2 = vec3(0.35, 0.55, 1.0) * r2;
+        vec3 c3 = vec3(0.95, 0.9, 0.7) * core * 0.9;
 
-          vec2 v = rotate2d(iTime * 0.4) * (uv - center);
-          vec3 auraColor = vec3(v.x + 0.6, v.y + 0.4, 0.8 - v.y * v.x);
+        vec3 glow = (c1 + c2 + c3) * (1.0 + sweep * 0.25);
+        glow += vec3(0.8, 0.35, 0.12) * ring(p, 0.5, 0.09) * 0.22;
 
-          col *= auraColor * 1.5;
-          col += circle(uv, center, rad, 0.005) * 2.0;
-
-          gl_FragColor = vec4(col, 1.0);
+        gl_FragColor = vec4(glow, clamp(length(glow) * 0.6, 0.0, 1.0));
       }
     `;
 
     const createShader = (type: number, source: string) => {
-      const s = gl.createShader(type);
-      if (!s) throw new Error("createShader failed");
-      gl.shaderSource(s, source);
-      gl.compileShader(s);
-      return s;
+      const shader = gl.createShader(type);
+      if (!shader) throw new Error("shader_create_failed");
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        const log = gl.getShaderInfoLog(shader) || "shader_compile_failed";
+        gl.deleteShader(shader);
+        throw new Error(log);
+      }
+      return shader;
     };
 
     const program = gl.createProgram();
     if (!program) return;
 
-    const vs = createShader(gl.VERTEX_SHADER, vsSource);
-    const fs = createShader(gl.FRAGMENT_SHADER, fsSource);
-
-    gl.attachShader(program, vs);
-    gl.attachShader(program, fs);
-    gl.linkProgram(program);
-    gl.useProgram(program);
-
-    const buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.bufferData(
-      gl.ARRAY_BUFFER,
-      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
-      gl.STATIC_DRAW
-    );
-
-    const posLoc = gl.getAttribLocation(program, "position");
-    gl.enableVertexAttribArray(posLoc);
-    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
-
-    const tLoc = gl.getUniformLocation(program, "iTime");
-    const rLoc = gl.getUniformLocation(program, "iResolution");
-
-    const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.floor(window.innerWidth * dpr);
-      canvas.height = Math.floor(window.innerHeight * dpr);
-      canvas.style.width = "100vw";
-      canvas.style.height = "100vh";
-      gl.viewport(0, 0, canvas.width, canvas.height);
-    };
-
     let raf = 0;
-    const render = (time: number) => {
-      gl.uniform1f(tLoc, time * 0.001);
-      gl.uniform2f(rLoc, canvas.width, canvas.height);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    let vs: WebGLShader | null = null;
+    let fs: WebGLShader | null = null;
+    let buffer: WebGLBuffer | null = null;
+
+    try {
+      vs = createShader(gl.VERTEX_SHADER, vsSource);
+      fs = createShader(gl.FRAGMENT_SHADER, fsSource);
+      gl.attachShader(program, vs);
+      gl.attachShader(program, fs);
+      gl.linkProgram(program);
+
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(program) || "program_link_failed");
+      }
+
+      gl.useProgram(program);
+
+      buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+        gl.STATIC_DRAW
+      );
+
+      const posLoc = gl.getAttribLocation(program, "position");
+      gl.enableVertexAttribArray(posLoc);
+      gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+      const timeLoc = gl.getUniformLocation(program, "iTime");
+      const resLoc = gl.getUniformLocation(program, "iResolution");
+
+      const resize = () => {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.floor(window.innerWidth * dpr);
+        canvas.height = Math.floor(window.innerHeight * dpr);
+        canvas.style.width = "100vw";
+        canvas.style.height = "100vh";
+        gl.viewport(0, 0, canvas.width, canvas.height);
+      };
+
+      const render = (time: number) => {
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        if (timeLoc) gl.uniform1f(timeLoc, time * 0.001);
+        if (resLoc) gl.uniform2f(resLoc, canvas.width, canvas.height);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        raf = requestAnimationFrame(render);
+      };
+
+      window.addEventListener("resize", resize);
+      resize();
       raf = requestAnimationFrame(render);
-    };
 
-    window.addEventListener("resize", resize);
-    resize();
-    raf = requestAnimationFrame(render);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", resize);
+      return () => {
+        cancelAnimationFrame(raf);
+        window.removeEventListener("resize", resize);
+        if (buffer) gl.deleteBuffer(buffer);
+        if (vs) gl.deleteShader(vs);
+        if (fs) gl.deleteShader(fs);
+        gl.deleteProgram(program);
+      };
+    } catch {
       gl.deleteProgram(program);
-      gl.deleteShader(vs);
-      gl.deleteShader(fs);
-      gl.deleteBuffer(buffer);
-    };
+      if (buffer) gl.deleteBuffer(buffer);
+      if (vs) gl.deleteShader(vs);
+      if (fs) gl.deleteShader(fs);
+      return;
+    }
   }, []);
 
   return (
-    <div className="pointer-events-none fixed inset-0 -z-10">
-      {/* fundo base escuro pra ficar igual seu exemplo */}
-      <div className="absolute inset-0 bg-black" />
+    <div className="pointer-events-none fixed inset-0 -z-20 overflow-hidden">
+      <div className="absolute inset-0 bg-[#05060a]" />
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full opacity-90" />
 
-      {/* shader */}
-      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
-
-      {/* spline na frente do shader */}
-      <div
-        className="absolute inset-0 z-10"
-        style={{
-          mixBlendMode: "screen",
-          pointerEvents: "none",
-        }}
-      >
+      <div className="absolute inset-0">
         <iframe
-          title="Nexbot"
+          title="Nexbot Robot"
           src="https://my.spline.design/nexbotrobotcharacterconcept-FDt7cww2KDcL0RxmRfz1cZG7/"
-          className="h-full w-full border-0"
+          className="h-full w-full border-0 opacity-85"
+          style={{ pointerEvents: "none" }}
         />
       </div>
-
-      {/* overlay pra dar contraste nos cards */}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/25 to-black/45" />
     </div>
   );
 }

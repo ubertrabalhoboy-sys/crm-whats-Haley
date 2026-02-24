@@ -1,9 +1,10 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
-import { createSupabaseBrowser } from "@/lib/supabase/browser";
+import { createSupabaseBrowser } from "../../../lib/supabase/browser";
+import CursorFollowButton from "../../../components/public/CursorFollowButton";
 
 function mapSignupError(message: string) {
   const normalized = message.toLowerCase();
@@ -66,63 +67,24 @@ export default function SignupPage() {
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl items-center justify-center px-4 py-10">
       <div className="glass-panel glass-card w-full overflow-hidden rounded-3xl shadow-2xl shadow-black/40">
-        {/* top */}
-        <div className="bg-black/10 px-8 py-10 text-center">
-          <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/15 bg-white/10 backdrop-blur-sm">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-400 shadow-lg shadow-orange-500/20" />
+        <div className="border-b border-white/10 bg-white/5 px-8 py-10 text-center">
+          <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-400 shadow-lg shadow-orange-500/25" />
           </div>
 
-          <h1 className="text-4xl font-medium tracking-tight text-white sm:text-5xl">
-            Criar conta
-          </h1>
-          <p className="mt-2 text-sm font-light text-white/75">
-            Cadastre seu usuário e comece a usar o CRM.
-          </p>
-
-          <div className="mt-4 flex items-center justify-center gap-3">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20 text-xs font-semibold text-white backdrop-blur-sm">
-                1
-              </div>
-              <span className="hidden text-xs font-medium text-white/90 sm:block">
-                Conta
-              </span>
-            </div>
-            <div className="h-px w-6 bg-white/30" />
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs font-semibold text-white/80 backdrop-blur-sm">
-                2
-              </div>
-              <span className="hidden text-xs font-medium text-white/60 sm:block">
-                Verificação
-              </span>
-            </div>
-            <div className="h-px w-6 bg-white/30" />
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs font-semibold text-white/80 backdrop-blur-sm">
-                3
-              </div>
-              <span className="hidden text-xs font-medium text-white/60 sm:block">
-                Dashboard
-              </span>
-            </div>
-          </div>
+          <h1 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">Criar conta</h1>
+          <p className="mt-2 text-sm text-slate-300">Comece a operar seu CRM de WhatsApp hoje.</p>
         </div>
 
-        {/* form */}
         <div className="p-8">
           <div className="mb-6">
-            <h2 className="text-2xl font-medium text-white">Vamos começar</h2>
-            <p className="mt-1 text-sm font-normal text-white/70">
-              Use um email válido. Você pode precisar confirmar depois.
-            </p>
+            <h2 className="text-2xl font-semibold text-white">Abra sua conta</h2>
+            <p className="mt-1 text-sm text-slate-300">Use um email válido para receber confirmação e acesso.</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="mb-2 block text-sm font-medium text-white">
-                Email
-              </label>
+              <label className="mb-2 block text-sm font-medium text-slate-200">Email</label>
               <div className="glass-panel-strong overflow-hidden rounded-xl">
                 <input
                   type="email"
@@ -130,15 +92,13 @@ export default function SignupPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="seuemail@dominio.com"
-                  className="w-full bg-transparent px-4 py-3 text-sm text-white placeholder:text-white/50 outline-none"
+                  className="w-full bg-transparent px-4 py-3 text-sm text-white placeholder:text-slate-400 outline-none"
                 />
               </div>
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-white">
-                Senha
-              </label>
+              <label className="mb-2 block text-sm font-medium text-slate-200">Senha</label>
               <div className="glass-panel-strong overflow-hidden rounded-xl">
                 <input
                   type="password"
@@ -146,7 +106,7 @@ export default function SignupPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Mínimo 8 caracteres"
-                  className="w-full bg-transparent px-4 py-3 text-sm text-white placeholder:text-white/50 outline-none"
+                  className="w-full bg-transparent px-4 py-3 text-sm text-white placeholder:text-slate-400 outline-none"
                 />
               </div>
             </div>
@@ -157,26 +117,24 @@ export default function SignupPage() {
               </p>
             )}
             {message && (
-              <p className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+              <p className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
                 {message}
               </p>
             )}
 
-            <button
+            <CursorFollowButton
               type="submit"
               disabled={loading}
-              className="glass-button w-full rounded-xl px-4 py-3 text-sm font-semibold text-white hover:bg-white/15 disabled:opacity-60"
+              variant="primary"
+              className="w-full rounded-xl px-4 py-3 text-sm font-semibold"
             >
               {loading ? "Criando..." : "Continuar"}
-            </button>
+            </CursorFollowButton>
           </form>
 
-          <p className="mt-6 text-center text-sm font-normal text-white/70">
+          <p className="mt-6 text-center text-sm text-slate-300">
             Já tem conta?{" "}
-            <Link
-              href="/login"
-              className="font-semibold text-white underline underline-offset-4 hover:opacity-85"
-            >
+            <Link href="/login" className="font-semibold text-white underline underline-offset-4 hover:opacity-85">
               Entrar
             </Link>
           </p>

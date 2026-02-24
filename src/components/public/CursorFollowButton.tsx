@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React from "react";
 
@@ -7,7 +7,9 @@ type Props = {
   href?: string;
   onClick?: () => void;
   className?: string;
-  variant?: "gradient" | "glass";
+  variant?: "primary" | "glass";
+  type?: "button" | "submit" | "reset";
+  disabled?: boolean;
 };
 
 export default function CursorFollowButton({
@@ -15,29 +17,29 @@ export default function CursorFollowButton({
   href,
   onClick,
   className = "",
-  variant = "gradient",
+  variant = "primary",
+  type = "button",
+  disabled = false,
 }: Props) {
   const ref = React.useRef<HTMLAnchorElement | HTMLButtonElement | null>(null);
 
   function setVars(e: React.MouseEvent) {
     const el = ref.current;
     if (!el) return;
-    const r = el.getBoundingClientRect();
-    const x = ((e.clientX - r.left) / r.width) * 100;
-    const y = ((e.clientY - r.top) / r.height) * 100;
+    const rect = el.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
     el.style.setProperty("--cursor-x", `${x}%`);
     el.style.setProperty("--cursor-y", `${y}%`);
   }
 
-  const base = `cursor-follow-cta ${variant === "glass" ? "glass" : ""} ${className}`;
+  const variantClass = variant === "glass" ? "cf-variant-glass" : "cf-variant-primary";
+  const baseClass = `cursor-follow-cta ${variantClass} ${disabled ? "opacity-60 pointer-events-none" : ""} ${className}`.trim();
 
   const content = (
     <>
-      <span className="relative z-10 inline-flex items-center gap-2">
-        {children}
-      </span>
-      <div className="cf-left" />
-      <div className="cf-right" />
+      <span className="relative z-10 inline-flex items-center justify-center gap-2">{children}</span>
+      <span className="cf-glow" aria-hidden="true" />
     </>
   );
 
@@ -47,8 +49,7 @@ export default function CursorFollowButton({
         ref={ref as React.RefObject<HTMLAnchorElement>}
         href={href}
         onMouseMove={setVars}
-        className={base}
-        style={{ padding: "0.9rem 1.5rem", fontWeight: 800, fontSize: "0.95rem" }}
+        className={baseClass}
       >
         {content}
       </a>
@@ -58,11 +59,11 @@ export default function CursorFollowButton({
   return (
     <button
       ref={ref as React.RefObject<HTMLButtonElement>}
-      type="button"
+      type={type}
       onClick={onClick}
       onMouseMove={setVars}
-      className={base}
-      style={{ padding: "0.9rem 1.5rem", fontWeight: 800, fontSize: "0.95rem" }}
+      disabled={disabled}
+      className={baseClass}
     >
       {content}
     </button>

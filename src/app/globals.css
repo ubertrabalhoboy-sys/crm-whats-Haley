@@ -31,3 +31,130 @@ html, body {
 ::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); border-radius: 999px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); }
+/* ================================
+   PUBLIC — GLASS / PARTICLES / LIGHT BEAMS / FLOAT TEXT
+   Cole este bloco NO FINAL do globals.css
+================================ */
+
+:root {
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-bg: rgba(255, 255, 255, 0.10);
+  --glass-bg-strong: rgba(255, 255, 255, 0.14);
+  --shine: rgba(255, 255, 255, 0.40);
+}
+
+/* floating text (subtle) */
+@keyframes floatText {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -6px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes floatTextSoft {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -3px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+/* particles */
+@keyframes particleFloat {
+  0% { transform: translate3d(0, 12px, 0); opacity: 0.0; }
+  15% { opacity: 1; }
+  50% { transform: translate3d(0, -18px, 0); opacity: 0.9; }
+  100% { transform: translate3d(0, -38px, 0); opacity: 0.0; }
+}
+
+/* light beams */
+@keyframes beamSweep {
+  0% { transform: translateX(-40%) rotate(-18deg); opacity: 0.0; }
+  20% { opacity: 0.45; }
+  50% { opacity: 0.30; }
+  100% { transform: translateX(55%) rotate(-18deg); opacity: 0.0; }
+}
+
+@keyframes beamSweep2 {
+  0% { transform: translateX(60%) rotate(14deg); opacity: 0.0; }
+  20% { opacity: 0.35; }
+  55% { opacity: 0.22; }
+  100% { transform: translateX(-55%) rotate(14deg); opacity: 0.0; }
+}
+
+/* shine pass on buttons/cards */
+@keyframes shinePass {
+  0% { transform: translateX(-140%) skewX(-18deg); opacity: 0.0; }
+  15% { opacity: 1; }
+  40% { opacity: 0.55; }
+  100% { transform: translateX(140%) skewX(-18deg); opacity: 0.0; }
+}
+
+/* Scope: apenas páginas públicas */
+.public-scope h1 {
+  animation: floatText 6s ease-in-out infinite;
+  will-change: transform;
+}
+.public-scope h2 {
+  animation: floatTextSoft 7s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* glass primitives */
+.glass-panel {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.glass-panel-strong {
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+/* dynamic glass shine: use on buttons */
+.glass-button {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.glass-button::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: linear-gradient(90deg, transparent, var(--shine), transparent);
+  transform: translateX(-140%) skewX(-18deg);
+  opacity: 0;
+}
+
+.glass-button:hover::before {
+  animation: shinePass 0.9s cubic-bezier(0.2, 1, 0.2, 1) forwards;
+}
+
+.glass-button:active {
+  transform: translateY(1px);
+}
+
+/* optional: card shine */
+.glass-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-card::after {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  background: radial-gradient(circle at 30% 20%, rgba(255,255,255,0.14), transparent 45%);
+  opacity: 0.0;
+  transition: opacity 250ms ease;
+  pointer-events: none;
+}
+
+.glass-card:hover::after {
+  opacity: 1;
+}

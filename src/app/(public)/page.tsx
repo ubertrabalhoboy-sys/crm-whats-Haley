@@ -1,14 +1,8 @@
 export default function Home() {
   return (
     <main className="relative min-h-screen text-slate-100">
-      {/* pequenos glows locais (bem leve) */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-24 left-10 h-72 w-72 rounded-full bg-orange-500/12 blur-3xl" />
-        <div className="absolute top-10 right-10 h-72 w-72 rounded-full bg-amber-400/8 blur-3xl" />
-      </div>
-
       <div className="relative mx-auto max-w-6xl px-6 py-10">
-        <header className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
+        <header className="glass-panel glass-card flex items-center justify-between gap-4 rounded-2xl px-4 py-3 shadow-2xl shadow-black/30">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-400 shadow-lg shadow-orange-500/20" />
             <div className="leading-tight">
@@ -26,14 +20,14 @@ export default function Home() {
 
             <a
               href="/login"
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-white/10"
+              className="glass-button rounded-xl px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-white/15"
             >
               Entrar
             </a>
 
             <a
               href="/signup"
-              className="rounded-xl bg-gradient-to-br from-orange-500 to-amber-400 px-4 py-2 text-sm font-extrabold text-slate-950 shadow-lg shadow-orange-500/20 hover:brightness-110"
+              className="glass-button rounded-xl bg-gradient-to-br from-orange-500 to-amber-400 px-4 py-2 text-sm font-extrabold text-slate-950 shadow-lg shadow-orange-500/20 hover:brightness-110"
             >
               Criar conta →
             </a>
@@ -41,7 +35,7 @@ export default function Home() {
         </header>
 
         <section className="mt-8 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/40 backdrop-blur">
+          <div className="glass-panel glass-card rounded-3xl p-6 shadow-2xl shadow-black/40">
             <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
               Atendimento, vendas e automações
               <br />
@@ -56,7 +50,14 @@ export default function Home() {
             </p>
 
             <div className="mt-4 flex flex-wrap gap-2">
-              {["Dashboard", "Inbox", "Kanban", "Automações", "Relatórios", "Configurações"].map((t) => (
+              {[
+                "Dashboard",
+                "Inbox",
+                "Kanban",
+                "Automações",
+                "Relatórios",
+                "Configurações",
+              ].map((t) => (
                 <span
                   key={t}
                   className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200/85"
@@ -69,14 +70,14 @@ export default function Home() {
             <div className="mt-6 flex flex-wrap gap-3">
               <a
                 href="/inbox"
-                className="rounded-2xl bg-gradient-to-br from-orange-500 to-amber-400 px-5 py-3 text-sm font-extrabold text-slate-950 shadow-lg shadow-orange-500/20 hover:brightness-110"
+                className="glass-button rounded-2xl bg-gradient-to-br from-orange-500 to-amber-400 px-5 py-3 text-sm font-extrabold text-slate-950 shadow-lg shadow-orange-500/20 hover:brightness-110"
               >
                 Abrir Inbox →
               </a>
 
               <a
                 href="/dashboard"
-                className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10"
+                className="glass-button rounded-2xl px-5 py-3 text-sm font-semibold text-slate-100 hover:bg-white/15"
               >
                 Ver Dashboard
               </a>
@@ -87,8 +88,10 @@ export default function Home() {
             </div>
           </div>
 
-          <aside className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/40 backdrop-blur">
-            <div className="text-xs font-semibold text-slate-300/70">O que você ganha</div>
+          <aside className="glass-panel glass-card rounded-3xl p-6 shadow-2xl shadow-black/40">
+            <div className="text-xs font-semibold text-slate-300/70">
+              O que você ganha
+            </div>
 
             <div className="mt-3 grid gap-3">
               {[
@@ -97,9 +100,14 @@ export default function Home() {
                 ["Automações", "Botões, carrossel, follow-up e regras."],
                 ["Relatórios", "Acompanhe volume, tempo e conversão."],
               ].map(([title, desc]) => (
-                <div key={title} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <div
+                  key={title}
+                  className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                >
                   <div className="text-sm font-extrabold">{title}</div>
-                  <div className="mt-1 text-xs leading-5 text-slate-200/70">{desc}</div>
+                  <div className="mt-1 text-xs leading-5 text-slate-200/70">
+                    {desc}
+                  </div>
                 </div>
               ))}
             </div>

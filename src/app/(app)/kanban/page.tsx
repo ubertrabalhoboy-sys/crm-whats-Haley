@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+﻿import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type Stage = {
   id: string;
@@ -14,7 +14,6 @@ type Chat = {
   contacts?: { phone: string | null; name: string | null } | null;
 };
 
-// ✅ Tipo REAL que vem do Supabase (contacts vem como array)
 type ChatRow = Omit<Chat, "contacts"> & {
   contacts: { phone: string | null; name: string | null }[] | null;
 };
@@ -43,7 +42,7 @@ export default async function KanbanPage() {
 
   if (!user) {
     return (
-      <div className="rounded-xl bg-white p-6 shadow-sm">
+      <div className="wa-card rounded-xl p-6 shadow-xl shadow-emerald-900/5">
         <h1 className="text-xl font-semibold text-slate-900">Kanban</h1>
         <p className="mt-2 text-sm text-rose-600">UNAUTHORIZED</p>
       </div>
@@ -58,7 +57,7 @@ export default async function KanbanPage() {
 
   if (profileError) {
     return (
-      <div className="rounded-xl bg-white p-6 shadow-sm">
+      <div className="wa-card rounded-xl p-6 shadow-xl shadow-emerald-900/5">
         <h1 className="text-xl font-semibold text-slate-900">Kanban</h1>
         <p className="mt-2 text-sm text-rose-600">{profileError.message}</p>
       </div>
@@ -68,7 +67,7 @@ export default async function KanbanPage() {
   const restaurantId = profile?.restaurant_id ?? null;
   if (!restaurantId) {
     return (
-      <div className="rounded-xl bg-white p-6 shadow-sm">
+      <div className="wa-card rounded-xl p-6 shadow-xl shadow-emerald-900/5">
         <h1 className="text-xl font-semibold text-slate-900">Kanban</h1>
         <p className="mt-2 text-sm text-amber-600">RESTAURANT_NOT_SET</p>
       </div>
@@ -90,7 +89,7 @@ export default async function KanbanPage() {
 
   if (stagesError || chatsError) {
     return (
-      <div className="rounded-xl bg-white p-6 shadow-sm">
+      <div className="wa-card rounded-xl p-6 shadow-xl shadow-emerald-900/5">
         <h1 className="text-xl font-semibold text-slate-900">Kanban</h1>
         <p className="mt-2 text-sm text-rose-600">{stagesError?.message || chatsError?.message}</p>
       </div>
@@ -98,8 +97,6 @@ export default async function KanbanPage() {
   }
 
   const stageList = (stages ?? []) as Stage[];
-
-  // ✅ Converte o retorno REAL (contacts[]) para o seu Chat (contacts objeto)
   const chatRows = (chats ?? []) as ChatRow[];
   const chatList: Chat[] = chatRows.map((c) => ({
     ...c,
@@ -108,9 +105,9 @@ export default async function KanbanPage() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl bg-white p-6 shadow-sm">
+      <div className="wa-card rounded-2xl p-6 shadow-xl shadow-emerald-900/5">
         <h1 className="text-xl font-semibold text-slate-900">Kanban</h1>
-        <p className="mt-2 text-sm text-slate-500">
+        <p className="mt-2 text-sm text-slate-600">
           Pipeline por estágio com chats do restaurante atual.
         </p>
       </div>
@@ -123,12 +120,12 @@ export default async function KanbanPage() {
             return (
               <div
                 key={stage.id}
-                className="w-80 shrink-0 rounded-xl border border-slate-200 bg-white shadow-sm"
+                className="w-80 shrink-0 overflow-hidden rounded-2xl border wa-divider wa-glass shadow-[0_10px_24px_rgba(18,140,126,0.06)]"
               >
-                <div className="border-b border-slate-100 px-4 py-3">
+                <div className="wa-topbar border-b wa-divider px-4 py-3 text-white">
                   <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-semibold text-slate-900">{stage.name}</h2>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                    <h2 className="text-sm font-semibold text-white">{stage.name}</h2>
+                    <span className="rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-xs text-white/95">
                       {stageChats.length}
                     </span>
                   </div>
@@ -136,23 +133,23 @@ export default async function KanbanPage() {
 
                 <div className="max-h-[65vh] space-y-3 overflow-y-auto p-3">
                   {stageChats.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
+                    <div className="rounded-lg border wa-divider bg-white/35 p-3 text-sm text-slate-600">
                       Sem chats
                     </div>
                   ) : (
                     stageChats.map((chat) => (
                       <div
                         key={chat.id}
-                        className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+                        className="wa-card wa-glow rounded-xl p-3 shadow-sm"
                       >
                         <p className="text-sm font-medium text-slate-900">{chatTitle(chat)}</p>
                         {chat.contacts?.phone && (
-                          <p className="mt-1 text-xs text-slate-500">{chat.contacts.phone}</p>
+                          <p className="mt-1 text-xs text-slate-600">{chat.contacts.phone}</p>
                         )}
-                        <p className="mt-2 line-clamp-2 text-sm text-slate-600">
-                          {chat.last_message?.trim() || "Sem ultima mensagem"}
+                        <p className="mt-2 line-clamp-2 text-sm text-slate-700">
+                          {chat.last_message?.trim() || "Sem última mensagem"}
                         </p>
-                        <p className="mt-2 text-xs text-slate-400">{formatDate(chat.updated_at)}</p>
+                        <p className="mt-2 text-xs text-slate-500">{formatDate(chat.updated_at)}</p>
                       </div>
                     ))
                   )}
@@ -162,8 +159,8 @@ export default async function KanbanPage() {
           })}
 
           {stageList.length === 0 && (
-            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
-              Nenhum estagio cadastrado em `kanban_stages`.
+            <div className="wa-card rounded-xl border border-dashed wa-divider p-6 text-sm text-slate-600">
+              Nenhum estágio cadastrado em `kanban_stages`.
             </div>
           )}
         </div>
@@ -171,3 +168,5 @@ export default async function KanbanPage() {
     </div>
   );
 }
+
+

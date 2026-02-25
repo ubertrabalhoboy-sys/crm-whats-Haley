@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 
@@ -13,7 +13,7 @@ export default function SendBox({
   const [sending, setSending] = useState(false);
 
   return (
-    <div className="flex gap-2.5 border-t border-slate-900/10 bg-white p-3">
+    <div className="sticky bottom-0 z-[2] flex shrink-0 gap-2.5 border-t wa-divider bg-white/35 p-3 backdrop-blur-xl">
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -30,8 +30,10 @@ export default function SendBox({
         }}
         placeholder={disabled ? "Selecione uma conversa..." : "Digite sua mensagem"}
         disabled={disabled || sending}
-        className={`flex-1 rounded-xl border px-3.5 py-3 outline-none ${
-          disabled ? "border-slate-900/10 bg-slate-50" : "border-slate-900/10 bg-white"
+        className={`flex-1 rounded-xl border px-3.5 py-3 text-sm outline-none placeholder:text-slate-500 ${
+          disabled
+            ? "border-slate-900/10 bg-white/35 text-slate-500"
+            : "border-slate-900/10 bg-white/55 text-slate-900 focus:border-[#128C7E]/30 focus:bg-white/70"
         }`}
       />
       <button
@@ -44,10 +46,10 @@ export default function SendBox({
           setSending(true);
           onSend(msg).finally(() => setSending(false));
         }}
-        className={`min-w-[110px] rounded-xl border px-3.5 py-3 font-bold ${
+        className={`min-w-[110px] rounded-xl border px-3.5 py-3 text-sm font-semibold ${
           disabled || sending || !text.trim()
-            ? "cursor-not-allowed border-slate-900/10 bg-gray-200 text-gray-500"
-            : "cursor-pointer border-slate-900/10 bg-gray-900 text-white"
+            ? "cursor-not-allowed border-slate-900/10 bg-white/35 text-slate-500"
+            : "wa-btn wa-btn-primary cursor-pointer text-white"
         }`}
       >
         {sending ? "Enviando..." : "Enviar"}

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ChatPanel from "@/components/inbox/ChatPanel";
@@ -92,7 +92,6 @@ export default function InboxPage() {
     );
   }
 
-  // ✅ Mudança VISUAL: adiciona "silent" pra refresh automático não ficar piscando loading
   async function loadChats(opts?: { silent?: boolean }) {
     if (!opts?.silent) setLoadingChats(true);
     setError(null);
@@ -190,7 +189,6 @@ export default function InboxPage() {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      // ✅ Mudança VISUAL: refresh automático sem “loading” piscando
       loadChats({ silent: true });
     }, 5000);
 
@@ -226,7 +224,6 @@ export default function InboxPage() {
     loadMessages(selectedChatId);
 
     fetch(`/api/chats/${selectedChatId}/read`, { method: "POST" }).then(() => {
-      // ✅ também silencioso pra não piscar
       loadChats({ silent: true });
     });
 
@@ -262,10 +259,8 @@ export default function InboxPage() {
   }, [messages, selectedChatId]);
 
   return (
-    // ✅ Mudança VISUAL: fixa a tela pra eliminar scroll “de fora”
-    <div className="h-full w-full overflow-hidden bg-transparent p-3.5">
-      {/* ✅ sem calc: usa h-full dentro do fixed */}
-      <div className="grid h-full grid-cols-[360px_minmax(0,1fr)_340px] gap-3.5 overflow-hidden">
+    <div className="h-screen overflow-hidden bg-transparent p-3.5">
+      <div className="grid h-full grid-cols-[320px_minmax(0,1fr)] gap-3.5 overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)_360px]">
         <SidebarChats
           chats={chats}
           selectedChatId={selectedChatId}
@@ -328,7 +323,6 @@ export default function InboxPage() {
             }
 
             loadMessages(selectedChatId);
-            // ✅ após envio pode atualizar chats sem piscar
             loadChats({ silent: true });
           }}
         />

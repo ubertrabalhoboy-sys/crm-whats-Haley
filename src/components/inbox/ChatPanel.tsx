@@ -42,18 +42,20 @@ export default function ChatPanel({
   onSend: (text: string) => Promise<void>;
 }) {
   return (
-    <main className="flex min-h-0 min-w-0 h-full flex-col overflow-hidden rounded-[2rem] bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5">
+    <main className="flex min-h-0 min-w-0 h-[calc(100vh-250px)] flex-col overflow-hidden rounded-[2rem] bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5">
       <div className="sticky top-0 z-[2] border-b wa-divider bg-white/35 p-3 backdrop-blur-xl">
         <div className="flex items-center gap-2.5">
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold text-slate-900">
               {selectedChat
-                ? (selectedChat.contacts?.name ||
-                  selectedChat.contacts?.phone ||
-                  selectedChat.wa_chat_id)?.replace("@s.whatsapp.net", "")
+                ? (selectedChat.contacts?.name || selectedChat.contacts?.phone || selectedChat.wa_chat_id)?.includes("@")
+                  ? (selectedChat.contacts?.name || selectedChat.contacts?.phone || selectedChat.wa_chat_id)?.split("@")[0]
+                  : (selectedChat.contacts?.name || selectedChat.contacts?.phone || selectedChat.wa_chat_id)
                 : "Selecione uma conversa"}
             </div>
-            <div className="truncate text-xs text-slate-600">{selectedChat?.wa_chat_id?.replace("@s.whatsapp.net", "") ?? ""}</div>
+            <div className="truncate text-xs text-slate-600">
+              {selectedChat?.wa_chat_id?.includes("@") ? selectedChat.wa_chat_id.split("@")[0] : selectedChat?.wa_chat_id ?? ""}
+            </div>
           </div>
 
           <span className="rounded-full border wa-divider bg-white/45 px-2.5 py-1.5 text-xs font-semibold text-slate-700">

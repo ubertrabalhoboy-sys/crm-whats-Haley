@@ -63,7 +63,7 @@ export default function SidebarChats({
             chats.map((c) => {
               const active = c.id === selectedChatId;
               const rawTitle = c.contacts?.name || c.contacts?.phone || c.wa_chat_id || "Sem nome";
-              const title = rawTitle.replace("@s.whatsapp.net", "");
+              const title = rawTitle.includes("@") ? rawTitle.split("@")[0] : rawTitle;
 
               return (
                 <button

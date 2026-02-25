@@ -23,7 +23,7 @@ export default function DetailsPanel({ selectedChat }: { selectedChat: Chat | nu
               <div className="mb-2 text-[11px] font-black uppercase tracking-[0.2em] text-[#07a0c3]">Contato</div>
               <div className="text-[13px] text-slate-700">
                 <div>Nome: {selectedChat.contacts?.name || "-"}</div>
-                <div>Telefone: {selectedChat.contacts?.phone?.replace("@s.whatsapp.net", "") || "-"}</div>
+                <div>Telefone: {selectedChat.contacts?.phone?.includes("@") ? selectedChat.contacts.phone.split("@")[0] : selectedChat.contacts?.phone || "-"}</div>
               </div>
             </div>
 

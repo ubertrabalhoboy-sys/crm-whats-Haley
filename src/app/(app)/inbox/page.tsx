@@ -260,7 +260,7 @@ export default function InboxPage() {
 
 
   return (
-    <div className="h-[calc(100vh-130px)] w-full flex flex-col overflow-hidden bg-[#f0f2f5] rounded-[2.5rem] p-3.5 shadow-inner">
+    <div className="h-full max-h-full w-full flex flex-col overflow-hidden bg-[#f0f2f5] rounded-[2.5rem] p-3.5 shadow-inner">
       <div className="flex flex-1 min-h-0 gap-3.5 overflow-hidden">
         <div className="w-[320px] min-w-[320px] max-w-[400px] flex-shrink-0 h-full flex flex-col min-h-0">
           <SidebarChats chats={chats} selectedChatId={selectedChatId} loadingChats={loadingChats} error={error} onRefresh={loadChats} onSelectChat={(chatId) => { if (chatId === selectedChatId) return; setSelectedChatId(chatId); loadMessages(chatId, { force: true }); }} />

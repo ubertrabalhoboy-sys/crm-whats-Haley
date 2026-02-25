@@ -139,7 +139,7 @@ export default function ChatPanel({
         <div ref={bottomRef} />
       </div>
 
-      <SendBox disabled={!selectedChatId} onSend={onSend} />
+      <SendBox disabled={!selectedChatId} onSend={onSend} messages={messages} />
     </main>
   );
 }

@@ -158,28 +158,28 @@ export async function POST(req: Request) {
 
   const wasSentByApi = toBool(
     body?.wasSentByApi ??
-      body?.message?.wasSentByApi ??
-      body?.data?.wasSentByApi ??
-      body?.data?.message?.wasSentByApi
+    body?.message?.wasSentByApi ??
+    body?.data?.wasSentByApi ??
+    body?.data?.message?.wasSentByApi
   );
 
   const isGroupYes = toBool(
     body?.isGroupYes ??
-      body?.chat?.isGroupYes ??
-      body?.message?.isGroupYes ??
-      body?.data?.isGroupYes ??
-      body?.data?.message?.isGroupYes
+    body?.chat?.isGroupYes ??
+    body?.message?.isGroupYes ??
+    body?.data?.isGroupYes ??
+    body?.data?.message?.isGroupYes
   );
 
   const fromMe = toBool(
     body?.fromMe ??
-      body?.message?.fromMe ??
-      body?.data?.fromMe ??
-      body?.data?.message?.fromMe ??
-      body?.key?.fromMe ??
-      body?.message?.key?.fromMe ??
-      body?.data?.key?.fromMe ??
-      body?.data?.message?.key?.fromMe
+    body?.message?.fromMe ??
+    body?.data?.fromMe ??
+    body?.data?.message?.fromMe ??
+    body?.key?.fromMe ??
+    body?.message?.key?.fromMe ??
+    body?.data?.key?.fromMe ??
+    body?.data?.message?.key?.fromMe
   );
 
   if (wasSentByApi || isGroupYes || fromMe) {
@@ -420,7 +420,7 @@ export async function POST(req: Request) {
     const bodyDisplayText = readString(bodyRoot?.message?.content?.Response?.SelectedDisplayText);
     const bodyChatId = readString(bodyRoot?.message?.chatid);
     const bodyMessageId = readString(bodyRoot?.message?.messageid);
-	 if (
+    if (
       bodyEventType?.toLowerCase() === "messages" &&
       bodyMessageType === "ButtonsResponseMessage" &&
       !bodyFromMe &&
@@ -428,7 +428,7 @@ export async function POST(req: Request) {
       bodyChatId &&
       bodyMessageId
     ) {
-	if (!restaurantId || !chatId) {
+      if (!restaurantId || !chatId) {
         console.warn("[webhook/uazapi] button_clicked skipped: missing tenant/chat context");
       } else {
         const fingerprint = `btn:${bodyChatId}:${bodyMessageId}`;
@@ -471,9 +471,47 @@ export async function POST(req: Request) {
     const b = body?.BODY ?? body;
     const buttonClicked = extractButtonClicked(body);
 
-if (buttonClicked?.buttonId && buttonClicked?.chatId && buttonClicked?.messageId) {
-  // forward
-}
+    if (buttonClicked?.buttonId && buttonClicked?.chatId && buttonClicked?.messageId) {
+      // FIRE AND FORGET GAMIFICATION INTERCEPTOR (Non-Blocking)
+      (async () => {
+        try {
+          const btnId = buttonClicked.buttonId;
+
+          // Fast check if this is a known product stored in 'produtos_promo'
+          // A user might pass the raw ID or a 'produto_XXX' string
+          const { data: promoData } = await supabaseServer
+            .from("produtos_promo")
+            .select("nome, preco_promo")
+            .or(`id.eq.${btnId},nome.ilike.%${btnId}%`)
+            .maybeSingle();
+
+          if (promoData) {
+            console.log(`[webhook/gamification] Matching product found: ${promoData.nome} - Updating ROI.`);
+
+            // Standard Approach (safe enough for most chat flows):
+            const { data: chatData } = await supabaseServer
+              .from("chats")
+              .select("valor_total_vendas")
+              .eq("id", chatId)
+              .single();
+
+            const val = chatData?.valor_total_vendas ? Number(chatData.valor_total_vendas) : 0;
+            const newVal = val + Number(promoData.preco_promo);
+
+            await supabaseServer
+              .from("chats")
+              .update({
+                valor_total_vendas: newVal,
+                cupom_ganho: promoData.nome,
+                kanban_status: "Pedido Recebido"
+              })
+              .eq("id", chatId);
+          }
+        } catch (err) {
+          console.error("[webhook/gamification] Non-critical error executing ROI updates:", err);
+        }
+      })();
+    }
 
     if (buttonClicked) {
       const fiqonWebhookUrl = process.env.FIQON_WEBHOOK_URL;
@@ -482,7 +520,7 @@ if (buttonClicked?.buttonId && buttonClicked?.chatId && buttonClicked?.messageId
       } else {
         const buttonId =
           readString(b?.message?.buttonOrListid, b?.message?.content?.selectedButtonID) ?? null;
-		   const messageid = readString(b?.message?.messageid) ?? null;
+        const messageid = readString(b?.message?.messageid) ?? null;
         const payload = {
           event: "button_clicked",
           instanceName: readString(b?.instanceName),
@@ -505,7 +543,7 @@ if (buttonClicked?.buttonId && buttonClicked?.chatId && buttonClicked?.messageId
         })
           .then((resp) => {
             console.log("[fiqon-forward] sent", { status: resp.status, buttonId, messageid });
-			  })
+          })
           .catch((err) => {
             console.error("[fiqon-forward] fail", {
               error: String(err),

@@ -231,7 +231,7 @@ export default function InboxPage() {
         </div>
 
         <div className="hidden xl:flex w-[360px] flex-shrink-0 h-full flex flex-col min-h-0">
-          <DetailsPanel selectedChat={selectedChat} />
+          <DetailsPanel selectedChat={selectedChat} messages={messages} />
         </div>
       </div>
     </div>

@@ -33,13 +33,14 @@ export default function CursorFollowButton({
     el.style.setProperty("--cursor-y", `${y}%`);
   }
 
-  const variantClass = variant === "glass" ? "cf-variant-glass" : "cf-variant-primary";
-  const baseClass = `cursor-follow-cta ${variantClass} ${disabled ? "opacity-60 pointer-events-none" : ""} ${className}`.trim();
+  const variantClass = variant === "glass" ? "cf-variant-glass wa-btn-glass" : "cf-variant-primary wa-btn-primary";
+  const baseClass = `cursor-follow-cta wa-btn ${variantClass} ${disabled ? "opacity-60 pointer-events-none" : ""} ${className}`.trim();
 
   const content = (
     <>
       <span className="relative z-10 inline-flex items-center justify-center gap-2">{children}</span>
       <span className="cf-glow" aria-hidden="true" />
+      <span className="wa-specular" aria-hidden="true" />
     </>
   );
 

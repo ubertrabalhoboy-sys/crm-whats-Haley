@@ -363,3 +363,172 @@ html, body {
 .cursor-follow-cta.cf-variant-primary:hover {
   box-shadow: 0 12px 34px rgba(245, 158, 11, 0.28);
 }
+
+/* ========================================
+   WhatsApp Premium Light Theme (append-only)
+   ======================================== */
+:root {
+  --wa-bg: #ece5dd;
+  --wa-bg-2: #f8fafc;
+  --wa-green: #128c7e;
+  --wa-green-dark: #075e54;
+  --wa-text: #0f172a;
+  --wa-muted: #475569;
+  --wa-border: rgba(15, 23, 42, 0.10);
+  --wa-glass: rgba(255, 255, 255, 0.55);
+  --wa-glass-strong: rgba(255, 255, 255, 0.72);
+  --wa-glow: rgba(18, 140, 126, 0.25);
+}
+
+.wa-bg {
+  background:
+    radial-gradient(900px 420px at 12% 8%, rgba(18,140,126,0.08), transparent 60%),
+    radial-gradient(800px 380px at 92% 12%, rgba(6,182,212,0.06), transparent 58%),
+    linear-gradient(180deg, #f8fafc 0%, #f4efe8 45%, #ece5dd 100%);
+}
+
+.wa-particle-overlay {
+  background-image:
+    radial-gradient(circle at 20% 20%, rgba(18,140,126,0.08) 0 2px, transparent 3px),
+    radial-gradient(circle at 78% 28%, rgba(18,140,126,0.06) 0 2px, transparent 3px),
+    radial-gradient(circle at 35% 70%, rgba(6,182,212,0.05) 0 2px, transparent 3px),
+    radial-gradient(circle at 82% 82%, rgba(18,140,126,0.06) 0 2px, transparent 3px);
+  background-size: 240px 240px, 260px 260px, 220px 220px, 280px 280px;
+  animation: waParticlesDrift 18s linear infinite;
+}
+
+@keyframes waParticlesDrift {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -8px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+.wa-divider {
+  border-color: var(--wa-border) !important;
+}
+
+.wa-glass {
+  background: var(--wa-glass);
+  border: 1px solid var(--wa-border);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.wa-card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.62), rgba(255,255,255,0.50));
+  border: 1px solid var(--wa-border);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  position: relative;
+  overflow: hidden;
+}
+
+.wa-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(480px 140px at 12% -10%, rgba(255,255,255,0.65), transparent 60%);
+}
+
+.wa-topbar {
+  background: linear-gradient(180deg, rgba(18,140,126,0.96), rgba(7,94,84,0.94));
+  position: sticky;
+}
+
+.wa-topbar::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 45%;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.02));
+}
+
+.wa-glow:hover {
+  box-shadow: 0 0 0 1px rgba(18,140,126,0.15), 0 12px 30px rgba(18,140,126,0.14);
+}
+
+.wa-btn {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--wa-border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: box-shadow .2s ease, transform .16s ease, filter .2s ease, background .2s ease;
+}
+
+.wa-btn:hover {
+  box-shadow: 0 8px 22px rgba(18, 140, 126, 0.12);
+}
+
+.wa-btn:active {
+  transform: translateY(1px);
+}
+
+.wa-btn-glass {
+  background: rgba(255,255,255,0.52);
+  color: var(--wa-text);
+}
+
+.wa-btn-primary {
+  background: linear-gradient(135deg, rgba(18,140,126,0.98), rgba(22,163,74,0.94));
+  border-color: rgba(18,140,126,0.35);
+  box-shadow: 0 8px 24px rgba(18,140,126,0.18);
+}
+
+.wa-btn-primary:hover {
+  box-shadow: 0 10px 28px rgba(18,140,126,0.25), 0 0 0 1px rgba(255,255,255,0.12) inset;
+}
+
+/* Cursor-follow CTA theme override for WhatsApp premium light */
+.cursor-follow-cta.wa-btn {
+  border-color: rgba(15, 23, 42, 0.10);
+}
+
+.cursor-follow-cta.wa-btn .wa-specular {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 50%;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,0.26), rgba(255,255,255,0.02));
+}
+
+.cursor-follow-cta.wa-btn.cf-variant-glass,
+.cursor-follow-cta.wa-btn-glass {
+  color: var(--wa-text);
+  background: rgba(255,255,255,0.58);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
+}
+
+.cursor-follow-cta.wa-btn.cf-variant-glass:hover,
+.cursor-follow-cta.wa-btn-glass:hover {
+  background: rgba(255,255,255,0.72);
+  box-shadow: 0 12px 28px rgba(18,140,126,0.10), inset 0 1px 0 rgba(255,255,255,0.45);
+}
+
+.cursor-follow-cta.wa-btn.cf-variant-primary,
+.cursor-follow-cta.wa-btn-primary {
+  color: #fff;
+  background: linear-gradient(135deg, #128C7E 0%, #16a34a 55%, #22c55e 100%);
+  border-color: rgba(18,140,126,0.35);
+  box-shadow: 0 12px 26px rgba(18,140,126,0.18);
+}
+
+.cursor-follow-cta.wa-btn.cf-variant-primary:hover,
+.cursor-follow-cta.wa-btn-primary:hover {
+  box-shadow: 0 14px 30px rgba(18,140,126,0.24), 0 0 22px rgba(18,140,126,0.12);
+}
+
+.cursor-follow-cta .cf-glow {
+  background: radial-gradient(
+    180px circle at var(--cursor-x, 50%) var(--cursor-y, 50%),
+    rgba(18, 140, 126, 0.22),
+    rgba(18, 140, 126, 0.10) 35%,
+    rgba(18, 140, 126, 0.00) 70%
+  );
+}
+
+.wa-app-shell {
+  background: transparent;
+}

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
@@ -101,7 +101,7 @@ export default function WhatsAppSettingsPage() {
 
   const hasVisualCode = useMemo(() => !!qrcode || !!paircode, [qrcode, paircode]);
   const isConnecting = statusText === "connecting";
-   async function refreshStatus() {
+  async function refreshStatus() {
     setLoadingStatus(true);
     const res = await fetch("/api/whatsapp/status", { cache: "no-store" });
     const json = (await res.json()) as StatusResponse;
@@ -118,7 +118,7 @@ export default function WhatsAppSettingsPage() {
     setConnected(normalized.connected ?? !!json.connected);
     setLoggedIn(normalized.loggedIn ?? !!json.loggedIn);
     setJid(normalized.jid ?? null);
-	}
+  }
 
   async function ensureInstance() {
     setLoadingEnsure(true);
@@ -169,7 +169,7 @@ export default function WhatsAppSettingsPage() {
     setLoggedIn(false);
     setQrcode(json.qrcode || null);
     setPaircode(json.paircode || null);
-	}
+  }
 
   async function configureWebhook() {
     setLoadingWebhookConfig(true);
@@ -261,103 +261,59 @@ export default function WhatsAppSettingsPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div className="rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
+      <div className="wa-card rounded-2xl p-7 shadow-xl shadow-emerald-900/5">
         <h1 className="text-2xl font-semibold text-slate-900">Conectar WhatsApp</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Fluxo seguro via backend. Nenhum token é exposto no frontend.
-        </p>
+        <p className="mt-1 text-sm text-slate-600">Fluxo seguro via backend. Nenhum token é exposto no frontend.</p>
 
-        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-          <p>
-            <span className="font-medium text-slate-700">Status:</span> {statusText}
-          </p>
-          {jid && (
-            <p className="mt-1">
-              <span className="font-medium text-slate-700">JID:</span> {jid}
-            </p>
-          )}
-          <p className="mt-1">
-            <span className="font-medium text-slate-700">Connected:</span>{" "}
-            {connected ? "true" : "false"}
-          </p>
-          <p className="mt-1">
-            <span className="font-medium text-slate-700">LoggedIn:</span>{" "}
-            {loggedIn ? "true" : "false"}
-          </p>
+        <div className="mt-5 rounded-xl border wa-divider bg-white/30 px-4 py-3 text-sm text-slate-700">
+          <p><span className="font-medium text-slate-800">Status:</span> {statusText}</p>
+          {jid && (<p className="mt-1"><span className="font-medium text-slate-800">JID:</span> {jid}</p>)}
+          <p className="mt-1"><span className="font-medium text-slate-800">Connected:</span> {connected ? "true" : "false"}</p>
+          <p className="mt-1"><span className="font-medium text-slate-800">LoggedIn:</span> {loggedIn ? "true" : "false"}</p>
         </div>
 
-        {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
-        {instanceFeedback && <p className="mt-3 text-sm text-emerald-600">{instanceFeedback}</p>}
-        {webhookFeedback && <p className="mt-3 text-sm text-emerald-600">{webhookFeedback}</p>}
+        {error && <p className="mt-3 text-sm text-rose-700">{error}</p>}
+        {instanceFeedback && <p className="mt-3 text-sm text-emerald-700">{instanceFeedback}</p>}
+        {webhookFeedback && <p className="mt-3 text-sm text-emerald-700">{webhookFeedback}</p>}
 
         <div className="mt-5 flex flex-wrap gap-3">
-          <button
-            onClick={() => ensureInstance()}
-            disabled={loadingEnsure || loadingQr || loadingPairing}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-          >
+          <button onClick={() => ensureInstance()} disabled={loadingEnsure || loadingQr || loadingPairing} className="wa-btn wa-btn-glass rounded-lg px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60">
             {loadingEnsure ? "Criando..." : "Criar instância"}
           </button>
-          <button
-            onClick={() => connect("qr")}
-            disabled={loadingEnsure || loadingQr || loadingPairing}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-          >
+          <button onClick={() => connect("qr")} disabled={loadingEnsure || loadingQr || loadingPairing} className="wa-btn wa-btn-primary rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
             {loadingQr ? "Gerando..." : "Gerar QR Code"}
           </button>
-          <button
-            onClick={() => refreshStatus()}
-            disabled={loadingStatus}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-          >
+          <button onClick={() => refreshStatus()} disabled={loadingStatus} className="wa-btn wa-btn-glass rounded-lg px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60">
             {loadingStatus ? "Atualizando..." : "Atualizar status"}
           </button>
-          <button
-            onClick={() => configureWebhook()}
-            disabled={loadingWebhookConfig || loadingWebhookStatus}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-          >
+          <button onClick={() => configureWebhook()} disabled={loadingWebhookConfig || loadingWebhookStatus} className="wa-btn wa-btn-glass rounded-lg px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60">
             {loadingWebhookConfig ? "Configurando..." : "Configurar Webhook"}
           </button>
-          <button
-            onClick={() => refreshWebhookStatus()}
-            disabled={loadingWebhookStatus || loadingWebhookConfig}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-          >
+          <button onClick={() => refreshWebhookStatus()} disabled={loadingWebhookStatus || loadingWebhookConfig} className="wa-btn wa-btn-glass rounded-lg px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60">
             {loadingWebhookStatus ? "Atualizando webhook..." : "Atualizar webhook"}
           </button>
-          <button
-            onClick={() => inspectWebhook()}
-            disabled={loadingWebhookInspect}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-          >
+          <button onClick={() => inspectWebhook()} disabled={loadingWebhookInspect} className="wa-btn wa-btn-glass rounded-lg px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60">
             {loadingWebhookInspect ? "Inspecionando..." : "Inspecionar Webhook"}
           </button>
         </div>
 
-        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+        <div className="mt-5 rounded-xl border wa-divider bg-white/30 px-4 py-3 text-sm text-slate-700">
           <p>
-            <span className="font-medium text-slate-700">Webhook:</span>{" "}
+            <span className="font-medium text-slate-800">Webhook:</span>{" "}
             {webhookConfigured === null ? "desconhecido" : webhookConfigured ? "configurado" : "nao configurado"}
           </p>
           {webhookUrl && (
-            <p className="mt-1 break-all">
-              <span className="font-medium text-slate-700">URL:</span> {webhookUrl}
-            </p>
+            <p className="mt-1 break-all"><span className="font-medium text-slate-800">URL:</span> {webhookUrl}</p>
           )}
           {webhookEvents.length > 0 && (
-            <p className="mt-1 break-all">
-              <span className="font-medium text-slate-700">Eventos:</span> {webhookEvents.join(", ")}
-            </p>
+            <p className="mt-1 break-all"><span className="font-medium text-slate-800">Eventos:</span> {webhookEvents.join(", ")}</p>
           )}
         </div>
 
         {webhookInspect !== null && (
-          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-            <p className="mb-2 font-medium text-slate-700">Webhook JSON</p>
-            <pre className="overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">
-              {String(JSON.stringify(webhookInspect, null, 2) ?? "")}
-            </pre>
+          <div className="mt-5 rounded-xl border wa-divider bg-white/30 px-4 py-3 text-sm">
+            <p className="mb-2 font-medium text-slate-800">Webhook JSON</p>
+            <pre className="overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">{String(JSON.stringify(webhookInspect, null, 2) ?? "")}</pre>
           </div>
         )}
 
@@ -368,38 +324,26 @@ export default function WhatsAppSettingsPage() {
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="5511999999999"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+              className="w-full rounded-lg border wa-divider bg-white/35 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-500 focus:border-[#128C7E]/35"
             />
           </div>
-          <button
-            type="submit"
-            disabled={loadingEnsure || loadingQr || loadingPairing}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-          >
+          <button type="submit" disabled={loadingEnsure || loadingQr || loadingPairing} className="wa-btn wa-btn-glass rounded-lg px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60">
             {loadingPairing ? "Gerando..." : "Gerar Código de Pareamento"}
           </button>
         </form>
       </div>
 
       {hasVisualCode && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="wa-card rounded-2xl p-6 shadow-xl shadow-emerald-900/5">
           {qrcode && (
             <div>
               <p className="mb-2 text-sm font-medium text-slate-700">QR Code</p>
               {qrImageSrc ? (
-                <img
-                  src={qrImageSrc}
-                  alt="QR Code"
-                  className="h-64 w-64 rounded-lg border border-slate-200 bg-white p-2"
-                />
+                <img src={qrImageSrc} alt="QR Code" className="h-64 w-64 rounded-lg border wa-divider bg-white p-2" />
               ) : (
                 <>
-                  <p className="mb-2 text-xs text-slate-500">
-                    QR em texto: escaneie com o WhatsApp.
-                  </p>
-                  <pre className="overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">
-                    {qrcode}
-                  </pre>
+                  <p className="mb-2 text-xs text-slate-500">QR em texto: escaneie com o WhatsApp.</p>
+                  <pre className="overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">{qrcode}</pre>
                 </>
               )}
             </div>
@@ -408,9 +352,7 @@ export default function WhatsAppSettingsPage() {
           {paircode && (
             <div className={qrcode ? "mt-5" : ""}>
               <p className="mb-2 text-sm font-medium text-slate-700">Código de pareamento</p>
-              <div className="rounded-xl bg-slate-100 px-4 py-3 font-mono text-2xl font-semibold tracking-wider text-slate-900">
-                {paircode}
-              </div>
+              <div className="rounded-xl border wa-divider bg-white/45 px-4 py-3 font-mono text-2xl font-semibold tracking-wider text-slate-900">{paircode}</div>
             </div>
           )}
         </div>

@@ -91,7 +91,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className={`${inter.className} min-h-screen bg-[#f8faff] text-slate-900 font-sans flex p-6 gap-6 overflow-hidden relative selection:bg-blue-200`}
+      className={`${inter.className} h-screen w-full flex overflow-hidden bg-[#f8faff] text-slate-900 font-sans p-6 gap-6 relative selection:bg-blue-200`}
     >
       <ParticleBg />
 
@@ -140,7 +140,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Menu Principal - Modelo Vidro Colorido (Tinted Glass) */}
-        <nav className="space-y-4 flex-grow overflow-y-auto">
+        <nav className="space-y-4 flex-grow overflow-y-auto h-full">
           <p className="px-4 text-[9px] font-black uppercase text-slate-400 tracking-[0.3em] mb-6">
             Navegação Principal
           </p>
@@ -154,10 +154,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 className={`
                   w-full flex items-center justify-between p-5 rounded-[1.5rem] transition-all duration-500 group relative overflow-hidden
-                  ${
-                    active
-                      ? "bg-blue-600 text-white shadow-[0_20px_40px_-15px_rgba(37,99,235,0.4),inset_0_0_20px_rgba(255,255,255,0.2)] border border-blue-400/50"
-                      : "bg-blue-500/5 backdrop-blur-md border border-blue-200/20 text-slate-500 hover:bg-blue-500/10 hover:text-blue-600 hover:border-blue-400/30 hover:shadow-[0_10px_30px_-10px_rgba(37,99,235,0.1)]"
+                  ${active
+                    ? "bg-blue-600 text-white shadow-[0_20px_40px_-15px_rgba(37,99,235,0.4),inset_0_0_20px_rgba(255,255,255,0.2)] border border-blue-400/50"
+                    : "bg-blue-500/5 backdrop-blur-md border border-blue-200/20 text-slate-500 hover:bg-blue-500/10 hover:text-blue-600 hover:border-blue-400/30 hover:shadow-[0_10px_30px_-10px_rgba(37,99,235,0.1)]"
                   }
                 `}
               >
@@ -221,10 +220,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                                             <div className="w-full">
                                               <div
                                                 className={
-                                                  "w-full px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all duration-500 active:scale-95 flex items-center gap-3 justify-center " +
-                                                  "bg-red-500/10 backdrop-blur-xl border border-red-400/40 text-red-600 " +
-                                                  "shadow-[0_0_20px_rgba(239,68,68,0.1),inset_0_0_12px_rgba(239,68,68,0.2)] " +
-                                                  "hover:bg-red-600 hover:text-white hover:shadow-[0_0_35px_rgba(239,68,68,0.4),inset_0_0_20px_rgba(255,255,255,0.2)] hover:border-red-300"
+                                                  "w-full px-8 py-4 rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] transition-all duration-300 flex items-center gap-3 justify-center " +
+                                                  "bg-transparent border border-slate-200/50 text-black " +
+                                                  "hover:bg-red-50 hover:text-red-600 hover:border-red-200"
                                                 }
                                               >
                                                 <LogOut size={18} />
@@ -255,7 +253,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* --- CONTEÚDO (MAIN AREA) --- */}
-      <main className="flex-grow flex flex-col gap-8 overflow-y-auto pr-2">
+      <main className="flex-1 h-full overflow-hidden flex flex-col gap-8 pr-2">
         {/* Top Header */}
         <header className="flex items-center justify-between bg-white/20 backdrop-blur-xl border border-white/60 rounded-[3rem] px-10 py-7 shadow-sm">
           <div>
@@ -286,7 +284,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Conteúdo real da rota */}
-        <div className="flex-grow min-h-0">{children}</div>
+        <div className="flex-1 h-full overflow-hidden">{children}</div>
       </main>
     </div>
   );

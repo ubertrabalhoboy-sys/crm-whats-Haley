@@ -259,7 +259,23 @@ export default function InboxPage() {
   }, [messages, selectedChatId]);
 
 
-  return (<div className="h-screen overflow-hidden bg-transparent p-3.5"> <div className="grid h-full grid-cols-[320px_minmax(0,1fr)] gap-3.5 overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)_360px]"> <SidebarChats chats={chats} selectedChatId={selectedChatId} loadingChats={loadingChats} error={error} onRefresh={loadChats} onSelectChat={(chatId) => { if (chatId === selectedChatId) return; setSelectedChatId(chatId); loadMessages(chatId, { force: true }); }} /> <ChatPanel selectedChat={selectedChat} selectedChatId={selectedChatId} messages={messages} loadingMsgs={loadingMsgs} hasNewWhileUp={hasNewWhileUp} msgsWrapRef={msgsWrapRef} bottomRef={bottomRef} onMsgsScroll={handleMsgsScroll} onJumpToLatest={() => { setHasNewWhileUp(false); shouldAutoScrollRef.current = true; requestAnimationFrame(() => scrollToBottom("smooth")); }} onSend={async (text) => { if (!selectedChatId) return; shouldAutoScrollRef.current = true; setHasNewWhileUp(false); const tempId = "temp-" + Date.now(); setMessages((prev) => { const optimisticMsg: Msg = { id: tempId, direction: "out", text, created_at: new Date().toISOString(), }; const next: Msg[] = [...prev, optimisticMsg]; messagesByChatIdRef.current[selectedChatId] = next; return next; }); setError(null); try { const res = await fetch("/api/messages/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: selectedChatId, text }), }); const json = await res.json(); if (!json.ok) setError(json.error || "Falha ao enviar"); } catch { setError("Erro ao enviar mensagem"); } loadMessages(selectedChatId); loadChats({ silent: true }); }} /> <DetailsPanel selectedChat={selectedChat} /> </div> </div>);
+  return (
+    <div className="h-[calc(100vh-130px)] w-full flex flex-col overflow-hidden bg-[#f0f2f5] rounded-[2.5rem] p-3.5 shadow-inner">
+      <div className="flex flex-1 min-h-0 gap-3.5 overflow-hidden">
+        <div className="w-[320px] min-w-[320px] max-w-[400px] flex-shrink-0 h-full flex flex-col min-h-0">
+          <SidebarChats chats={chats} selectedChatId={selectedChatId} loadingChats={loadingChats} error={error} onRefresh={loadChats} onSelectChat={(chatId) => { if (chatId === selectedChatId) return; setSelectedChatId(chatId); loadMessages(chatId, { force: true }); }} />
+        </div>
+
+        <div className="flex-1 min-w-0 h-full flex flex-col min-h-0">
+          <ChatPanel selectedChat={selectedChat} selectedChatId={selectedChatId} messages={messages} loadingMsgs={loadingMsgs} hasNewWhileUp={hasNewWhileUp} msgsWrapRef={msgsWrapRef} bottomRef={bottomRef} onMsgsScroll={handleMsgsScroll} onJumpToLatest={() => { setHasNewWhileUp(false); shouldAutoScrollRef.current = true; requestAnimationFrame(() => scrollToBottom("smooth")); }} onSend={async (text) => { if (!selectedChatId) return; shouldAutoScrollRef.current = true; setHasNewWhileUp(false); const tempId = "temp-" + Date.now(); setMessages((prev) => { const optimisticMsg: Msg = { id: tempId, direction: "out", text, created_at: new Date().toISOString(), }; const next: Msg[] = [...prev, optimisticMsg]; messagesByChatIdRef.current[selectedChatId] = next; return next; }); setError(null); try { const res = await fetch("/api/messages/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: selectedChatId, text }), }); const json = await res.json(); if (!json.ok) setError(json.error || "Falha ao enviar"); } catch { setError("Erro ao enviar mensagem"); } loadMessages(selectedChatId); loadChats({ silent: true }); }} />
+        </div>
+
+        <div className="hidden xl:flex w-[360px] flex-shrink-0 h-full flex flex-col min-h-0">
+          <DetailsPanel selectedChat={selectedChat} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 

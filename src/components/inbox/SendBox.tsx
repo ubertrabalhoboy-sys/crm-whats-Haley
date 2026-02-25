@@ -30,11 +30,10 @@ export default function SendBox({
         }}
         placeholder={disabled ? "Selecione uma conversa..." : "Digite sua mensagem"}
         disabled={disabled || sending}
-        className={`flex-1 rounded-xl border px-3.5 py-3 text-sm outline-none placeholder:text-slate-500 ${
-          disabled
-            ? "border-slate-900/10 bg-white/35 text-slate-500"
-            : "border-slate-900/10 bg-white/55 text-slate-900 focus:border-[#128C7E]/30 focus:bg-white/70"
-        }`}
+        className={`flex-1 rounded-[2rem] border px-3.5 py-3 text-sm outline-none placeholder:text-slate-500 transition-colors ${disabled
+            ? "border-white/50 bg-white/50 text-slate-500"
+            : "border-white bg-white/80 text-slate-900 focus:border-[#07a0c3]/50 focus:bg-white"
+          }`}
       />
       <button
         disabled={disabled || sending || !text.trim()}
@@ -46,11 +45,10 @@ export default function SendBox({
           setSending(true);
           onSend(msg).finally(() => setSending(false));
         }}
-        className={`min-w-[110px] rounded-xl border px-3.5 py-3 text-sm font-semibold ${
-          disabled || sending || !text.trim()
-            ? "cursor-not-allowed border-slate-900/10 bg-white/35 text-slate-500"
-            : "wa-btn wa-btn-primary cursor-pointer text-white"
-        }`}
+        className={`min-w-[110px] rounded-[2rem] border border-transparent px-3.5 py-3 text-sm font-semibold transition-colors ${disabled || sending || !text.trim()
+            ? "cursor-not-allowed bg-white/50 text-slate-500"
+            : "cursor-pointer text-white bg-[#086788] hover:bg-[#07a0c3]"
+          }`}
       >
         {sending ? "Enviando..." : "Enviar"}
       </button>

@@ -259,8 +259,28 @@ export default function InboxPage() {
   }, [messages, selectedChatId]);
 
   return (
-    <div className="h-screen overflow-hidden bg-transparent p-3.5">
-      <div className="grid h-full grid-cols-[320px_minmax(0,1fr)] gap-3.5 overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)_360px]">
+  <div className="relative h-screen w-full overflow-hidden bg-[#dee5e8] p-4">
+    <style>{`
+      .custom-scroll::-webkit-scrollbar { width: 5px; }
+      .custom-scroll::-webkit-scrollbar-thumb { background: #07a0c3; border-radius: 10px; }
+      .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+
+      .wa-bg-pattern {
+        background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+        background-repeat: repeat;
+        opacity: 0.04;
+        filter: hue-rotate(160deg) saturate(0.5);
+        position: absolute; inset: 0; z-index: 0;
+        pointer-events: none;
+      }
+    `}</style>
+
+    <div className="wa-bg-pattern" />
+
+    {/* Shell premium: NADA muda na lógica interna */}
+    <div className="relative z-10 grid h-full grid-cols-[320px_minmax(0,1fr)] gap-4 overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)_360px]">
+      {/* Sidebar (origem: componente existente) */}
+      <div className="h-full overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 shadow-lg shadow-[#086788]/5 backdrop-blur-xl">
         <SidebarChats
           chats={chats}
           selectedChatId={selectedChatId}
@@ -273,7 +293,10 @@ export default function InboxPage() {
             loadMessages(chatId, { force: true });
           }}
         />
+      </div>
 
+      {/* Chat panel */}
+      <div className="h-full overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 shadow-lg shadow-[#086788]/5 backdrop-blur-xl">
         <ChatPanel
           selectedChat={selectedChat}
           selectedChatId={selectedChatId}
@@ -326,9 +349,14 @@ export default function InboxPage() {
             loadChats({ silent: true });
           }}
         />
+      </div>
 
+      {/* Details panel */}
+      <div className="hidden h-full overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 shadow-lg shadow-[#086788]/5 backdrop-blur-xl xl:block">
         <DetailsPanel selectedChat={selectedChat} />
       </div>
     </div>
-  );
+  </div>
+);
+  
 }

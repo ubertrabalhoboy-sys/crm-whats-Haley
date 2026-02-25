@@ -1,0 +1,270 @@
+"use client";
+
+import { useState } from "react";
+import useSWR from "swr";
+import { Gift, Plus, Search, Tag, Trash2, Edit } from "lucide-react";
+
+type ProdutoPromo = {
+    id: string;
+    nome: string;
+    preco_original: number;
+    preco_promo: number;
+    estoque: number;
+};
+
+const fetcher = async (url: string) => {
+    const res = await fetch(url);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || "Erro de Fetch");
+    return json;
+};
+
+export default function PromocoesPage() {
+    const [isAdding, setIsAdding] = useState(false);
+    const [formData, setFormData] = useState({
+        nome: "",
+        preco_original: "",
+        preco_promo: "",
+        estoque: "0",
+    });
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+    const { data, error, mutate, isValidating } = useSWR<{ ok: boolean; products: ProdutoPromo[] }>(
+        `/api/promocoes`,
+        fetcher,
+        { refreshInterval: 5000 }
+    );
+
+    const products = data?.products || [];
+    const isLoading = !data && !error;
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setErrorMsg(null);
+
+        try {
+            const res = await fetch("/api/promocoes", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    nome: formData.nome,
+                    preco_original: Number(formData.preco_original),
+                    preco_promo: Number(formData.preco_promo),
+                    estoque: Number(formData.estoque),
+                }),
+            });
+
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "Falha ao salvar produto");
+
+            mutate(); // Traz a lista nova
+            setFormData({ nome: "", preco_original: "", preco_promo: "", estoque: "0" });
+            setIsAdding(false);
+        } catch (err: any) {
+            setErrorMsg(err.message);
+        }
+    };
+
+    const handleDelete = async (id: string) => {
+        if (!confirm("Tem certeza que deseja remover este prêmio/produto?")) return;
+        try {
+            const res = await fetch(`/api/promocoes?id=${id}`, { method: "DELETE" });
+            if (res.ok) mutate();
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    return (
+        <div className="relative h-full flex flex-col overflow-hidden w-full">
+            {/* Pattern de fundo */}
+            <div className="pointer-events-none absolute inset-0 opacity-[0.04] [filter:hue-rotate(160deg)_saturate(0.5)] bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat" />
+
+            {/* Header */}
+            <div className="mb-4 flex items-center justify-between rounded-[2.5rem] border border-white/70 bg-white/60 px-8 py-6 shadow-xl backdrop-blur-xl relative z-10 shrink-0 mx-2">
+                <div className="flex items-center gap-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-purple-500/20">
+                        <Gift size={24} />
+                    </div>
+                    <div>
+                        <h1 className="text-3xl font-[950] uppercase tracking-tighter text-indigo-900 leading-none">
+                            Promoções
+                        </h1>
+                        <p className="mt-1 text-[10px] font-black uppercase tracking-[0.3em] text-purple-600">
+                            Prêmios FiQon Roleta e Vitrine
+                        </p>
+                    </div>
+                </div>
+
+                <button
+                    onClick={() => setIsAdding(!isAdding)}
+                    className="rounded-2xl bg-indigo-600 px-6 py-4 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-indigo-500/30 transition-all duration-300 active:scale-95 hover:bg-indigo-700 hover:shadow-indigo-500/50 flex items-center gap-2"
+                >
+                    {isAdding ? "Cancelar Cadastro" : <><Plus size={16} /> Novo Produto</>}
+                </button>
+            </div>
+
+            <div className="relative flex-1 min-h-0 mx-2 flex gap-6">
+                {/* Painel Formulário */}
+                {isAdding && (
+                    <div className="w-[400px] shrink-0 h-full flex flex-col rounded-[2.5rem] border border-white/70 bg-white/50 backdrop-blur-xl shadow-lg p-8 overflow-y-auto custom-scroll">
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="h-8 w-8 rounded-xl bg-purple-100 flex items-center justify-center text-purple-600">
+                                <Tag size={16} />
+                            </div>
+                            <h2 className="text-lg font-bold text-indigo-900">Cadastrar Prêmio</h2>
+                        </div>
+
+                        {errorMsg && (
+                            <div className="mb-6 rounded-xl bg-red-50 p-4 border border-red-100 text-red-600 text-sm font-semibold">
+                                {errorMsg}
+                            </div>
+                        )}
+
+                        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+                            <div className="flex flex-col gap-2">
+                                <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                                    Nome do Produto/Prêmio
+                                </label>
+                                <input
+                                    required
+                                    type="text"
+                                    value={formData.nome}
+                                    onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
+                                    className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                                    placeholder="Ex: Hambúrguer Duplo"
+                                />
+                            </div>
+
+                            <div className="flex gap-4">
+                                <div className="flex flex-col gap-2 flex-1">
+                                    <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                                        Preço Original
+                                    </label>
+                                    <input
+                                        required
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        placeholder="0.00"
+                                        value={formData.preco_original}
+                                        onChange={(e) => setFormData({ ...formData, preco_original: e.target.value })}
+                                        className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-2 flex-1">
+                                    <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                                        Preço Promo/Roleta
+                                    </label>
+                                    <input
+                                        required
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        placeholder="0.00"
+                                        value={formData.preco_promo}
+                                        onChange={(e) => setFormData({ ...formData, preco_promo: e.target.value })}
+                                        className="rounded-2xl border border-indigo-200 bg-indigo-50/80 px-4 py-3.5 text-sm font-semibold text-indigo-900 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-indigo-50 focus:ring-4 focus:ring-indigo-100"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                                <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                                    Quantidade em Estoque Limitado (Qtd)
+                                </label>
+                                <input
+                                    required
+                                    type="number"
+                                    min="0"
+                                    value={formData.estoque}
+                                    onChange={(e) => setFormData({ ...formData, estoque: e.target.value })}
+                                    className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                                />
+                            </div>
+
+                            <button
+                                type="submit"
+                                className="mt-4 rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-500 py-4 text-sm font-black uppercase tracking-widest text-white shadow-lg shadow-indigo-500/30 transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/40"
+                            >
+                                Salvar Produto
+                            </button>
+                        </form>
+                    </div>
+                )}
+
+                {/* Painel Listagem (Grid) */}
+                <div className={`flex flex-col flex-1 h-full rounded-[2.5rem] border border-white/70 bg-white/40 backdrop-blur-xl shadow-lg p-8 overflow-y-auto custom-scroll`}>
+                    <div className="flex items-center justify-between mb-8">
+                        <h2 className="text-xl font-black text-indigo-900 shrink-0">Produtos Cadastrados</h2>
+                        {(isLoading || isValidating) && (
+                            <div className="flex gap-2">
+                                <div className="h-2 w-2 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+                                <div className="h-2 w-2 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: "150ms" }} />
+                                <div className="h-2 w-2 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+                            </div>
+                        )}
+                    </div>
+
+                    {error && (
+                        <div className="rounded-xl bg-red-50 p-6 border border-red-100 text-center">
+                            <span className="text-red-500 font-bold block">{error.message || "Erro ao listar"}</span>
+                        </div>
+                    )}
+
+                    {products.length === 0 && !isLoading && !error && (
+                        <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-indigo-200/50 rounded-3xl p-10 mt-4 text-center">
+                            <div className="h-20 w-20 bg-white/60 rounded-full flex items-center justify-center mb-6 shadow-xl shadow-indigo-500/5">
+                                <Gift size={32} className="text-indigo-400" />
+                            </div>
+                            <h3 className="text-lg font-bold text-slate-700 mb-2">Nenhuma Promoção Pronta</h3>
+                            <p className="text-sm text-slate-500 max-w-sm mb-6">
+                                Comece a cadastrar prêmios para abastecer a Roleta da FiQon ou enviar o Catálogo Promocional para os seus clientes via CRM.
+                            </p>
+                            <button onClick={() => setIsAdding(true)} className="px-6 py-3 rounded-2xl bg-indigo-50 text-indigo-600 font-bold border border-indigo-100 hover:bg-indigo-100 transition-colors">
+                                Cadastrar Primeiro Prêmio
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Cards Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {products.map((p) => (
+                            <div key={p.id} className="group relative flex flex-col rounded-3xl bg-white border border-slate-100 p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+                                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button onClick={() => handleDelete(p.id)} className="h-8 w-8 rounded-full bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-500 hover:text-white transition-colors">
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
+
+                                <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-100 to-purple-50 flex items-center justify-center mb-4 text-indigo-500 shadow-inner">
+                                    <Tag size={24} />
+                                </div>
+                                <h3 className="text-base font-black text-slate-800 mb-4 line-clamp-2">{p.nome}</h3>
+
+                                <div className="flex flex-col gap-1 mb-4 mt-auto">
+                                    <span className="text-xs text-slate-400 line-through font-semibold">De: R$ {p.preco_original.toFixed(2)}</span>
+                                    <span className="text-lg font-black text-indigo-600">Por: R$ {p.preco_promo.toFixed(2)}</span>
+                                </div>
+
+                                <div className="flex items-center justify-between border-t border-slate-50 pt-4 mt-2">
+                                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Estoque</span>
+                                    <span className={`px-2.5 py-1 rounded-lg text-xs font-black ${p.estoque > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
+                                        {p.estoque > 0 ? `${p.estoque} UND` : 'ESGOTADO'}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* Estilos injetados */}
+            <style>{`
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #6366f1; border-radius: 10px; opacity: 0.5; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+      `}</style>
+        </div>
+    );
+}

@@ -17,6 +17,7 @@ import {
   Plus,
   Zap,
   LogOut,
+  Gift,
 } from "lucide-react";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -77,9 +78,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   const navItems = [
-    { id: "Dashboard", href: "/inbox", icon: <LayoutDashboard size={20} /> },
+    { id: "Dashboard", href: "/dashboard", icon: <LayoutDashboard size={20} /> },
     { id: "Inbox", href: "/inbox", icon: <Inbox size={20} /> },
     { id: "Kanban", href: "/kanban", icon: <Kanban size={20} /> },
+    { id: "Promoções", href: "/promocoes", icon: <Gift size={20} /> },
     { id: "Contatos", href: "/contacts", icon: <Users size={20} /> }, // se não existir ainda, pode deixar (ou criar depois)
     { id: "Relatórios", href: "/reports", icon: <BarChart3 size={20} /> }, // se não existir ainda, pode deixar (ou criar depois)
   ];

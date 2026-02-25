@@ -1,6 +1,8 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import ChatPanel from "@/components/inbox/ChatPanel";
 import DetailsPanel from "@/components/inbox/DetailsPanel";
 import SidebarChats from "@/components/inbox/SidebarChats";
@@ -24,22 +26,95 @@ type Msg = {
   status?: "sent" | "delivered" | "read";
 };
 
-export default function InboxPage() {
-  const [chats, setChats] = useState<Chat[]>([]);
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [loadingChats, setLoadingChats] = useState(false);
-  const [loadingMsgs, setLoadingMsgs] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasNewWhileUp, setHasNewWhileUp] = useState(false);
+const fetcher = async (url: string) => {
+  const res = await fetch(url);
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || "Erro de Fetch");
+  return json;
+};
 
-  const msgsAbortRef = useRef<AbortController | null>(null);
-  const msgsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const msgsInFlightRef = useRef(false);
-  const messagesByChatIdRef = useRef<Record<string, Msg[]>>({});
+export default function InboxPage() {
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [hasNewWhileUp, setHasNewWhileUp] = useState(false);
+  const [optimisticMsgs, setOptimisticMsgs] = useState<Msg[]>([]);
+
+  // SWR for Chats list (Revalidates automatically on window focus, reconnect, etc.)
+  const {
+    data: chatsData,
+    error: chatsError,
+    mutate: mutateChats,
+    isValidating: isValidatingChats,
+  } = useSWR<{ ok: boolean; chats: Chat[] }>(`/api/chats`, fetcher, {
+    refreshInterval: 5000, // Replaces our manual setInterval polling safely
+    revalidateOnFocus: true,
+  });
+
+  const chats = chatsData?.chats || [];
+  const loadingChats = !chatsData && !chatsError;
+  const error = chatsError?.message || null;
+
+  // SWR Infinite for Messages
+  const getKey = (pageIndex: number, previousPageData: any) => {
+    if (!selectedChatId) return null;
+    if (previousPageData && !previousPageData.messages?.length) return null; // Reached the end
+
+    // Default limit + Cursor targeting
+    let url = `/api/chats/${selectedChatId}/messages?limit=30`;
+
+    // If it's not the first page, get the oldest message's created_at to use as a cursor
+    if (pageIndex > 0 && previousPageData?.messages?.length > 0) {
+      // Since our API now returns newest first, the oldest is at the end of the array (if we didn't reverse it)
+      // Actually, since the API does reverse it before returning, the oldest message in previousPageData is at index 0
+      const oldestMsg = previousPageData.messages[0];
+      url += `&cursor=${encodeURIComponent(oldestMsg.created_at)}`;
+    }
+
+    return url;
+  };
+
+  const {
+    data: msgsPages,
+    error: msgsError,
+    mutate: mutateMsgs,
+    size,
+    setSize,
+    isValidating: isValidatingMsgs,
+  } = useSWRInfinite(getKey, fetcher, {
+    refreshInterval: selectedChatId ? 3000 : 0, // Fallback safe polling
+    revalidateFirstPage: false // Only background poll first page
+  });
+
+  // Flatten and merge messages
+  const messages = useMemo(() => {
+    if (!msgsPages) return optimisticMsgs;
+
+    // msgsPages is an array of API responses.
+    // Each response has { messages: [...] } ordered oldest->newest.
+    // However, because we get pages moving backwards in time (page 0 = newest 30, page 1 = previous 30, etc.),
+    // flattening them directly would put newest page first, then older page.
+    // We want the final array to be globally oldest->newest.
+
+    const allFetched = msgsPages
+      .map(page => page.messages || [])
+      .reverse() // Reverse the *pages* order so oldest page comes first
+      .flat();
+
+    // Add optimistic logic
+    const uniqueOptimistic = optimisticMsgs.filter(
+      opt => !allFetched.some(f => f.direction === opt.direction && f.text === opt.text)
+    );
+
+    return [...allFetched, ...uniqueOptimistic];
+  }, [msgsPages, optimisticMsgs]);
+
+  const loadingMsgs = (!msgsPages && !msgsError) || (msgsPages && size > 0 && typeof msgsPages[size - 1] === "undefined");
+  const isReachingEnd = msgsPages && msgsPages[msgsPages.length - 1]?.messages?.length < 30;
+
   const msgsWrapRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const topObserverRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
+  const lastScrollHeightRef = useRef<number>(0);
 
   const selectedChat = useMemo(
     () => chats.find((c) => c.id === selectedChatId) ?? null,
@@ -76,198 +151,83 @@ export default function InboxPage() {
     );
   }
 
-  function sameChatsQuick(a: Chat[], b: Chat[]) {
-    if (a === b) return true;
-    if (a.length !== b.length) return false;
-    if (a.length === 0) return true;
-    const aFirst = a[0];
-    const bFirst = b[0];
-    const aLast = a[a.length - 1];
-    const bLast = b[b.length - 1];
-    return (
-      aFirst?.id === bFirst?.id &&
-      aFirst?.updated_at === bFirst?.updated_at &&
-      aLast?.id === bLast?.id &&
-      aLast?.updated_at === bLast?.updated_at
-    );
-  }
-
-  async function loadChats(opts?: { silent?: boolean }) {
-    if (!opts?.silent) setLoadingChats(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/chats?t=${Date.now()}`, {
-        cache: "no-store",
-        headers: { "Cache-Control": "no-cache" },
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Falha ao buscar chats");
-      const nextChats: Chat[] = json.chats || [];
-      setChats((prev) => (sameChatsQuick(prev, nextChats) ? prev : nextChats));
-      if (!selectedChatId && json.chats?.[0]?.id) setSelectedChatId(json.chats[0].id);
-    } catch (e: any) {
-      setError(e?.message ?? "Erro");
-    } finally {
-      if (!opts?.silent) setLoadingChats(false);
-    }
-  }
-
-  async function loadMessages(chatId: string, opts?: { silent?: boolean; force?: boolean }) {
-    if (msgsInFlightRef.current && !opts?.force) return;
-    if (opts?.force && msgsAbortRef.current) {
-      msgsAbortRef.current.abort();
-      msgsInFlightRef.current = false;
-    }
-    if (msgsInFlightRef.current) return;
-    msgsInFlightRef.current = true;
-
-    if (msgsAbortRef.current) msgsAbortRef.current.abort();
-    const controller = new AbortController();
-    msgsAbortRef.current = controller;
-
-    if (!opts?.silent) setLoadingMsgs(true);
-    setError(null);
-
-    try {
-      const res = await fetch(`/api/chats/${chatId}/messages?t=${Date.now()}`, {
-        cache: "no-store",
-        headers: { "Cache-Control": "no-cache" },
-        signal: controller.signal,
-      });
-
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Falha ao buscar mensagens");
-
-      setMessages((prev) => {
-        const serverMsgs: Msg[] = json.messages || [];
-        const cachedMsgs = messagesByChatIdRef.current[chatId] || [];
-        const tempMsgs = [...cachedMsgs, ...prev].filter(
-          (m, index, arr) =>
-            String(m.id).startsWith("temp-") && arr.findIndex((x) => x.id === m.id) === index
-        );
-
-        const stillPending = tempMsgs.filter((t) => {
-          return !serverMsgs.some(
-            (s) => s.direction === t.direction && (s.text || "") === (t.text || "")
-          );
-        });
-
-        const merged = [...serverMsgs, ...stillPending];
-        merged.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-
-        const prevMax = prev.length
-          ? Math.max(...prev.map((m) => new Date(m.created_at).getTime()))
-          : 0;
-        const mergedMax = merged.length
-          ? Math.max(...merged.map((m) => new Date(m.created_at).getTime()))
-          : 0;
-
-        if (mergedMax > prevMax && !shouldAutoScrollRef.current) {
-          setHasNewWhileUp(true);
-        }
-
-        if (sameMsgsQuick(prev, merged)) {
-          messagesByChatIdRef.current[chatId] = prev;
-          return prev;
-        }
-
-        messagesByChatIdRef.current[chatId] = merged;
-        return merged;
-      });
-    } catch (e: any) {
-      if (e?.name !== "AbortError") setError(e?.message ?? "Erro");
-    } finally {
-      msgsInFlightRef.current = false;
-      if (!opts?.silent) setLoadingMsgs(false);
-    }
-  }
-
+  // Preselect chat logic
   useEffect(() => {
-    loadChats();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!selectedChatId && chats.length > 0) {
+      setSelectedChatId(chats[0].id);
+    }
+  }, [chats, selectedChatId]);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      loadChats({ silent: true });
-    }, 5000);
-
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedChatId]);
-
+  // Read message marking
   useEffect(() => {
     if (!selectedChatId) {
-      if (msgsTimerRef.current) {
-        clearInterval(msgsTimerRef.current);
-        msgsTimerRef.current = null;
-      }
-      setMessages([]);
       setHasNewWhileUp(false);
+      setOptimisticMsgs([]);
       return;
     }
-
     shouldAutoScrollRef.current = true;
     setHasNewWhileUp(false);
-    if (msgsTimerRef.current) {
-      clearInterval(msgsTimerRef.current);
-      msgsTimerRef.current = null;
-    }
-
-    const cached = messagesByChatIdRef.current[selectedChatId];
-    if (cached?.length) {
-      setMessages((prev) => (sameMsgsQuick(prev, cached) ? prev : cached));
-    } else {
-      setMessages([]);
-    }
-
-    loadMessages(selectedChatId);
+    setOptimisticMsgs([]);
 
     fetch(`/api/chats/${selectedChatId}/read`, { method: "POST" }).then(() => {
-      loadChats({ silent: true });
+      mutateChats();
     });
+  }, [selectedChatId, mutateChats]);
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedChatId]);
+  // Infinite Scroll Observer Implementation
+  const handleObserver = useCallback((entries: IntersectionObserverEntry[]) => {
+    const target = entries[0];
+    if (target.isIntersecting && !isReachingEnd && !loadingMsgs) {
+      // Save current scroll height to restore position after loading older messages
+      if (msgsWrapRef.current) {
+        lastScrollHeightRef.current = msgsWrapRef.current.scrollHeight;
+        shouldAutoScrollRef.current = false; // Prevent jumping to bottom
+      }
+      setSize(size + 1);
+    }
+  }, [isReachingEnd, loadingMsgs, size, setSize]);
 
   useEffect(() => {
-    if (msgsTimerRef.current) {
-      clearInterval(msgsTimerRef.current);
-      msgsTimerRef.current = null;
-    }
-    if (!selectedChatId) return;
-
-    msgsTimerRef.current = setInterval(() => {
-      loadMessages(selectedChatId, { silent: true });
-    }, 2000);
-
-    return () => {
-      if (msgsTimerRef.current) {
-        clearInterval(msgsTimerRef.current);
-        msgsTimerRef.current = null;
-      }
+    const option = {
+      root: msgsWrapRef.current,
+      rootMargin: "200px",
+      threshold: 0
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedChatId]);
+    const observer = new IntersectionObserver(handleObserver, option);
+    if (topObserverRef.current) observer.observe(topObserverRef.current);
+    return () => observer.disconnect();
+  }, [handleObserver]);
+
+  // Adjust scroll after loading older messages
+  useEffect(() => {
+    if (msgsWrapRef.current && lastScrollHeightRef.current > 0 && !shouldAutoScrollRef.current) {
+      const el = msgsWrapRef.current;
+      const heightDiff = el.scrollHeight - lastScrollHeightRef.current;
+      if (heightDiff > 0) {
+        el.scrollTop += heightDiff;
+        lastScrollHeightRef.current = 0; // Reset
+      }
+    }
+  }, [messages.length]);
 
   useEffect(() => {
     if (!selectedChatId) return;
     if (!shouldAutoScrollRef.current) return;
 
-    requestAnimationFrame(() => scrollToBottom("smooth"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, selectedChatId]);
+    requestAnimationFrame(() => scrollToBottom("auto")); // use swift non-smooth scroll for initial load
+  }, [messages.length > 0, selectedChatId]); // Only trigger auto jump on first load of chat or direct send
+
 
 
   return (
     <div className="h-full max-h-full w-full flex flex-col overflow-hidden bg-[#f0f2f5] rounded-[2.5rem] p-3.5 shadow-inner">
       <div className="flex flex-1 min-h-0 gap-3.5 overflow-hidden">
         <div className="w-[320px] min-w-[320px] max-w-[400px] flex-shrink-0 h-full flex flex-col min-h-0">
-          <SidebarChats chats={chats} selectedChatId={selectedChatId} loadingChats={loadingChats} error={error} onRefresh={loadChats} onSelectChat={(chatId) => { if (chatId === selectedChatId) return; setSelectedChatId(chatId); loadMessages(chatId, { force: true }); }} />
+          <SidebarChats chats={chats} selectedChatId={selectedChatId} loadingChats={loadingChats} error={error} onRefresh={() => mutateChats()} onSelectChat={(chatId) => { if (chatId === selectedChatId) return; setSelectedChatId(chatId); }} />
         </div>
 
         <div className="flex-1 min-w-0 h-full flex flex-col min-h-0">
-          <ChatPanel selectedChat={selectedChat} selectedChatId={selectedChatId} messages={messages} loadingMsgs={loadingMsgs} hasNewWhileUp={hasNewWhileUp} msgsWrapRef={msgsWrapRef} bottomRef={bottomRef} onMsgsScroll={handleMsgsScroll} onJumpToLatest={() => { setHasNewWhileUp(false); shouldAutoScrollRef.current = true; requestAnimationFrame(() => scrollToBottom("smooth")); }} onSend={async (text) => { if (!selectedChatId) return; shouldAutoScrollRef.current = true; setHasNewWhileUp(false); const tempId = "temp-" + Date.now(); setMessages((prev) => { const optimisticMsg: Msg = { id: tempId, direction: "out", text, created_at: new Date().toISOString(), }; const next: Msg[] = [...prev, optimisticMsg]; messagesByChatIdRef.current[selectedChatId] = next; return next; }); setError(null); try { const res = await fetch("/api/messages/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: selectedChatId, text }), }); const json = await res.json(); if (!json.ok) setError(json.error || "Falha ao enviar"); } catch { setError("Erro ao enviar mensagem"); } loadMessages(selectedChatId); loadChats({ silent: true }); }} />
+          <ChatPanel selectedChat={selectedChat} selectedChatId={selectedChatId} messages={messages} loadingMsgs={loadingMsgs || isValidatingMsgs} hasNewWhileUp={hasNewWhileUp} msgsWrapRef={msgsWrapRef} bottomRef={bottomRef} topObserverRef={topObserverRef} isReachingEnd={isReachingEnd} onMsgsScroll={handleMsgsScroll} onJumpToLatest={() => { setHasNewWhileUp(false); shouldAutoScrollRef.current = true; requestAnimationFrame(() => scrollToBottom("smooth")); }} onSend={async (text) => { if (!selectedChatId) return; shouldAutoScrollRef.current = true; setHasNewWhileUp(false); const tempId = "temp-" + Date.now(); const optimisticMsg: Msg = { id: tempId, direction: "out", text, created_at: new Date().toISOString(), status: "sent" }; setOptimisticMsgs((prev) => [...prev, optimisticMsg]); setTimeout(() => scrollToBottom("smooth"), 50); try { const res = await fetch("/api/messages/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: selectedChatId, text }), }); const json = await res.json(); if (!json.ok) console.error("Falha ao enviar via API"); } catch (err) { console.error("Erro ao enviar mensagem", err); } mutateMsgs(); mutateChats(); }} />
         </div>
 
         <div className="hidden xl:flex w-[360px] flex-shrink-0 h-full flex flex-col min-h-0">

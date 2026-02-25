@@ -98,10 +98,9 @@ export default async function KanbanPage() {
   }
 
   const stageList = (stages ?? []) as Stage[];
-  const chatRows = (chats ?? []) as ChatRow[];
-  const chatList: Chat[] = chatRows.map((c) => ({
+  const chatList: Chat[] = (chats ?? []).map((c: any) => ({
     ...c,
-    contacts: c.contacts?.[0] ?? null,
+    contacts: Array.isArray(c.contacts) ? c.contacts[0] : c.contacts,
   }));
 
   return <KanbanBoard stageList={stageList} chatList={chatList} />;

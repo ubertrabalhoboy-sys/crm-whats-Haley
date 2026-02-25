@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -44,12 +44,24 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ id: st
 
   const { id } = await context.params;
 
-  const { data: messages, error } = await supabase
+  // Pagination parameters
+  const { searchParams } = new URL(req.url);
+  const cursor = searchParams.get("cursor"); // Timestamp to fetch older messages
+  const limit = parseInt(searchParams.get("limit") || "30", 10);
+
+  let query = supabase
     .from("messages")
-    .select("id, direction, text, created_at")
+    .select("id, direction, text, created_at, status")
     .eq("chat_id", id)
     .eq("restaurant_id", restaurantId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false }) // Fetch descending so we get newest first when limiting
+    .limit(limit);
+
+  if (cursor) {
+    query = query.lt("created_at", cursor);
+  }
+
+  const { data: messages, error } = await query;
 
   if (error) {
     const res = NextResponse.json({ ok: false, error: error.message }, { status: 500 });
@@ -59,7 +71,11 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ id: st
     return res;
   }
 
-  const res = NextResponse.json({ ok: true, messages: messages ?? [] }, { status: 200 });
+  // We fetched descending to get the most recent N items.
+  // Re-sort ascending to match chat flow expectations.
+  const sortedMessages = (messages ?? []).reverse();
+
+  const res = NextResponse.json({ ok: true, messages: sortedMessages }, { status: 200 });
   res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");

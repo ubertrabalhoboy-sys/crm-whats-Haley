@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Inter } from "next/font/google";
 import SignOutButton from "../../components/auth/SignOutButton";
 import ParticleBg from "../../components/shared/ParticleBg";
@@ -69,15 +69,15 @@ function GlowButton({
 }
 
 function isActive(pathname: string, href: string) {
-  if (href === "/dashboard") return pathname === "/dashboard";
   return pathname === href || pathname.startsWith(href + "/");
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
 
   const navItems = [
-    { id: "Dashboard", href: "/dashboard", icon: <LayoutDashboard size={20} /> },
+    { id: "Dashboard", href: "/inbox", icon: <LayoutDashboard size={20} /> },
     { id: "Inbox", href: "/inbox", icon: <Inbox size={20} /> },
     { id: "Kanban", href: "/kanban", icon: <Kanban size={20} /> },
     { id: "Contatos", href: "/contacts", icon: <Users size={20} /> }, // se não existir ainda, pode deixar (ou criar depois)
@@ -152,6 +152,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.id}
                 href={item.href}
+                onMouseEnter={() => router.prefetch(item.href)}
                 className={`
                   w-full flex items-center justify-between p-5 rounded-[1.5rem] transition-all duration-500 group relative overflow-hidden
                   ${active

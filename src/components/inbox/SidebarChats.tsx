@@ -1,5 +1,7 @@
 ﻿"use client";
 
+import React from "react";
+
 type Chat = {
   id: string;
   wa_chat_id: string | null;
@@ -10,7 +12,7 @@ type Chat = {
   contacts?: { phone: string | null; name: string | null } | null;
 };
 
-export default function SidebarChats({
+export default React.memo(function SidebarChats({
   chats,
   selectedChatId,
   loadingChats,
@@ -108,4 +110,4 @@ export default function SidebarChats({
       </div>
     </aside>
   );
-}
+});

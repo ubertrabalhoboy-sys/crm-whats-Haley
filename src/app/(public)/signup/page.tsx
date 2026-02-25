@@ -65,76 +65,149 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-2xl items-center justify-center px-4 py-10">
-      <div className="wa-card w-full overflow-hidden rounded-3xl shadow-xl shadow-emerald-900/10">
-        <div className="border-b wa-divider bg-white/35 px-8 py-10 text-center">
-          <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl border wa-divider bg-white/45 backdrop-blur-xl">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-[#128C7E] to-[#25D366] shadow-lg shadow-emerald-500/20" />
-          </div>
+    <div className="relative min-h-screen flex items-center justify-center bg-[#050505] font-sans selection:bg-[#25D366]/30">
+      {/* Background Spline */}
+      <div className="absolute inset-0 z-0 pointer-events-none opacity-60">
+        <iframe
+          src="https://my.spline.design/crystalball-de222de54d6fc4752fa850b54fb654de/"
+          className="h-full w-full border-none"
+          title="Fundo 3D"
+        />
+      </div>
 
-          <h1 className="text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">Criar conta</h1>
-          <p className="mt-2 text-sm text-slate-600">Comece a operar seu CRM de WhatsApp hoje.</p>
-        </div>
+      <main className="relative z-10 w-full max-w-[460px] p-6">
+        <div className="bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[40px] p-10 overflow-hidden">
+          {/* Header */}
+          <header className="flex flex-col items-center mb-10 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-6 shadow-inner">
+              <div className="w-8 h-8 rounded-full border-2 border-[#25D366] flex items-center justify-center">
+                <div className="w-2 h-2 bg-[#25D366] rounded-full shadow-[0_0_10px_#25D366]" />
+              </div>
+            </div>
 
-        <div className="p-8">
-          <div className="mb-6">
-            <h2 className="text-2xl font-semibold text-slate-900">Abra sua conta</h2>
-            <p className="mt-1 text-sm text-slate-600">Use um email válido para receber confirmação e acesso.</p>
-          </div>
+            <h1 className="text-2xl font-bold text-white tracking-tight">
+              Criar conta
+            </h1>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">Email</label>
-              <div className="wa-glass overflow-hidden rounded-xl">
+            <p className="text-sm text-white/70 mt-1">
+              Já tem conta?{" "}
+              <Link
+                href="/login"
+                className="text-[#25D366] font-bold hover:underline"
+              >
+                Entrar
+              </Link>
+            </p>
+          </header>
+
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-2">
+              <label className="block text-[10px] font-bold text-white uppercase tracking-widest ml-1 opacity-70">
+                Email
+              </label>
+              <div className="relative group">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-[#25D366] transition-colors">
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
+                  </svg>
+                </span>
+
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="seuemail@dominio.com"
-                  className="w-full bg-transparent px-4 py-3 text-sm text-slate-900 placeholder:text-slate-500 outline-none"
+                  placeholder="seu@email.com"
+                  className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-2xl text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-[#25D366]/50 focus:bg-white/10 transition-all"
                 />
               </div>
             </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">Senha</label>
-              <div className="wa-glass overflow-hidden rounded-xl">
+            <div className="space-y-2">
+              <label className="block text-[10px] font-bold text-white uppercase tracking-widest ml-1 opacity-70">
+                Senha
+              </label>
+              <div className="relative group">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-[#25D366] transition-colors">
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                    />
+                  </svg>
+                </span>
+
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Mínimo 8 caracteres"
-                  className="w-full bg-transparent px-4 py-3 text-sm text-slate-900 placeholder:text-slate-500 outline-none"
+                  placeholder="••••••••"
+                  className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-2xl text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-[#25D366]/50 focus:bg-white/10 transition-all"
                 />
               </div>
             </div>
 
             {error && (
-              <p className="rounded-xl border border-rose-500/20 bg-rose-50/70 px-4 py-3 text-sm text-rose-700">
+              <p className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
                 {error}
               </p>
             )}
+
             {message && (
-              <p className="rounded-xl border border-emerald-500/20 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-700">
+              <p className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
                 {message}
               </p>
             )}
 
-            <CursorFollowButton type="submit" disabled={loading} variant="primary" className="w-full rounded-xl px-4 py-3 text-sm font-semibold">
-              {loading ? "Criando..." : "Continuar"}
+            <CursorFollowButton
+              type="submit"
+              disabled={loading}
+              variant="primary"
+              className="w-full rounded-2xl py-4 font-bold shadow-[0_0_20px_rgba(37,211,102,0.20)] hover:shadow-[0_0_30px_rgba(37,211,102,0.40)]"
+            >
+              {loading ? "Criando..." : "Criar conta"}
             </CursorFollowButton>
+
+            <p className="text-center text-sm text-white/60">
+              Já tem conta?{" "}
+              <Link href="/login" className="text-white hover:text-white/90 underline">
+                Entrar
+              </Link>
+            </p>
           </form>
 
-          <p className="mt-6 text-center text-sm text-slate-600">
-            Já tem conta?{" "}
-            <Link href="/login" className="font-semibold text-[#075E54] underline underline-offset-4 hover:opacity-85">
-              Entrar
-            </Link>
-          </p>
+          <footer className="mt-10 text-[10px] text-white/40 text-center leading-relaxed">
+            Ao continuar, você concorda com os{" "}
+            <a href="#" className="text-white/60 hover:text-white underline">
+              Termos
+            </a>{" "}
+            e a{" "}
+            <a href="#" className="text-white/60 hover:text-white underline">
+              Política de Privacidade
+            </a>
+            .
+          </footer>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

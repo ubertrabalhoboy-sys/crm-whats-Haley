@@ -93,7 +93,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className={`${inter.className} h-screen w-full flex overflow-hidden bg-[#f8faff] text-slate-900 font-sans p-6 gap-6 relative selection:bg-blue-200`}
+      className={`${inter.className} h-screen w-full flex overflow-hidden bg-slate-200 text-slate-900 font-sans p-6 gap-6 relative selection:bg-blue-200`}
     >
       <ParticleBg />
 

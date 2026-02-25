@@ -157,7 +157,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Top Produtos Section */}
-      <div className="flex-1 min-h-0 mx-2 flex flex-col p-8 bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5 rounded-[2.5rem] relative z-10">
+      <div className="flex-1 min-h-0 mx-2 flex flex-col p-8 bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5 rounded-[2.5rem] relative z-10 overflow-hidden">
         <h2 className="text-lg font-black uppercase tracking-widest text-[#086788] mb-6 flex items-center gap-3">
           <Tag size={20} className="text-[#07a0c3]" />
           Top Produtos da Gamificação (Ofertas)
@@ -174,7 +174,7 @@ export default function DashboardPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto custom-scroll pb-2">
+          <div className="w-full overflow-hidden overflow-x-auto custom-scroll pb-2">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr>

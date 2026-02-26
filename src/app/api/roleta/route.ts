@@ -27,7 +27,7 @@ export async function GET() {
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
-    return NextResponse.json({ ok: true, prizes: prizes || [] });
+    return NextResponse.json({ ok: true, prizes: prizes || [], restaurantId: profile.restaurant_id });
 }
 
 // POST — Save all prizes (replace strategy: delete old + insert new)

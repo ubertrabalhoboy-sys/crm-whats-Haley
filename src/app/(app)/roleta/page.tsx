@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import useSWR, { mutate } from "swr";
-import { Plus, Trash2, Save, Loader2, Dices, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Plus, Trash2, Save, Loader2, Dices, AlertTriangle, CheckCircle2, Link2, Copy, Check, QrCode, RotateCcw, PartyPopper, X } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 
 type Prize = {
     id?: string;
@@ -25,10 +26,23 @@ const fetcher = async (url: string) => {
 };
 
 export default function RoletaPage() {
-    const { data, isLoading } = useSWR<{ ok: boolean; prizes: Prize[] }>("/api/roleta", fetcher);
+    const { data, isLoading } = useSWR<{ ok: boolean; prizes: Prize[]; restaurantId?: string }>("/api/roleta", fetcher);
     const [prizes, setPrizes] = useState<Prize[]>([]);
     const [saving, setSaving] = useState(false);
     const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+    const [copied, setCopied] = useState(false);
+
+    const restaurantId = data?.restaurantId || "";
+    const publicUrl = typeof window !== "undefined" && restaurantId
+        ? `${window.location.origin}/play/${restaurantId}`
+        : "";
+
+    const handleCopy = async () => {
+        if (!publicUrl) return;
+        await navigator.clipboard.writeText(publicUrl);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
 
     useEffect(() => {
         if (data?.prizes) {
@@ -104,6 +118,54 @@ export default function RoletaPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Link + QR Code Card */}
+            {publicUrl && prizes.length > 0 && sum === 100 && (
+                <div className="mb-6 relative z-10 rounded-[2rem] border border-white/60 bg-white/40 backdrop-blur-xl shadow-sm p-6">
+                    <div className="flex flex-col md:flex-row items-center gap-6">
+                        {/* QR Code */}
+                        <div className="bg-white rounded-2xl p-4 shadow-inner border border-slate-100 shrink-0">
+                            <QRCodeSVG
+                                value={publicUrl}
+                                size={140}
+                                level="M"
+                                bgColor="#ffffff"
+                                fgColor="#086788"
+                            />
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2">
+                                <Link2 size={16} className="text-[#086788]" />
+                                <span className="text-[10px] font-black uppercase tracking-widest text-[#086788]">
+                                    Link Público da Roleta
+                                </span>
+                            </div>
+                            <p className="text-slate-500 text-xs font-bold mb-3">
+                                Compartilhe este link com seus clientes ou imprima o QR Code para colocar no balcão/mesa.
+                            </p>
+
+                            {/* URL + Copy */}
+                            <div className="flex items-center gap-2">
+                                <div className="flex-1 bg-white/80 rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 truncate select-all">
+                                    {publicUrl}
+                                </div>
+                                <button
+                                    onClick={handleCopy}
+                                    className={`shrink-0 flex items-center gap-2 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${copied
+                                            ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                                            : 'bg-[#086788] text-white hover:bg-[#07a0c3] shadow-md'
+                                        }`}
+                                >
+                                    {copied ? <Check size={14} /> : <Copy size={14} />}
+                                    {copied ? 'Copiado!' : 'Copiar'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Chance Sum Indicator */}
             <div className="mb-6 relative z-10">

@@ -16,20 +16,18 @@ export async function POST(
             return NextResponse.json({ ok: false, error: "Nome e WhatsApp válidos são obrigatórios." }, { status: 400 });
         }
 
-        // 1. Anti-fraude: checar se esse telefone já girou nas últimas 24h
-        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        const { data: recentSpin } = await supabaseServer
+        // 1. Anti-fraude: 1 giro por WhatsApp por restaurante (permanente)
+        const { data: alreadyPlayed } = await supabaseServer
             .from("chats")
             .select("id")
             .eq("restaurant_id", restaurantId)
             .eq("wa_chat_id", whatsapp)
             .eq("origem_lead", "Roleta")
-            .gte("created_at", oneDayAgo)
             .limit(1)
             .maybeSingle();
 
-        if (recentSpin) {
-            return NextResponse.json({ ok: false, error: "Você já girou a roleta hoje! Volte amanhã." }, { status: 429 });
+        if (alreadyPlayed) {
+            return NextResponse.json({ ok: false, error: "already_played", message: "Este WhatsApp já participou desta promoção!" }, { status: 403 });
         }
 
         // 2. Buscar prêmios do restaurante

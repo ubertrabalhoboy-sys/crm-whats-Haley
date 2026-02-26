@@ -218,12 +218,26 @@ export default function RoletaPremiumPage({ params }: any) {
                 body: JSON.stringify({ nome: formData.name, whatsapp: formData.whatsapp }),
             });
 
-            if (res.ok) {
-                const data = await res.json();
-                winningIndex = data.winnerIndex;
-            } else {
-                winningIndex = Math.floor(Math.random() * slices.length);
+            const data = await res.json();
+
+            // Anti-fraude: WhatsApp já participou
+            if (res.status === 403 || data.error === "already_played") {
+                setIsSpinning(false);
+                setShowModal(true);
+                setHasRegistered(false);
+                alert(data.message || "Este WhatsApp já participou desta promoção!");
+                return;
             }
+
+            if (!res.ok || !data.ok) {
+                setIsSpinning(false);
+                setShowModal(true);
+                setHasRegistered(false);
+                alert(data.message || data.error || "Erro no sorteio. Tente novamente.");
+                return;
+            }
+
+            winningIndex = data.winnerIndex;
 
             const wonSlice = slices[winningIndex];
 

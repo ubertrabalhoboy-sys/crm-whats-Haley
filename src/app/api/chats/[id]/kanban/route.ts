@@ -4,12 +4,13 @@ import { triggerFiqonWebhook } from "@/lib/fiqon-webhook";
 
 export async function POST(
     req: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
+        const resolvedParams = await params;
+        const chatId = resolvedParams.id;
         const body = await req.json();
         const { stageId, stageName } = body;
-        const chatId = params.id;
 
         if (!stageId || !stageName) {
             return NextResponse.json({ ok: false, error: "Missing stageId or stageName" }, { status: 400 });

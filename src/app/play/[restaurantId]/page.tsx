@@ -131,6 +131,15 @@ export default function RoletaPremiumPage({ params }: any) {
     const [showModal, setShowModal] = useState(true);
     const [hasRegistered, setHasRegistered] = useState(false);
     const [formData, setFormData] = useState({ name: '', whatsapp: '' });
+    const [toastMsg, setToastMsg] = useState<string | null>(null);
+    const [branding, setBranding] = useState<{ name: string; logo_url: string; roulette_headline: string } | null>(null);
+
+    // Auto-dismiss toast
+    useEffect(() => {
+        if (!toastMsg) return;
+        const t = setTimeout(() => setToastMsg(null), 4000);
+        return () => clearTimeout(t);
+    }, [toastMsg]);
 
     // Desempacotamento seguro e universal dos parâmetros da rota
     useEffect(() => {
@@ -171,6 +180,11 @@ export default function RoletaPremiumPage({ params }: any) {
                             };
                         });
                         setSlices(formattedSlices);
+
+                        // Extract branding
+                        if (data.branding) {
+                            setBranding(data.branding);
+                        }
                         return;
                     }
                 }
@@ -225,7 +239,7 @@ export default function RoletaPremiumPage({ params }: any) {
                 setIsSpinning(false);
                 setShowModal(true);
                 setHasRegistered(false);
-                alert(data.message || "Este WhatsApp já participou desta promoção!");
+                setToastMsg(data.message || "Este WhatsApp já participou desta promoção!");
                 return;
             }
 
@@ -233,7 +247,7 @@ export default function RoletaPremiumPage({ params }: any) {
                 setIsSpinning(false);
                 setShowModal(true);
                 setHasRegistered(false);
-                alert(data.message || data.error || "Erro no sorteio. Tente novamente.");
+                setToastMsg(data.message || data.error || "Erro no sorteio. Tente novamente.");
                 return;
             }
 
@@ -270,7 +284,7 @@ export default function RoletaPremiumPage({ params }: any) {
             console.error("Erro na API:", error);
             setIsSpinning(false);
             setShowModal(true);
-            alert("Falha de ligação. Tente novamente.");
+            setToastMsg("Falha de ligação. Tente novamente.");
         }
     };
 
@@ -324,6 +338,23 @@ export default function RoletaPremiumPage({ params }: any) {
 
             {/* Painel Glassmorphism Atrás da Roleta */}
             <div className="relative z-10 p-4 sm:p-8 rounded-[3rem] bg-white/5 backdrop-blur-3xl border border-white/10 shadow-[20px_20px_60px_#04060a,_-20px_-20px_60px_#101826]">
+
+                {/* Branding — Logo + Nome + Headline */}
+                <div className="text-center mb-4">
+                    {branding?.logo_url && (
+                        <div className="mx-auto mb-3 w-16 h-16 rounded-2xl overflow-hidden bg-white/10 border border-white/20 shadow-lg flex items-center justify-center">
+                            <img src={branding.logo_url} alt={branding.name || 'Logo'} className="w-full h-full object-contain" />
+                        </div>
+                    )}
+                    {branding?.name && (
+                        <div className="text-white/60 text-[10px] font-black uppercase tracking-[0.3em] mb-1">
+                            {branding.name}
+                        </div>
+                    )}
+                    <div className="text-transparent bg-clip-text bg-gradient-to-r from-[#ffea00] to-[#ff003c] text-2xl sm:text-3xl font-black uppercase tracking-wider">
+                        {branding?.roulette_headline || 'GIRE & GANHE!'}
+                    </div>
+                </div>
 
                 {/* Container Principal da Roleta */}
                 <div className="relative w-[320px] h-[320px] sm:w-[450px] sm:h-[450px] flex flex-col items-center">
@@ -533,6 +564,25 @@ export default function RoletaPremiumPage({ params }: any) {
                             </button>
                         </form>
                     </div>
+                </div>
+            )}
+
+            {/* Toast inline (sem ToastProvider) */}
+            {toastMsg && (
+                <div className="fixed bottom-6 right-6 z-[9999] max-w-sm animate-[slideIn_0.3s_ease-out]">
+                    <div className="flex items-center gap-3 px-5 py-3.5 rounded-2xl border border-rose-400/50 bg-rose-950/90 backdrop-blur-xl shadow-2xl text-rose-100">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-rose-400"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
+                        <p className="text-[13px] font-semibold flex-1">{toastMsg}</p>
+                        <button onClick={() => setToastMsg(null)} className="p-1 rounded-lg hover:bg-white/10 transition-colors shrink-0">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                        </button>
+                    </div>
+                    <style>{`
+                        @keyframes slideIn {
+                            from { opacity: 0; transform: translateX(100px); }
+                            to { opacity: 1; transform: translateX(0); }
+                        }
+                    `}</style>
                 </div>
             )}
         </div>

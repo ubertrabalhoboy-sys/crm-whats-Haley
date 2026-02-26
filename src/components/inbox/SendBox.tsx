@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Sparkles, Loader2 } from "lucide-react";
+import { useToast } from "@/components/shared/Toast";
 
 export default function SendBox({
   disabled,
@@ -15,6 +16,7 @@ export default function SendBox({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const { showToast } = useToast();
 
   const handleSuggestReply = async () => {
     if (!messages || messages.length === 0) return;
@@ -29,10 +31,10 @@ export default function SendBox({
       if (data.ok && data.output) {
         setText(data.output);
       } else {
-        alert("Falha ao gerar sugestão: " + (data.error || "Erro desconhecido"));
+        showToast("Falha ao gerar sugestão de resposta.", "error");
       }
     } catch (err: any) {
-      alert("Erro de conexão ao gerar sugestão: " + err.message);
+      showToast("Erro de conexão com a IA.", "error");
     } finally {
       setAiLoading(false);
     }

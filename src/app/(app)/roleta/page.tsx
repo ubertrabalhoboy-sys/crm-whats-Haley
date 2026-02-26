@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import useSWR, { mutate } from "swr";
-import { Plus, Trash2, Save, Loader2, Dices, AlertTriangle, CheckCircle2, Link2, Copy, Check, QrCode, RotateCcw, PartyPopper, X } from "lucide-react";
+import { Plus, Trash2, Save, Loader2, Dices, AlertTriangle, CheckCircle2, Link2, Copy, Check, QrCode, RotateCcw, PartyPopper, X, TrendingUp, BarChart3, Store, Image } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
 type Prize = {
@@ -27,10 +27,19 @@ const fetcher = async (url: string) => {
 
 export default function RoletaPage() {
     const { data, isLoading } = useSWR<{ ok: boolean; prizes: Prize[]; restaurantId?: string }>("/api/roleta", fetcher);
+    const { data: statsData } = useSWR<{ ok: boolean; stats: { totalSpins: number; weekSpins: number; todaySpins: number; prizeBreakdown: Record<string, number> } }>("/api/roleta/stats", fetcher);
+    const stats = statsData?.stats;
     const [prizes, setPrizes] = useState<Prize[]>([]);
     const [saving, setSaving] = useState(false);
     const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
     const [copied, setCopied] = useState(false);
+
+    // Branding
+    const { data: brandingData, mutate: mutateBranding } = useSWR<{ ok: boolean; branding: { name: string; logo_url: string; roulette_headline: string } }>("/api/roleta/branding", fetcher);
+    const [logoUrl, setLogoUrl] = useState("");
+    const [headline, setHeadline] = useState("");
+    const [savingBranding, setSavingBranding] = useState(false);
+    const [brandingDirty, setBrandingDirty] = useState(false);
 
     const restaurantId = data?.restaurantId || "";
     const publicUrl = typeof window !== "undefined" && restaurantId
@@ -49,6 +58,38 @@ export default function RoletaPage() {
             setPrizes(data.prizes.length > 0 ? data.prizes : []);
         }
     }, [data]);
+
+    useEffect(() => {
+        if (brandingData?.branding) {
+            setLogoUrl(brandingData.branding.logo_url || "");
+            setHeadline(brandingData.branding.roulette_headline || "");
+            setBrandingDirty(false);
+        }
+    }, [brandingData]);
+
+    const handleSaveBranding = async () => {
+        setSavingBranding(true);
+        try {
+            const res = await fetch("/api/roleta/branding", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ logo_url: logoUrl, roulette_headline: headline }),
+            });
+            const json = await res.json();
+            if (json.ok) {
+                setBrandingDirty(false);
+                mutateBranding();
+                setFeedback({ type: "success", message: "Personalização salva!" });
+            } else {
+                setFeedback({ type: "error", message: json.error || "Erro ao salvar." });
+            }
+        } catch {
+            setFeedback({ type: "error", message: "Erro de conexão." });
+        } finally {
+            setSavingBranding(false);
+            setTimeout(() => setFeedback(null), 3000);
+        }
+    };
 
     const sum = prizes.reduce((acc, p) => acc + (Number(p.chance_percentage) || 0), 0);
     const isValid = sum === 100 && prizes.length >= 1 && prizes.every(p => p.label.trim() && p.trigger_tag.trim());
@@ -119,53 +160,191 @@ export default function RoletaPage() {
                 </div>
             </div>
 
-            {/* Link + QR Code Card */}
-            {publicUrl && prizes.length > 0 && sum === 100 && (
-                <div className="mb-6 relative z-10 rounded-[2rem] border border-white/60 bg-white/40 backdrop-blur-xl shadow-sm p-6">
-                    <div className="flex flex-col md:flex-row items-center gap-6">
-                        {/* QR Code */}
-                        <div className="bg-white rounded-2xl p-4 shadow-inner border border-slate-100 shrink-0">
-                            <QRCodeSVG
-                                value={publicUrl}
-                                size={140}
-                                level="M"
-                                bgColor="#ffffff"
-                                fgColor="#086788"
-                            />
+            {/* Personalização Card */}
+            <div className="mb-6 relative z-10 rounded-[2rem] border border-white/60 bg-white/40 backdrop-blur-xl shadow-sm p-6">
+                <div className="flex items-center gap-2 mb-4">
+                    <Store size={16} className="text-[#086788]" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-[#086788]">
+                        Personalização da Roleta
+                    </span>
+                </div>
+
+                <div className="space-y-4">
+                    {/* Restaurant Name (read-only) */}
+                    <div>
+                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1 block">Nome da Loja</label>
+                        <div className="flex items-center gap-2 bg-slate-50 rounded-xl border border-slate-200 px-4 py-3">
+                            <Store size={14} className="text-slate-400" />
+                            <span className="text-sm font-bold text-slate-600">{brandingData?.branding?.name || "Carregando..."}</span>
                         </div>
+                    </div>
 
-                        {/* Info */}
-                        <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-2">
-                                <Link2 size={16} className="text-[#086788]" />
-                                <span className="text-[10px] font-black uppercase tracking-widest text-[#086788]">
-                                    Link Público da Roleta
-                                </span>
+                    {/* Logo URL */}
+                    <div>
+                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1 block">URL do Logo</label>
+                        <div className="flex gap-2">
+                            <div className="flex-1 relative">
+                                <Image size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="url"
+                                    value={logoUrl}
+                                    onChange={(e) => { setLogoUrl(e.target.value); setBrandingDirty(true); }}
+                                    placeholder="https://exemplo.com/logo.png"
+                                    className="w-full rounded-xl border border-slate-200 bg-white/80 pl-9 pr-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-[#07a0c3] focus:ring-2 focus:ring-[#07a0c3]/20 transition-all"
+                                />
                             </div>
-                            <p className="text-slate-500 text-xs font-bold mb-3">
-                                Compartilhe este link com seus clientes ou imprima o QR Code para colocar no balcão/mesa.
-                            </p>
-
-                            {/* URL + Copy */}
-                            <div className="flex items-center gap-2">
-                                <div className="flex-1 bg-white/80 rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 truncate select-all">
-                                    {publicUrl}
+                            {logoUrl && (
+                                <div className="w-12 h-12 rounded-xl border border-slate-200 bg-white overflow-hidden flex items-center justify-center shrink-0">
+                                    <img src={logoUrl} alt="Logo preview" className="w-full h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                                 </div>
-                                <button
-                                    onClick={handleCopy}
-                                    className={`shrink-0 flex items-center gap-2 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${copied
+                            )}
+                        </div>
+                        <p className="text-[9px] text-slate-400 font-bold mt-1">Cole a URL de uma imagem PNG ou JPG da sua logo.</p>
+                    </div>
+
+                    {/* Custom Headline */}
+                    <div>
+                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1 block">Título Personalizado</label>
+                        <input
+                            type="text"
+                            value={headline}
+                            onChange={(e) => { setHeadline(e.target.value); setBrandingDirty(true); }}
+                            placeholder="GIRE & GANHE!"
+                            maxLength={100}
+                            className="w-full rounded-xl border border-slate-200 bg-white/80 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-[#07a0c3] focus:ring-2 focus:ring-[#07a0c3]/20 transition-all"
+                        />
+                        <p className="text-[9px] text-slate-400 font-bold mt-1">Se vazio, usará &quot;GIRE &amp; GANHE!&quot; como padrão.</p>
+                    </div>
+
+                    {/* Save */}
+                    {brandingDirty && (
+                        <button
+                            onClick={handleSaveBranding}
+                            disabled={savingBranding}
+                            className="flex items-center gap-2 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[#086788] text-white hover:bg-[#07a0c3] shadow-md transition-all disabled:opacity-50"
+                        >
+                            {savingBranding ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                            {savingBranding ? 'Salvando...' : 'Salvar Personalização'}
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* Stats Card */}
+            {stats && stats.totalSpins > 0 && (
+                <div className="mb-6 relative z-10 rounded-[2rem] border border-white/60 bg-white/40 backdrop-blur-xl shadow-sm p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                        <BarChart3 size={16} className="text-[#086788]" />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-[#086788]">
+                            Estatísticas da Roleta
+                        </span>
+                    </div>
+
+                    {/* KPI Row */}
+                    <div className="grid grid-cols-3 gap-3 mb-5">
+                        <div className="rounded-2xl bg-gradient-to-br from-[#086788] to-[#07a0c3] p-4 text-white text-center shadow-md">
+                            <div className="text-3xl font-black tabular-nums">{stats.totalSpins}</div>
+                            <div className="text-[9px] font-bold uppercase tracking-widest text-white/70 mt-1">Total de Giros</div>
+                        </div>
+                        <div className="rounded-2xl bg-white/70 border border-white/80 p-4 text-center shadow-sm">
+                            <div className="text-3xl font-black tabular-nums text-[#086788]">{stats.weekSpins}</div>
+                            <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mt-1">Últimos 7 Dias</div>
+                        </div>
+                        <div className="rounded-2xl bg-white/70 border border-white/80 p-4 text-center shadow-sm">
+                            <div className="flex items-center justify-center gap-1">
+                                <div className="text-3xl font-black tabular-nums text-emerald-600">{stats.todaySpins}</div>
+                                {stats.todaySpins > 0 && <TrendingUp size={16} className="text-emerald-500" />}
+                            </div>
+                            <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mt-1">Hoje</div>
+                        </div>
+                    </div>
+
+                    {/* Prize Breakdown */}
+                    {
+                        Object.keys(stats.prizeBreakdown).length > 0 && (
+                            <div>
+                                <div className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Prêmios Distribuídos</div>
+                                <div className="space-y-1.5">
+                                    {Object.entries(stats.prizeBreakdown)
+                                        .sort(([, a], [, b]) => b - a)
+                                        .map(([prize, count]) => {
+                                            const pct = stats.totalSpins > 0 ? Math.round((count / stats.totalSpins) * 100) : 0;
+                                            const matchingPrize = prizes.find(p => p.label === prize);
+                                            return (
+                                                <div key={prize} className="flex items-center gap-3">
+                                                    <div
+                                                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                                                        style={{ backgroundColor: matchingPrize?.color || '#94a3b8' }}
+                                                    />
+                                                    <span className="text-xs font-bold text-slate-600 flex-1 truncate">{prize}</span>
+                                                    <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                                        <div
+                                                            className="h-full rounded-full transition-all"
+                                                            style={{ width: `${pct}%`, backgroundColor: matchingPrize?.color || '#94a3b8' }}
+                                                        />
+                                                    </div>
+                                                    <span className="text-xs font-black text-slate-700 tabular-nums w-10 text-right">{count}×</span>
+                                                </div>
+                                            );
+                                        })
+                                    }
+                                </div>
+                            </div>
+                        )
+                    }
+                </div >
+            )
+            }
+
+            {/* Link + QR Code Card */}
+            {
+                publicUrl && prizes.length > 0 && sum === 100 && (
+                    <div className="mb-6 relative z-10 rounded-[2rem] border border-white/60 bg-white/40 backdrop-blur-xl shadow-sm p-6">
+                        <div className="flex flex-col md:flex-row items-center gap-6">
+                            {/* QR Code */}
+                            <div className="bg-white rounded-2xl p-4 shadow-inner border border-slate-100 shrink-0">
+                                <QRCodeSVG
+                                    value={publicUrl}
+                                    size={140}
+                                    level="M"
+                                    bgColor="#ffffff"
+                                    fgColor="#086788"
+                                />
+                            </div>
+
+                            {/* Info */}
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Link2 size={16} className="text-[#086788]" />
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-[#086788]">
+                                        Link Público da Roleta
+                                    </span>
+                                </div>
+                                <p className="text-slate-500 text-xs font-bold mb-3">
+                                    Compartilhe este link com seus clientes ou imprima o QR Code para colocar no balcão/mesa.
+                                </p>
+
+                                {/* URL + Copy */}
+                                <div className="flex items-center gap-2">
+                                    <div className="flex-1 bg-white/80 rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 truncate select-all">
+                                        {publicUrl}
+                                    </div>
+                                    <button
+                                        onClick={handleCopy}
+                                        className={`shrink-0 flex items-center gap-2 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${copied
                                             ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
                                             : 'bg-[#086788] text-white hover:bg-[#07a0c3] shadow-md'
-                                        }`}
-                                >
-                                    {copied ? <Check size={14} /> : <Copy size={14} />}
-                                    {copied ? 'Copiado!' : 'Copiar'}
-                                </button>
+                                            }`}
+                                    >
+                                        {copied ? <Check size={14} /> : <Copy size={14} />}
+                                        {copied ? 'Copiado!' : 'Copiar'}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Chance Sum Indicator */}
             <div className="mb-6 relative z-10">
@@ -298,11 +477,13 @@ export default function RoletaPage() {
             </div>
 
             {/* Feedback */}
-            {feedback && (
-                <div className={`mt-4 p-4 rounded-2xl text-sm font-bold text-center relative z-10 ${feedback.type === "success" ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
-                    {feedback.message}
-                </div>
-            )}
+            {
+                feedback && (
+                    <div className={`mt-4 p-4 rounded-2xl text-sm font-bold text-center relative z-10 ${feedback.type === "success" ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+                        {feedback.message}
+                    </div>
+                )
+            }
 
             <style>{`
                 @keyframes spin-slow {
@@ -311,6 +492,6 @@ export default function RoletaPage() {
                 }
                 .animate-spin-slow { animation: spin-slow 8s linear infinite; }
             `}</style>
-        </div>
+        </div >
     );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { Users, Phone, Target, Gift, Ticket } from "lucide-react";
+import { Users, Phone, Target, Gift, Ticket, Download } from "lucide-react";
 import useSWR from "swr";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -39,6 +39,30 @@ export default function ContactsPage() {
 
     const { data: contacts, error, isLoading } = useSWR<ChatContact[]>("crm_contacts", fetchContacts);
 
+    const handleExportCSV = () => {
+        if (!contacts || contacts.length === 0) return;
+
+        const header = ["Nome", "Telefone", "Desconto", "Origem do Lead"];
+        const rows = contacts.map((c) => {
+            const rawName = c.contacts?.name || c.contacts?.phone || c.wa_chat_id || "Sem nome";
+            const name = rawName.includes("@") ? rawName.split("@")[0] : rawName;
+            const phone = c.contacts?.phone || c.wa_chat_id || "";
+            const cleanPhone = phone.includes("@") ? phone.split("@")[0] : phone;
+            const cupom = c.cupom_ganho || "";
+            const origem = c.origem_lead || "Direto";
+            return [name, cleanPhone, cupom, origem].map(v => `"${v.replace(/"/g, '""')}"`);
+        });
+
+        const csvContent = "\uFEFF" + [header.join(","), ...rows.map(r => r.join(","))].join("\n");
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `contatos_${new Date().toISOString().slice(0, 10)}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+    };
+
     return (
         <div className="relative h-full flex flex-col overflow-y-auto custom-scroll w-full px-2 pb-6">
             {/* Pattern de fundo */}
@@ -59,6 +83,14 @@ export default function ContactsPage() {
                         </p>
                     </div>
                 </div>
+                <button
+                    onClick={handleExportCSV}
+                    disabled={!contacts || contacts.length === 0}
+                    className="flex items-center gap-2 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[#086788] text-white hover:bg-[#07a0c3] shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                    <Download size={14} />
+                    Exportar CSV
+                </button>
             </div>
 
             {/* Contacts Table Section */}

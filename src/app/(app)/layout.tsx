@@ -7,6 +7,7 @@ import SignOutButton from "../../components/auth/SignOutButton";
 import ParticleBg from "../../components/shared/ParticleBg";
 import ConnectionAlert from "../../components/shared/ConnectionAlert";
 import { ToastProvider } from "../../components/shared/Toast";
+import useSWR from "swr";
 
 import {
   LayoutDashboard,
@@ -80,9 +81,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
+  // Fetch unread count for badge
+  const sidebarFetcher = async (url: string) => { const r = await fetch(url); const j = await r.json(); return j; };
+  const { data: chatsData } = useSWR<{ ok: boolean; chats: Array<{ unread_count: number | null }> }>("/api/chats", sidebarFetcher, { refreshInterval: 10000 });
+  const totalUnread = chatsData?.chats?.reduce((sum, c) => sum + (c.unread_count || 0), 0) || 0;
+
   const navItems = [
     { id: "Dashboard", href: "/dashboard", icon: <LayoutDashboard size={20} /> },
-    { id: "Inbox", href: "/inbox", icon: <Inbox size={20} /> },
+    { id: "Inbox", href: "/inbox", icon: <Inbox size={20} />, badge: totalUnread },
     { id: "Kanban", href: "/kanban", icon: <Kanban size={20} /> },
     { id: "Promoções", href: "/promocoes", icon: <Gift size={20} /> },
     { id: "Roleta", href: "/roleta", icon: <Dices size={20} /> },
@@ -189,13 +195,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       </span>
                     </div>
 
-                    <ChevronRight
-                      size={14}
-                      className={`
-                    transition-all duration-500 relative z-10
+                    <div className="flex items-center gap-2 relative z-10">
+                      <ChevronRight
+                        size={14}
+                        className={`
+                    transition-all duration-500
                     ${active ? "rotate-90 opacity-100" : "opacity-0 group-hover:opacity-100 group-hover:translate-x-1"}
                   `}
-                    />
+                      />
+                      {/* Badge */}
+                      {item.badge && item.badge > 0 && (
+                        <span className={`min-w-[20px] h-5 flex items-center justify-center rounded-full text-[10px] font-black tabular-nums px-1.5 shadow-lg ${active
+                            ? 'bg-white text-blue-600'
+                            : 'bg-red-500 text-white animate-pulse shadow-red-500/40'
+                          }`}>
+                          {item.badge > 99 ? '99+' : item.badge}
+                        </span>
+                      )}
+                    </div>
                   </Link>
                 );
               })}

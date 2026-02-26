@@ -4,6 +4,7 @@ import { useRef, useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight, User, Pencil, Check, X, Bot, Save, Loader2 } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import useSWR from "swr";
+import { useToast } from "@/components/shared/Toast";
 
 type Stage = {
     id: string;
@@ -61,6 +62,7 @@ export default function KanbanBoard({
     restaurantId: string;
 }) {
     const scrollRef = useRef<HTMLDivElement>(null);
+    const { showToast } = useToast();
     const [activeTab, setActiveTab] = useState("Vendas"); // "Vendas" ou "Automacao"
 
     // Local state for optimistic updates during rename
@@ -135,7 +137,7 @@ export default function KanbanBoard({
             mutateAutomations();
         } catch (err) {
             console.error("Erro ao salvar automação:", err);
-            alert("Erro ao salvar automação.");
+            showToast("Erro ao salvar automação.", "error");
         } finally {
             setSavingAutomations(prev => ({ ...prev, [stageId]: false }));
         }
@@ -202,7 +204,7 @@ export default function KanbanBoard({
             console.error("Error updating kanban state:", error);
             // Revert on failure
             setLocalChats(chatList);
-            alert("Erro ao alterar o estágio do card.");
+            showToast("Erro ao alterar o estágio do card.", "error");
         }
     };
 

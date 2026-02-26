@@ -22,8 +22,9 @@ type Chat = {
 type Automation = {
     id: string;
     stage_id: string;
-    fiqon_trigger_tag: string | null;
-    is_active: boolean;
+    restaurant_id: string;
+    trigger: string | null;
+    enabled: boolean;
 };
 
 function formatDate(value: string | null) {
@@ -53,9 +54,11 @@ function getChatPhone(chat: Chat) {
 export default function KanbanBoard({
     stageList,
     chatList,
+    restaurantId,
 }: {
     stageList: Stage[];
     chatList: Chat[];
+    restaurantId: string;
 }) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const [activeTab, setActiveTab] = useState("Vendas"); // "Vendas" ou "Automacao"
@@ -72,8 +75,12 @@ export default function KanbanBoard({
     const supabase = createSupabaseBrowserClient();
 
     // Fetch automations
-    const { data: dbAutomations, mutate: mutateAutomations } = useSWR('kanban_automations', async () => {
-        const { data, error } = await supabase.from('automations').select('*');
+    const { data: dbAutomations, mutate: mutateAutomations } = useSWR(['kanban_automations', restaurantId], async () => {
+        const { data, error } = await supabase
+            .from('automations')
+            .select('*')
+            .eq('restaurant_id', restaurantId);
+
         if (error) throw error;
 
         // Convert to map for easy lookup
@@ -108,9 +115,10 @@ export default function KanbanBoard({
                 .from('automations')
                 .upsert({
                     stage_id: stageId,
-                    fiqon_trigger_tag: auto.fiqon_trigger_tag,
-                    is_active: auto.is_active || false
-                }, { onConflict: 'stage_id' });
+                    restaurant_id: restaurantId,
+                    trigger: auto.trigger,
+                    enabled: auto.enabled || false
+                }, { onConflict: 'restaurant_id,stage_id' });
 
             if (error) throw error;
             mutateAutomations();
@@ -217,7 +225,7 @@ export default function KanbanBoard({
 
                     {activeTab === "Automacao" ? (
                         stages.map((stage) => {
-                            const autoObj = localAutomations[stage.id] || { fiqon_trigger_tag: '', is_active: false };
+                            const autoObj = localAutomations[stage.id] || { trigger: '', enabled: false };
                             const isSaving = savingAutomations[stage.id] || false;
 
                             return (
@@ -244,8 +252,8 @@ export default function KanbanBoard({
                                                 <input
                                                     type="checkbox"
                                                     className="sr-only peer"
-                                                    checked={autoObj.is_active || false}
-                                                    onChange={(e) => handleAutomationChange(stage.id, 'is_active', e.target.checked)}
+                                                    checked={autoObj.enabled || false}
+                                                    onChange={(e) => handleAutomationChange(stage.id, 'enabled', e.target.checked)}
                                                 />
                                                 <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#07a0c3]"></div>
                                             </label>
@@ -256,8 +264,8 @@ export default function KanbanBoard({
                                                 <label className="text-[10px] font-bold tracking-widest text-slate-500 uppercase">Tag de Vínculo Fiqon</label>
                                                 <input
                                                     type="text"
-                                                    value={autoObj.fiqon_trigger_tag || ''}
-                                                    onChange={(e) => handleAutomationChange(stage.id, 'fiqon_trigger_tag', e.target.value)}
+                                                    value={autoObj.trigger || ''}
+                                                    onChange={(e) => handleAutomationChange(stage.id, 'trigger', e.target.value)}
                                                     className="w-full bg-white/70 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-[#086788] shadow-inner focus:outline-none focus:border-[#07a0c3]/50 focus:ring-2 focus:ring-[#07a0c3]/20"
                                                     placeholder="ex: gatilho_pedido_pronto"
                                                 />

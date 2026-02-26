@@ -103,5 +103,5 @@ export default async function KanbanPage() {
     contacts: Array.isArray(c.contacts) ? c.contacts[0] : c.contacts,
   }));
 
-  return <KanbanBoard stageList={stageList} chatList={chatList} />;
+  return <KanbanBoard stageList={stageList} chatList={chatList} restaurantId={restaurantId} />;
 }

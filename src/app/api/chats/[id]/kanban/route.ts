@@ -37,8 +37,9 @@ export async function POST(
             return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
         }
 
-        // Trigger Fiqon Webhook as fire-and-forget (do not await)
-        triggerFiqonWebhook(chatId, stageId);
+        // Disparo do Webhook (Sem dar await para não travar a resposta)
+        console.log('API Kanban: Update realizado, chamando webhook para o stage:', stageId);
+        triggerFiqonWebhook(chatId, stageId).catch(err => console.error('Erro no webhook:', err));
 
         return NextResponse.json({ ok: true, message: "Ok, Webhook configurado" });
     } catch (error: unknown) {

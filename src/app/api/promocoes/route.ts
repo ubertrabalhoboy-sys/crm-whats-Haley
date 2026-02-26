@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { nome, preco_original, preco_promo, estoque } = body;
+    const { nome, preco_original, preco_promo, estoque, imagem_url } = body;
 
     if (!nome || typeof preco_original !== 'number' || typeof preco_promo !== 'number') {
         return NextResponse.json({ ok: false, error: "MISSING_FIELDS" }, { status: 400 });
@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
             preco_original,
             preco_promo,
             estoque: estoque || 0,
+            imagem_url: imagem_url || null,
         })
         .select()
         .single();

@@ -7,7 +7,8 @@ import {
   Users,
   Activity,
   LayoutDashboard,
-  Tag
+  Tag,
+  Image as ImageIcon
 } from "lucide-react";
 
 const fetcher = async (url: string) => {
@@ -30,6 +31,7 @@ type ProdutoPromo = {
   preco_original: number;
   preco_promo: number;
   estoque: number;
+  imagem_url?: string;
 };
 
 type DashboardData = {
@@ -157,14 +159,14 @@ export default function DashboardPage() {
       </div>
 
       {/* Top Produtos Section */}
-      <div className="flex-1 min-h-0 mx-2 flex flex-col p-8 bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5 rounded-[2.5rem] relative z-10 overflow-hidden">
+      <div className="w-full flex flex-col p-8 bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5 rounded-[2.5rem] relative z-10 mb-8 overflow-hidden">
         <h2 className="text-lg font-black uppercase tracking-widest text-[#086788] mb-6 flex items-center gap-3">
           <Tag size={20} className="text-[#07a0c3]" />
           Top Produtos da Gamificação (Ofertas)
         </h2>
 
         {produtos.length === 0 && !isLoading && !error ? (
-          <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-[#086788]/10 rounded-3xl p-10 text-center">
+          <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-[#086788]/10 rounded-3xl p-10 text-center min-h-[250px]">
             <div className="h-16 w-16 bg-white/60 rounded-full flex items-center justify-center mb-4 shadow-xl shadow-[#086788]/5">
               <Tag size={24} className="text-[#086788]/40" />
             </div>
@@ -188,7 +190,16 @@ export default function DashboardPage() {
                 {produtos.map((p) => (
                   <tr key={p.id} className="group hover:bg-white/50 transition-colors border-b border-white/30 last:border-0">
                     <td className="py-4 px-4">
-                      <div className="font-bold text-sm text-[#086788] group-hover:text-[#07a0c3] transition-colors">{p.nome}</div>
+                      <div className="flex items-center gap-3">
+                        {p.imagem_url ? (
+                          <img src={p.imagem_url} alt={p.nome} className="h-10 w-10 shrink-0 rounded-lg object-cover shadow-sm border border-white/50" />
+                        ) : (
+                          <div className="h-10 w-10 shrink-0 rounded-lg bg-gradient-to-br from-[#07a0c3]/20 to-[#086788]/20 flex items-center justify-center text-[#086788] shadow-inner border border-white/50">
+                            <ImageIcon size={18} />
+                          </div>
+                        )}
+                        <div className="font-bold text-sm text-[#086788] group-hover:text-[#07a0c3] transition-colors">{p.nome}</div>
+                      </div>
                     </td>
                     <td className="py-4 px-4 text-right">
                       <span className="text-sm font-semibold text-slate-400 line-through">{formatCurrency(p.preco_original)}</span>

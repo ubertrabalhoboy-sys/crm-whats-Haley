@@ -33,23 +33,42 @@ export async function POST(req: NextRequest) {
             ? "Você é um atendente de restaurante educado e focado em vendas. Ajude a criar uma sugestão de resposta persuasiva e amigável para o cliente baseada no histórico da conversa."
             : "Você é um assistente analítico. Gere um resumo em tópicos curtos sobre do que se trata esta conversa, listando intenção do cliente e produtos citados.";
 
-        // --------------------------------------------------------------------------------
-        // TODO: REPLACE THIS BLOCK WITH THE ACTUAL AI FETCH CALL (OpenAI, Evolution API, etc.)
-        // --------------------------------------------------------------------------------
-
-        // const aiResponse = await fetch("YOUR_AI_ENDPOINT", { ... })
-        // const textOutput = await aiResponse.json()
-
-        // MOCK RESPONSE FOR FRONTEND TESTING:
-        await new Promise((resolve) => setTimeout(resolve, 1500)); // simulate network delay
+        const openAiApiKey = process.env.OPENAI_API_KEY;
+        if (!openAiApiKey) {
+            return NextResponse.json({ ok: false, error: "Falta configurar a chave da OpenAI no painel" }, { status: 400 });
+        }
 
         let textOutput = "";
-        if (tipo_acao === "suggest") {
-            textOutput = "Olá! Claro, vi que você se interessou. Posso confirmar o seu pedido com a entrega grátis aproveitando a nossa promoção exclusiva de hoje?";
-        } else {
-            textOutput = "📌 Resumo:\n• Cliente interessado no cardápio.\n• Perguntou sobre taxas de entrega.\n• Demonstrou interesse na promoção de combos.\n⚠️ Ação pendente: Confirmar endereço de entrega.";
+
+        try {
+            const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${openAiApiKey}`
+                },
+                body: JSON.stringify({
+                    model: "gpt-4o-mini",
+                    messages: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: historyText }
+                    ],
+                    temperature: 0.7,
+                })
+            });
+
+            if (!aiResponse.ok) {
+                const errorData = await aiResponse.json();
+                console.error("[api/ai/process] OpenAI API Error:", errorData);
+                throw new Error("Erro na comunicação com a API da OpenAI");
+            }
+
+            const data = await aiResponse.json();
+            textOutput = data.choices[0].message.content;
+        } catch (apiError: any) {
+            console.error("[api/ai/process] Fetch error:", apiError);
+            return NextResponse.json({ ok: false, error: "Falha ao processar com IA externa: " + apiError.message }, { status: 502 });
         }
-        // --------------------------------------------------------------------------------
 
         return NextResponse.json({ ok: true, output: textOutput }, { status: 200 });
 

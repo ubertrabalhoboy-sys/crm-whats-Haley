@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { Gift, Plus, Search, Tag, Trash2, Edit } from "lucide-react";
+import { Gift, Plus, Search, Tag, Trash2, Edit, Image as ImageIcon } from "lucide-react";
 
 type ProdutoPromo = {
     id: string;
@@ -10,6 +10,7 @@ type ProdutoPromo = {
     preco_original: number;
     preco_promo: number;
     estoque: number;
+    imagem_url?: string;
 };
 
 const fetcher = async (url: string) => {
@@ -26,6 +27,7 @@ export default function PromocoesPage() {
         preco_original: "",
         preco_promo: "",
         estoque: "0",
+        imagem_url: "",
     });
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -51,6 +53,7 @@ export default function PromocoesPage() {
                     preco_original: Number(formData.preco_original),
                     preco_promo: Number(formData.preco_promo),
                     estoque: Number(formData.estoque),
+                    imagem_url: formData.imagem_url,
                 }),
             });
 
@@ -58,7 +61,7 @@ export default function PromocoesPage() {
             if (!json.ok) throw new Error(json.error || "Falha ao salvar produto");
 
             mutate(); // Traz a lista nova
-            setFormData({ nome: "", preco_original: "", preco_promo: "", estoque: "0" });
+            setFormData({ nome: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "" });
             setIsAdding(false);
         } catch (err: any) {
             setErrorMsg(err.message);
@@ -183,6 +186,19 @@ export default function PromocoesPage() {
                                 />
                             </div>
 
+                            <div className="flex flex-col gap-2">
+                                <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                                    Link da Foto do Produto (URL)
+                                </label>
+                                <input
+                                    type="url"
+                                    value={formData.imagem_url}
+                                    onChange={(e) => setFormData({ ...formData, imagem_url: e.target.value })}
+                                    className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                                    placeholder="https://site.com/foto.png"
+                                />
+                            </div>
+
                             <button
                                 type="submit"
                                 className="mt-4 rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-500 py-4 text-sm font-black uppercase tracking-widest text-white shadow-lg shadow-indigo-500/30 transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/40"
@@ -237,9 +253,15 @@ export default function PromocoesPage() {
                                     </button>
                                 </div>
 
-                                <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-100 to-purple-50 flex items-center justify-center mb-4 text-indigo-500 shadow-inner">
-                                    <Tag size={24} />
-                                </div>
+                                {p.imagem_url ? (
+                                    <div className="h-14 w-14 rounded-2xl mb-4 shadow-sm border border-slate-200 overflow-hidden shrink-0">
+                                        <img src={p.imagem_url} alt={p.nome} className="h-full w-full object-cover" />
+                                    </div>
+                                ) : (
+                                    <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-100 to-purple-50 flex items-center justify-center mb-4 text-indigo-500 shadow-inner shrink-0">
+                                        <ImageIcon size={24} />
+                                    </div>
+                                )}
                                 <h3 className="text-base font-black text-slate-800 mb-4 line-clamp-2">{p.nome}</h3>
 
                                 <div className="flex flex-col gap-1 mb-4 mt-auto">

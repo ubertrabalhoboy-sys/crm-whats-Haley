@@ -1,8 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, User, Pencil, Check, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, User, Pencil, Check, X, Bot, Save, Loader2 } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import useSWR from "swr";
 
 type Stage = {
     id: string;
@@ -16,6 +17,13 @@ type Chat = {
     updated_at: string | null;
     last_message?: string | null;
     contacts?: { phone: string | null; name: string | null } | null;
+};
+
+type Automation = {
+    id: string;
+    stage_id: string;
+    fiqon_trigger_tag: string | null;
+    is_active: boolean;
 };
 
 function formatDate(value: string | null) {
@@ -56,7 +64,63 @@ export default function KanbanBoard({
     const [stages, setStages] = useState<Stage[]>(stageList);
     const [editingStageId, setEditingStageId] = useState<string | null>(null);
     const [editName, setEditName] = useState("");
+
+    // Automation local states
+    const [localAutomations, setLocalAutomations] = useState<Record<string, Automation>>({});
+    const [savingAutomations, setSavingAutomations] = useState<Record<string, boolean>>({});
+
     const supabase = createSupabaseBrowserClient();
+
+    // Fetch automations
+    const { data: dbAutomations, mutate: mutateAutomations } = useSWR('kanban_automations', async () => {
+        const { data, error } = await supabase.from('automations').select('*');
+        if (error) throw error;
+
+        // Convert to map for easy lookup
+        const authMap: Record<string, Automation> = {};
+        (data as Automation[]).forEach(auth => {
+            authMap[auth.stage_id] = auth;
+        });
+
+        // Initialize local state with DB state
+        setLocalAutomations(authMap);
+        return authMap;
+    });
+
+    const handleAutomationChange = (stageId: string, field: keyof Automation, value: any) => {
+        setLocalAutomations(prev => ({
+            ...prev,
+            [stageId]: {
+                ...prev[stageId],
+                stage_id: stageId,
+                [field]: value
+            }
+        }));
+    };
+
+    const saveAutomation = async (stageId: string) => {
+        const auto = localAutomations[stageId];
+        if (!auto) return;
+
+        setSavingAutomations(prev => ({ ...prev, [stageId]: true }));
+        try {
+            const { error } = await supabase
+                .from('automations')
+                .upsert({
+                    stage_id: stageId,
+                    fiqon_trigger_tag: auto.fiqon_trigger_tag,
+                    is_active: auto.is_active || false
+                }, { onConflict: 'stage_id' });
+
+            if (error) throw error;
+            mutateAutomations();
+        } catch (err) {
+            console.error("Erro ao salvar automação:", err);
+            alert("Erro ao salvar automação.");
+        } finally {
+            setSavingAutomations(prev => ({ ...prev, [stageId]: false }));
+        }
+    };
 
     const scrollByAmount = (amount: number) => {
         if (scrollRef.current) {
@@ -104,8 +168,8 @@ export default function KanbanBoard({
                 <button
                     onClick={() => setActiveTab("Vendas")}
                     className={`px-6 py-2.5 rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] transition-all flex items-center gap-2 border ${activeTab === "Vendas"
-                            ? "bg-[#086788] text-white border-transparent shadow-[0_5px_15px_rgba(8,103,136,0.2)]"
-                            : "bg-white/40 text-[#086788] border-white/60 hover:bg-white/60 backdrop-blur-md"
+                        ? "bg-[#086788] text-white border-transparent shadow-[0_5px_15px_rgba(8,103,136,0.2)]"
+                        : "bg-white/40 text-[#086788] border-white/60 hover:bg-white/60 backdrop-blur-md"
                         }`}
                 >
                     Fluxo de Vendas
@@ -113,8 +177,8 @@ export default function KanbanBoard({
                 <button
                     onClick={() => setActiveTab("Automacao")}
                     className={`px-6 py-2.5 rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] transition-all flex items-center gap-2 border ${activeTab === "Automacao"
-                            ? "bg-[#07a0c3] text-white border-transparent shadow-[0_5px_15px_rgba(7,160,195,0.2)]"
-                            : "bg-white/40 text-[#07a0c3] border-white/60 hover:bg-white/60 backdrop-blur-md"
+                        ? "bg-[#07a0c3] text-white border-transparent shadow-[0_5px_15px_rgba(7,160,195,0.2)]"
+                        : "bg-white/40 text-[#07a0c3] border-white/60 hover:bg-white/60 backdrop-blur-md"
                         }`}
                 >
                     Automação de CRM
@@ -152,12 +216,69 @@ export default function KanbanBoard({
           `}</style>
 
                     {activeTab === "Automacao" ? (
-                        <div className="flex-1 flex items-center justify-center w-full h-full text-center">
-                            <div className="bg-white/40 backdrop-blur-xl border border-white/60 p-10 rounded-[2.5rem] shadow-lg">
-                                <h3 className="text-xl font-black uppercase text-[#07a0c3] mb-2 tracking-widest">Em Breve</h3>
-                                <p className="text-sm font-semibold tracking-wide text-slate-500 max-w-sm">O fluxo visual de mapeamento e automação gamificada está em construção. Explore a aba de Vendas.</p>
-                            </div>
-                        </div>
+                        stages.map((stage) => {
+                            const autoObj = localAutomations[stage.id] || { fiqon_trigger_tag: '', is_active: false };
+                            const isSaving = savingAutomations[stage.id] || false;
+
+                            return (
+                                <div key={`auto-${stage.id}`} className="w-80 shrink-0 flex flex-col h-[calc(100vh-250px)]">
+                                    {/* Cabeçalho da coluna */}
+                                    <div className="flex shrink-0 items-center justify-between rounded-[2rem] border border-[#07a0c3]/30 bg-white/55 px-6 py-5 shadow-lg shadow-[#07a0c3]/10 backdrop-blur-xl mb-4 group transition-colors">
+                                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                                            <div className="h-2 w-2 rounded-full bg-[#07a0c3] shadow-[0_0_8px_#07a0c3] shrink-0" />
+                                            <h2 className="text-[12px] font-[900] uppercase tracking-[0.15em] text-[#086788] truncate mr-2 flex-1">
+                                                {stage.name}
+                                            </h2>
+                                        </div>
+                                    </div>
+
+                                    {/* Configuração de Automação */}
+                                    <div className="flex-1 flex flex-col p-6 rounded-[2.5rem] border border-white/60 bg-white/40 shadow-sm backdrop-blur-xl">
+                                        <div className="flex items-center justify-between border-b border-white/50 pb-4 mb-4">
+                                            <h3 className="text-[11px] font-black uppercase tracking-widest text-[#086788] flex items-center gap-2">
+                                                <Bot size={16} className="text-[#07a0c3]" /> Gatilho Fiqon
+                                            </h3>
+
+                                            {/* Toggle Switch */}
+                                            <label className="relative inline-flex items-center cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    className="sr-only peer"
+                                                    checked={autoObj.is_active || false}
+                                                    onChange={(e) => handleAutomationChange(stage.id, 'is_active', e.target.checked)}
+                                                />
+                                                <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#07a0c3]"></div>
+                                            </label>
+                                        </div>
+
+                                        <div className="flex-1 flex flex-col gap-4">
+                                            <div className="flex flex-col gap-2">
+                                                <label className="text-[10px] font-bold tracking-widest text-slate-500 uppercase">Tag de Vínculo Fiqon</label>
+                                                <input
+                                                    type="text"
+                                                    value={autoObj.fiqon_trigger_tag || ''}
+                                                    onChange={(e) => handleAutomationChange(stage.id, 'fiqon_trigger_tag', e.target.value)}
+                                                    className="w-full bg-white/70 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-[#086788] shadow-inner focus:outline-none focus:border-[#07a0c3]/50 focus:ring-2 focus:ring-[#07a0c3]/20"
+                                                    placeholder="ex: gatilho_pedido_pronto"
+                                                />
+                                                <p className="text-[9px] text-slate-400 font-semibold italic mt-1 leading-relaxed">
+                                                    Digite a tag exata que o Fiqon está aguardando para disparar o bloco de desconto correspondente.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => saveAutomation(stage.id)}
+                                            disabled={isSaving}
+                                            className="mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-[#086788] hover:bg-[#065370] transition-colors text-white text-[11px] font-black uppercase tracking-widest disabled:opacity-50 shadow-md shadow-[#086788]/20"
+                                        >
+                                            {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                                            {isSaving ? 'Salvando...' : 'Salvar Automação'}
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })
                     ) : (
                         stages.map((stage) => {
                             // We check against the original `stageList` to keep data aligned if needed, 

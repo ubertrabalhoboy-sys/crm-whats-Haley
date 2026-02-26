@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import useSWR from "swr";
-import { Gift, Plus, Search, Tag, Trash2, Edit, Image as ImageIcon } from "lucide-react";
+import { Gift, Plus, Search, Tag, Trash2, Edit, Image as ImageIcon, UploadCloud, X, Loader2 } from "lucide-react";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type ProdutoPromo = {
     id: string;
@@ -29,7 +30,31 @@ export default function PromocoesPage() {
         estoque: "0",
         imagem_url: "",
     });
+
+    // File Upload States
+    const [imageFile, setImageFile] = useState<File | null>(null);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const supabase = createSupabaseBrowserClient();
+
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setImageFile(file);
+            const objectUrl = URL.createObjectURL(file);
+            setPreviewUrl(objectUrl);
+        }
+    };
+
+    const handleRemoveImage = () => {
+        setImageFile(null);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
 
     const { data, error, mutate, isValidating } = useSWR<{ ok: boolean; products: ProdutoPromo[] }>(
         `/api/promocoes`,
@@ -43,8 +68,35 @@ export default function PromocoesPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setErrorMsg(null);
+        setIsUploading(true);
 
         try {
+            let finalImageUrl = formData.imagem_url;
+
+            // Faz upload da imagem fisicamente
+            if (imageFile) {
+                const fileExt = imageFile.name.split('.').pop();
+                const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('produtos')
+                    .upload(fileName, imageFile, {
+                        cacheControl: '3600',
+                        upsert: false
+                    });
+
+                if (uploadError) {
+                    throw new Error(`Erro ao fazer upload da imagem: ${uploadError.message}`);
+                }
+
+                // Busca a url pública via Supabase
+                const { data: publicUrlData } = supabase.storage
+                    .from('produtos')
+                    .getPublicUrl(fileName);
+
+                finalImageUrl = publicUrlData.publicUrl;
+            }
+
             const res = await fetch("/api/promocoes", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -53,7 +105,7 @@ export default function PromocoesPage() {
                     preco_original: Number(formData.preco_original),
                     preco_promo: Number(formData.preco_promo),
                     estoque: Number(formData.estoque),
-                    imagem_url: formData.imagem_url,
+                    imagem_url: finalImageUrl,
                 }),
             });
 
@@ -62,9 +114,12 @@ export default function PromocoesPage() {
 
             mutate(); // Traz a lista nova
             setFormData({ nome: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "" });
+            handleRemoveImage();
             setIsAdding(false);
         } catch (err: any) {
             setErrorMsg(err.message);
+        } finally {
+            setIsUploading(false);
         }
     };
 
@@ -110,7 +165,7 @@ export default function PromocoesPage() {
             <div className="relative flex-1 min-h-0 mx-2 flex gap-6">
                 {/* Painel Formulário */}
                 {isAdding && (
-                    <div className="w-[400px] shrink-0 h-full flex flex-col rounded-[2.5rem] border border-white/70 bg-white/50 backdrop-blur-xl shadow-lg p-8 overflow-y-auto custom-scroll">
+                    <div className="w-full max-w-[450px] shrink-0 h-full flex flex-col rounded-[2.5rem] border border-white/70 bg-white/50 backdrop-blur-xl shadow-lg p-8 overflow-y-auto custom-scroll">
                         <div className="flex items-center gap-3 mb-6">
                             <div className="h-8 w-8 rounded-xl bg-purple-100 flex items-center justify-center text-purple-600">
                                 <Tag size={16} />
@@ -139,8 +194,8 @@ export default function PromocoesPage() {
                                 />
                             </div>
 
-                            <div className="flex gap-4">
-                                <div className="flex flex-col gap-2 flex-1">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="flex flex-col gap-2">
                                     <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
                                         Preço Original
                                     </label>
@@ -155,9 +210,9 @@ export default function PromocoesPage() {
                                         className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
                                     />
                                 </div>
-                                <div className="flex flex-col gap-2 flex-1">
-                                    <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
-                                        Preço Promo/Roleta
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 truncate">
+                                        Preço Promo
                                     </label>
                                     <input
                                         required
@@ -173,7 +228,7 @@ export default function PromocoesPage() {
                             </div>
 
                             <div className="flex flex-col gap-2">
-                                <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                                <label className="text-[11px] font-black uppercase tracking-widest text-slate-500 truncate">
                                     Quantidade em Estoque Limitado (Qtd)
                                 </label>
                                 <input
@@ -188,22 +243,54 @@ export default function PromocoesPage() {
 
                             <div className="flex flex-col gap-2">
                                 <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
-                                    Link da Foto do Produto (URL)
+                                    Foto do Prêmio/Produto
                                 </label>
+
+                                {previewUrl ? (
+                                    <div className="relative w-full h-40 rounded-2xl border border-indigo-100 overflow-hidden shadow-sm group">
+                                        <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                                        <div className="absolute inset-0 bg-indigo-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                                            <button
+                                                type="button"
+                                                onClick={handleRemoveImage}
+                                                className="bg-white text-rose-500 p-2 rounded-xl shadow-lg hover:scale-110 hover:bg-rose-50 transition-all font-bold text-xs flex items-center gap-2"
+                                            >
+                                                <X size={16} /> Remover Foto
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="w-full h-32 rounded-2xl border-2 border-dashed border-indigo-200 bg-white/50 hover:bg-indigo-50/50 hover:border-indigo-400 transition-all flex flex-col items-center justify-center cursor-pointer group shadow-sm text-center px-4"
+                                    >
+                                        <div className="h-10 w-10 rounded-full bg-indigo-100 text-indigo-500 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                                            <UploadCloud size={20} />
+                                        </div>
+                                        <span className="text-xs font-bold text-indigo-900">Clique para enviar uma Imagem</span>
+                                        <span className="text-[10px] text-slate-400 font-medium mt-1">PNG, JPG ou WEBP (Max. 2MB)</span>
+                                    </div>
+                                )}
+
                                 <input
-                                    type="url"
-                                    value={formData.imagem_url}
-                                    onChange={(e) => setFormData({ ...formData, imagem_url: e.target.value })}
-                                    className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
-                                    placeholder="https://site.com/foto.png"
+                                    type="file"
+                                    accept="image/*"
+                                    ref={fileInputRef}
+                                    onChange={handleImageSelect}
+                                    className="hidden"
                                 />
                             </div>
 
                             <button
                                 type="submit"
-                                className="mt-4 rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-500 py-4 text-sm font-black uppercase tracking-widest text-white shadow-lg shadow-indigo-500/30 transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/40"
+                                disabled={isUploading}
+                                className="mt-4 flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-500 py-4 text-sm font-black uppercase tracking-widest text-white shadow-lg shadow-indigo-500/30 transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/40 disabled:opacity-70 disabled:hover:translate-y-0"
                             >
-                                Salvar Produto
+                                {isUploading ? (
+                                    <><Loader2 size={18} className="animate-spin" /> Salvando Produto...</>
+                                ) : (
+                                    "Salvar Produto"
+                                )}
                             </button>
                         </form>
                     </div>

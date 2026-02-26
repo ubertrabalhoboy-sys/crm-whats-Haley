@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight, User, Pencil, Check, X, Bot, Save, Loader2 } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import useSWR from "swr";
@@ -67,6 +67,13 @@ export default function KanbanBoard({
     const [stages, setStages] = useState<Stage[]>(stageList);
     const [editingStageId, setEditingStageId] = useState<string | null>(null);
     const [editName, setEditName] = useState("");
+
+    // Local chats state for optimistic drag and drop
+    const [localChats, setLocalChats] = useState<Chat[]>(chatList);
+
+    useEffect(() => {
+        setLocalChats(chatList);
+    }, [chatList]);
 
     // Automation local states
     const [localAutomations, setLocalAutomations] = useState<Record<string, Automation>>({});
@@ -136,6 +143,53 @@ export default function KanbanBoard({
     const scrollByAmount = (amount: number) => {
         if (scrollRef.current) {
             scrollRef.current.scrollBy({ left: amount, behavior: "smooth" });
+        }
+    };
+
+    const handleDragStart = (e: React.DragEvent<HTMLDivElement>, chatId: string) => {
+        e.dataTransfer.setData("chatId", chatId);
+        e.dataTransfer.effectAllowed = "move";
+    };
+
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+    };
+
+    const handleDrop = async (e: React.DragEvent<HTMLDivElement>, targetStage: Stage) => {
+        e.preventDefault();
+        const chatId = e.dataTransfer.getData("chatId");
+        if (!chatId) return;
+
+        const chatToMove = localChats.find(c => c.id === chatId);
+        if (!chatToMove || chatToMove.kanban_status === targetStage.name) return;
+
+        // Optimistic UI state update
+        setLocalChats(prev => prev.map(c =>
+            c.id === chatId ? { ...c, kanban_status: targetStage.name } : c
+        ));
+
+        try {
+            const response = await fetch(`/api/chats/${chatId}/kanban`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    stageId: targetStage.id,
+                    stageName: targetStage.name
+                })
+            });
+
+            if (!response.ok) {
+                const rs = await response.json();
+                throw new Error(rs.error || "Failed to update kanban state");
+            }
+        } catch (error) {
+            console.error("Error updating kanban state:", error);
+            // Revert on failure
+            setLocalChats(chatList);
+            alert("Erro ao alterar o estágio do card.");
         }
     };
 
@@ -296,7 +350,7 @@ export default function KanbanBoard({
                             // or just match against updated names if chats kanban_status matches the DB stage.name.
                             // Note: if name changes, existing chats with old name won't match unless kanban_status in chats is updated too (trigger needed in DB).
                             // We'll map mostly normally.
-                            const stageChats = chatList.filter(
+                            const stageChats = localChats.filter(
                                 (chat) => (chat.kanban_status ?? "") === stage.name
                             );
 
@@ -344,7 +398,11 @@ export default function KanbanBoard({
                                     </div>
 
                                     {/* Lista de cards vertical */}
-                                    <div className="flex-1 overflow-y-auto space-y-4 pr-3 pb-6 custom-scroll">
+                                    <div
+                                        className="flex-1 overflow-y-auto space-y-4 pr-3 pb-6 custom-scroll"
+                                        onDragOver={handleDragOver}
+                                        onDrop={(e) => handleDrop(e, stage)}
+                                    >
                                         {stageChats.length === 0 ? (
                                             <div className="rounded-[2.5rem] border-2 border-dashed border-[#086788]/10 p-10 text-center">
                                                 <p className="text-[10px] font-black uppercase tracking-widest text-[#086788]/30">
@@ -355,7 +413,9 @@ export default function KanbanBoard({
                                             stageChats.map((chat) => (
                                                 <div
                                                     key={chat.id}
-                                                    className="group relative overflow-hidden rounded-[2.2rem] border border-white bg-white/80 p-6 shadow-sm transition-all duration-500 hover:-translate-y-[5px] hover:shadow-[0_15px_30px_-5px_rgba(8,103,136,0.15)] backdrop-blur-lg"
+                                                    draggable
+                                                    onDragStart={(e) => handleDragStart(e, chat.id)}
+                                                    className="group relative overflow-hidden rounded-[2.2rem] border border-white bg-white/80 p-6 shadow-sm transition-all duration-500 hover:-translate-y-[5px] hover:shadow-[0_15px_30px_-5px_rgba(8,103,136,0.15)] backdrop-blur-lg cursor-grab active:cursor-grabbing"
                                                 >
                                                     {/* Indicador lateral */}
                                                     <div className="absolute left-0 top-1/4 bottom-1/4 w-1 rounded-r-full bg-[#07a0c3] opacity-0 transition-all group-hover:opacity-100" />

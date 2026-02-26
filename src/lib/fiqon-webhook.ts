@@ -1,9 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function triggerFiqonWebhook(chatId: string, newStageId: string) {
-    console.log('--- INÍCIO DO DISPARO ---');
-    console.log('chatId:', chatId, '| newStageId:', newStageId);
-
     try {
         const supabase = await createSupabaseServerClient();
 
@@ -19,11 +16,7 @@ export async function triggerFiqonWebhook(chatId: string, newStageId: string) {
             return;
         }
 
-        console.log('Chat encontrado. restaurant_id:', chat.restaurant_id);
-
         // 2. Get Automation for this new stage
-        console.log('Buscando automação para Stage:', newStageId, '| restaurant_id:', chat.restaurant_id);
-
         const { data: automation, error: autoError } = await supabase
             .from("automations")
             .select("enabled, trigger")
@@ -36,19 +29,15 @@ export async function triggerFiqonWebhook(chatId: string, newStageId: string) {
             return;
         }
 
-        console.log('Automação encontrada:', automation ? 'Sim' : 'Não', '| Status:', automation?.enabled, '| Trigger:', automation?.trigger);
-
         // 3. Condition check
         if (!automation || !automation.enabled || !automation.trigger?.trim()) {
-            console.log('[Fiqon Webhook] Condição não atendida. Abortando disparo.');
             return;
         }
 
         const webhookUrl = process.env.FIQON_WEBHOOK_URL;
-        console.log('URL de destino:', webhookUrl || 'ERRO: URL NÃO DEFINIDA NO RENDER');
 
         if (!webhookUrl) {
-            console.warn("[Fiqon Webhook] FIQON_WEBHOOK_URL is not set in environment variables.");
+            console.error("[Fiqon Webhook] FIQON_WEBHOOK_URL não definida.");
             return;
         }
 
@@ -61,25 +50,33 @@ export async function triggerFiqonWebhook(chatId: string, newStageId: string) {
             tag_disparada: automation.trigger.trim()
         };
 
-        console.log('[Fiqon Webhook] Payload:', JSON.stringify(payload));
-
         fetch(webhookUrl, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
-        }).then(response => {
+        }).then(async response => {
+            const status = response.ok ? "success" : "error";
             if (!response.ok) {
-                console.error("[Fiqon Webhook] Fiqon respondeu com status:", response.status);
+                console.error(`[Fiqon Webhook] Falha - status ${response.status} para chat ${chatId}`);
             } else {
-                console.log(`[Fiqon Webhook] ✅ Sucesso! Tag '${payload.tag_disparada}' disparada para chat ${chatId}`);
+                console.log(`[Fiqon Webhook] OK - tag '${payload.tag_disparada}' enviada para chat ${chatId}`);
             }
-        }).catch(err => {
-            console.error('ERRO FATAL NO FETCH:', err.message);
+            // Log to webhook_logs
+            await supabase.from("webhook_logs").insert({
+                restaurant_id: chat.restaurant_id,
+                chat_id: chatId,
+                tag_disparada: payload.tag_disparada,
+                status
+            });
+        }).catch(async err => {
+            console.error("[Fiqon Webhook] Erro no fetch:", err.message);
+            await supabase.from("webhook_logs").insert({
+                restaurant_id: chat.restaurant_id,
+                chat_id: chatId,
+                tag_disparada: payload.tag_disparada,
+                status: "error"
+            });
         });
-
-        console.log('--- FIM DO DISPARO (fetch em andamento) ---');
     } catch (error) {
         console.error("[Fiqon Webhook] Erro inesperado:", error);
     }

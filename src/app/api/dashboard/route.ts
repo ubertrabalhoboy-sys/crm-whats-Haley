@@ -42,6 +42,36 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ ok: false, error: produtosError.message }, { status: 500 });
     }
 
+    // 3. Fetch Webhook Logs (last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const { data: webhookLogs } = await supabase
+        .from("webhook_logs")
+        .select("status, created_at")
+        .eq("restaurant_id", profile.restaurant_id)
+        .gte("created_at", sevenDaysAgo.toISOString())
+        .order("created_at", { ascending: true });
+
+    const logs = webhookLogs || [];
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Group by day
+    const porDia: Record<string, { success: number; error: number }> = {};
+    for (const log of logs) {
+        const dia = log.created_at?.slice(0, 10) || today;
+        if (!porDia[dia]) porDia[dia] = { success: 0, error: 0 };
+        porDia[dia][log.status === "error" ? "error" : "success"]++;
+    }
+
+    const webhookStats = {
+        total7d: logs.length,
+        hoje: logs.filter(l => (l.created_at?.slice(0, 10) || "") === today).length,
+        successCount: logs.filter(l => l.status === "success").length,
+        errorCount: logs.filter(l => l.status === "error").length,
+        porDia: Object.entries(porDia).map(([dia, counts]) => ({ dia, ...counts }))
+    };
+
     const chatsList = chats || [];
 
     // Metrics calculation
@@ -58,6 +88,19 @@ export async function GET(req: NextRequest) {
     const chatsComVenda = chatsList.filter(chat => (Number(chat.valor_total_vendas) || 0) > 0).length;
     const taxaConversao = chatsList.length > 0 ? (chatsComVenda / chatsList.length) * 100 : 0;
 
+    // 4. Onboarding status
+    const [restaurantRow, automationRow, firstLog] = await Promise.all([
+        supabase.from("restaurants").select("uaz_status").eq("id", profile.restaurant_id).single(),
+        supabase.from("automations").select("id").eq("restaurant_id", profile.restaurant_id).eq("enabled", true).not("trigger", "is", null).limit(1).maybeSingle(),
+        supabase.from("webhook_logs").select("id").eq("restaurant_id", profile.restaurant_id).limit(1).maybeSingle(),
+    ]);
+
+    const onboarding = {
+        whatsappConnected: restaurantRow.data?.uaz_status === "open",
+        automationConfigured: !!automationRow.data,
+        firstLeadMoved: !!firstLog.data,
+    };
+
     return NextResponse.json({
         ok: true,
         metrics: {
@@ -68,6 +111,8 @@ export async function GET(req: NextRequest) {
             chatsComVenda,
             totalLeads: chatsList.length
         },
-        topProdutos: produtos || []
+        topProdutos: produtos || [],
+        webhookStats,
+        onboarding
     }, { status: 200 });
 }

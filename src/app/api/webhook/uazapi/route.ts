@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { extractButtonClicked } from "@/lib/uazapi/triggers";
 import { runAutomations } from "@/lib/automations/engine";
+import { triggerFiqonWebhook } from "@/lib/fiqon-webhook";
 
 export const runtime = "nodejs";
 
@@ -506,6 +507,20 @@ export async function POST(req: Request) {
                 kanban_status: "Pedido Recebido"
               })
               .eq("id", chatId);
+
+            // Disparo bidirecional: buscar stage_id e disparar o Fiqon
+            const { data: stageRow } = await supabaseServer
+              .from("kanban_stages")
+              .select("id")
+              .eq("restaurant_id", restaurantId)
+              .eq("name", "Pedido Recebido")
+              .maybeSingle();
+
+            if (stageRow?.id) {
+              triggerFiqonWebhook(chatId, stageRow.id).catch(err =>
+                console.error("[webhook/gamification] Erro no Fiqon webhook:", err)
+              );
+            }
           }
         } catch (err) {
           console.error("[webhook/gamification] Non-critical error executing ROI updates:", err);

@@ -70,6 +70,7 @@ export default function KanbanBoard({
 
     // Local chats state for optimistic drag and drop
     const [localChats, setLocalChats] = useState<Chat[]>(chatList);
+    const [dragOverStageId, setDragOverStageId] = useState<string | null>(null);
 
     useEffect(() => {
         setLocalChats(chatList);
@@ -156,8 +157,20 @@ export default function KanbanBoard({
         e.dataTransfer.dropEffect = "move";
     };
 
+    const handleDragEnter = (stageId: string) => {
+        setDragOverStageId(stageId);
+    };
+
+    const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+        // Only clear if leaving the container (not entering a child)
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            setDragOverStageId(null);
+        }
+    };
+
     const handleDrop = async (e: React.DragEvent<HTMLDivElement>, targetStage: Stage) => {
         e.preventDefault();
+        setDragOverStageId(null);
         const chatId = e.dataTransfer.getData("chatId");
         if (!chatId) return;
 
@@ -399,8 +412,10 @@ export default function KanbanBoard({
 
                                     {/* Lista de cards vertical */}
                                     <div
-                                        className="flex-1 overflow-y-auto space-y-4 pr-3 pb-6 custom-scroll"
+                                        className={`flex-1 overflow-y-auto space-y-4 pr-3 pb-6 custom-scroll rounded-[2rem] transition-all duration-200 ${dragOverStageId === stage.id ? 'bg-[#07a0c3]/10 ring-2 ring-[#07a0c3]/40 ring-inset' : ''}`}
                                         onDragOver={handleDragOver}
+                                        onDragEnter={() => handleDragEnter(stage.id)}
+                                        onDragLeave={handleDragLeave}
                                         onDrop={(e) => handleDrop(e, stage)}
                                     >
                                         {stageChats.length === 0 ? (

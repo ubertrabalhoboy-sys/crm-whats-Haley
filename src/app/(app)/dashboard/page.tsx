@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import useSWR from "swr";
+import Link from "next/link";
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
@@ -14,7 +15,13 @@ import {
   Activity,
   LayoutDashboard,
   Tag,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Zap,
+  Smartphone,
+  Settings,
+  ArrowRight,
+  CheckCircle2,
+  Circle
 } from "lucide-react";
 
 const fetcher = async (url: string) => {
@@ -44,6 +51,18 @@ type DashboardData = {
     totalLeads: number;
   };
   topProdutos: ProdutoPromo[];
+  webhookStats?: {
+    total7d: number;
+    hoje: number;
+    successCount: number;
+    errorCount: number;
+    porDia: { dia: string; success: number; error: number }[];
+  };
+  onboarding?: {
+    whatsappConnected: boolean;
+    automationConfigured: boolean;
+    firstLeadMoved: boolean;
+  };
 };
 
 export default function DashboardPage() {
@@ -63,6 +82,10 @@ export default function DashboardPage() {
   };
 
   const produtos = data?.topProdutos || [];
+  const webhookStats = data?.webhookStats || { total7d: 0, hoje: 0, successCount: 0, errorCount: 0, porDia: [] };
+  const maxDayCount = Math.max(1, ...webhookStats.porDia.map(d => d.success + d.error));
+  const onboarding = data?.onboarding || { whatsappConnected: false, automationConfigured: false, firstLeadMoved: false };
+  const allComplete = onboarding.whatsappConnected && onboarding.automationConfigured && onboarding.firstLeadMoved;
 
   return (
     <div className="w-full h-full overflow-y-auto custom-scroll px-4 pb-12">
@@ -85,6 +108,59 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Onboarding Checklist */}
+      {!isLoading && !allComplete && (
+        <div className="mb-8 rounded-[2.5rem] border border-emerald-200/60 bg-gradient-to-br from-emerald-50/80 to-teal-50/80 backdrop-blur-xl p-8 shadow-lg shadow-emerald-500/5 relative z-10">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-md">
+              <Settings size={20} />
+            </div>
+            <div>
+              <h2 className="text-lg font-black text-emerald-900 tracking-tight">🚀 Setup Inicial</h2>
+              <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Complete os passos abaixo para ativar o sistema</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Step 1 */}
+            <Link href="/settings/whatsapp" className={`group flex items-center gap-4 p-5 rounded-2xl border transition-all duration-300 ${onboarding.whatsappConnected ? 'border-emerald-300 bg-emerald-100/50' : 'border-white/60 bg-white/60 hover:border-emerald-300 hover:shadow-md'}`}>
+              {onboarding.whatsappConnected
+                ? <CheckCircle2 size={24} className="text-emerald-500 shrink-0" />
+                : <Circle size={24} className="text-slate-300 shrink-0" />
+              }
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-black ${onboarding.whatsappConnected ? 'text-emerald-700' : 'text-slate-700'}`}>Conectar WhatsApp</p>
+                <p className="text-[10px] text-slate-400 font-semibold">Vincule o aparelho da loja</p>
+              </div>
+              <ArrowRight size={16} className="text-slate-300 shrink-0 group-hover:text-emerald-500 transition-colors" />
+            </Link>
+            {/* Step 2 */}
+            <Link href="/kanban" className={`group flex items-center gap-4 p-5 rounded-2xl border transition-all duration-300 ${onboarding.automationConfigured ? 'border-emerald-300 bg-emerald-100/50' : 'border-white/60 bg-white/60 hover:border-emerald-300 hover:shadow-md'}`}>
+              {onboarding.automationConfigured
+                ? <CheckCircle2 size={24} className="text-emerald-500 shrink-0" />
+                : <Circle size={24} className="text-slate-300 shrink-0" />
+              }
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-black ${onboarding.automationConfigured ? 'text-emerald-700' : 'text-slate-700'}`}>Tags do Fiqon</p>
+                <p className="text-[10px] text-slate-400 font-semibold">Configure na aba Automação</p>
+              </div>
+              <ArrowRight size={16} className="text-slate-300 shrink-0 group-hover:text-emerald-500 transition-colors" />
+            </Link>
+            {/* Step 3 */}
+            <Link href="/kanban" className={`group flex items-center gap-4 p-5 rounded-2xl border transition-all duration-300 ${onboarding.firstLeadMoved ? 'border-emerald-300 bg-emerald-100/50' : 'border-white/60 bg-white/60 hover:border-emerald-300 hover:shadow-md'}`}>
+              {onboarding.firstLeadMoved
+                ? <CheckCircle2 size={24} className="text-emerald-500 shrink-0" />
+                : <Circle size={24} className="text-slate-300 shrink-0" />
+              }
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-black ${onboarding.firstLeadMoved ? 'text-emerald-700' : 'text-slate-700'}`}>Mover 1º Lead</p>
+                <p className="text-[10px] text-slate-400 font-semibold">Arraste um card no Kanban</p>
+              </div>
+              <ArrowRight size={16} className="text-slate-300 shrink-0 group-hover:text-emerald-500 transition-colors" />
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8 relative z-10">
         {/* KPI 1 */}
@@ -158,7 +234,56 @@ export default function DashboardPage() {
             {metrics.chatsComVenda} vendas / {metrics.totalLeads} leads totais
           </p>
         </div>
+
+        {/* KPI 5 - Automações */}
+        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Automações (7 dias)</p>
+              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
+                {isLoading ? "..." : webhookStats.total7d}
+              </h3>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 text-amber-500 transition-transform group-hover:scale-110 group-hover:bg-amber-500 group-hover:text-white">
+              <Zap size={24} />
+            </div>
+          </div>
+          <p className="mt-4 text-xs font-bold text-amber-500 flex items-center gap-1">
+            {webhookStats.hoje} hoje <span className="text-slate-400 font-medium">• {webhookStats.successCount} ok • {webhookStats.errorCount} erros</span>
+          </p>
+        </div>
       </div>
+
+      {/* Webhook Per-Day Chart */}
+      {webhookStats.porDia.length > 0 && (
+        <div className="w-full bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5 rounded-[2.5rem] p-8 mb-8 relative z-10">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 text-amber-500">
+              <Zap size={20} />
+            </div>
+            <h2 className="text-xl font-black text-[#086788] tracking-tight">Disparos por Dia</h2>
+          </div>
+          <div className="flex items-end gap-3 h-32">
+            {webhookStats.porDia.map((d) => {
+              const total = d.success + d.error;
+              const heightPct = (total / maxDayCount) * 100;
+              const diaLabel = new Date(d.dia + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' });
+              return (
+                <div key={d.dia} className="flex-1 flex flex-col items-center gap-2">
+                  <span className="text-[11px] font-black text-[#086788]">{total}</span>
+                  <div className="w-full flex flex-col justify-end rounded-xl overflow-hidden" style={{ height: '80px' }}>
+                    <div
+                      className="w-full bg-gradient-to-t from-[#086788] to-[#07a0c3] rounded-xl transition-all duration-500"
+                      style={{ height: `${Math.max(heightPct, 5)}%` }}
+                    />
+                  </div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase">{diaLabel}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Top Produtos Section */}
       <div className="w-full bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5 rounded-[2.5rem] p-8 relative z-10">

@@ -75,7 +75,7 @@ export default function KanbanBoard({
     const supabase = createSupabaseBrowserClient();
 
     // Fetch automations
-    const { data: dbAutomations, mutate: mutateAutomations } = useSWR(['kanban_automations', restaurantId], async () => {
+    const { mutate: mutateAutomations } = useSWR(['kanban_automations', restaurantId], async () => {
         const { data, error } = await supabase
             .from('automations')
             .select('*')
@@ -89,12 +89,15 @@ export default function KanbanBoard({
             authMap[auth.stage_id] = auth;
         });
 
-        // Initialize local state with DB state
-        setLocalAutomations(authMap);
         return authMap;
+    }, {
+        revalidateOnFocus: false,
+        onSuccess: (data) => {
+            setLocalAutomations(data);
+        }
     });
 
-    const handleAutomationChange = (stageId: string, field: keyof Automation, value: any) => {
+    const handleAutomationChange = (stageId: string, field: keyof Automation, value: string | boolean) => {
         setLocalAutomations(prev => ({
             ...prev,
             [stageId]: {
@@ -261,7 +264,7 @@ export default function KanbanBoard({
 
                                         <div className="flex-1 flex flex-col gap-4">
                                             <div className="flex flex-col gap-2">
-                                                <label className="text-[10px] font-bold tracking-widest text-slate-500 uppercase">Tag de Vínculo Fiqon</label>
+                                                <label className="text-[10px] font-bold tracking-widest text-slate-500 uppercase">Tag do Fiqon</label>
                                                 <input
                                                     type="text"
                                                     value={autoObj.trigger || ''}
@@ -387,7 +390,7 @@ export default function KanbanBoard({
 
                                                     <div className="mt-4 rounded-[1.5rem] border border-[#086788]/5 bg-[#f0f8f9] p-4">
                                                         <p className="line-clamp-2 text-[12px] italic leading-relaxed text-slate-600">
-                                                            "{chat.last_message?.trim() || "Sem última mensagem"}"
+                                                            &quot;{chat.last_message?.trim() || "Sem última mensagem"}&quot;
                                                         </p>
                                                     </div>
 

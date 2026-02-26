@@ -1,0 +1,179 @@
+
+> crm-whats@0.1.0 lint
+> eslint
+
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\(app)\contacts\page.tsx
+  3:24  warning  'Target' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\(app)\dashboard\page.tsx
+  205:27  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\(app)\inbox\page.tsx
+   46:19  warning  'isValidatingChats' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        @typescript-eslint/no-unused-vars
+   52:9   warning  The 'chats' logical expression could make the dependencies of useMemo Hook (at line 121) change on every render. To fix this, wrap the initialization of 'chats' in its own useMemo() Hook                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    react-hooks/exhaustive-deps
+   52:9   warning  The 'chats' logical expression could make the dependencies of useEffect Hook (at line 159) change on every render. To fix this, wrap the initialization of 'chats' in its own useMemo() Hook                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  react-hooks/exhaustive-deps
+   57:56  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      @typescript-eslint/no-explicit-any
+  141:12  warning  'sameMsgsQuick' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     @typescript-eslint/no-unused-vars
+  157:7   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\(app)\inbox\page.tsx:157:7
+  155 |   useEffect(() => {
+  156 |     if (!selectedChatId && chats.length > 0) {
+> 157 |       setSelectedChatId(chats[0].id);
+      |       ^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  158 |     }
+  159 |   }, [chats, selectedChatId]);
+  160 |  react-hooks/set-state-in-effect
+  164:7   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\(app)\inbox\page.tsx:164:7
+  162 |   useEffect(() => {
+  163 |     if (!selectedChatId) {
+> 164 |       setHasNewWhileUp(false);
+      |       ^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  165 |       setOptimisticMsgs([]);
+  166 |       return;
+  167 |     }                  react-hooks/set-state-in-effect
+  218:7   warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      react-hooks/exhaustive-deps
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\(app)\promocoes\page.tsx
+    5:22  warning  'Search' is defined but never used                                                                                                                                                                                                                                                       @typescript-eslint/no-unused-vars
+    5:43  warning  'Edit' is defined but never used                                                                                                                                                                                                                                                         @typescript-eslint/no-unused-vars
+   81:31  warning  'uploadData' is assigned a value but never used                                                                                                                                                                                                                                          @typescript-eslint/no-unused-vars
+  119:23  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                 @typescript-eslint/no-explicit-any
+  251:41  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  345:41  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\(app)\reports\page.tsx
+   3:41  warning  'ArrowDown' is defined but never used     @typescript-eslint/no-unused-vars
+   3:59  warning  'TrendingDown' is defined but never used  @typescript-eslint/no-unused-vars
+  33:52  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  38:38  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\(app)\settings\whatsapp\page.tsx
+    3:21  warning  'useMemo' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       @typescript-eslint/no-unused-vars
+   58:10  warning  'connected' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-unused-vars
+   98:7   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\(app)\settings\whatsapp\page.tsx:98:7
+   96 |     // Reset the tracker if disconnected
+   97 |     if (!isOnline) {
+>  98 |       setWebhookConfigured(false);
+      |       ^^^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+   99 |     }
+  100 |   }, [isOnline, webhookConfigured]);
+  101 |  react-hooks/set-state-in-effect
+  158:14  warning  'err' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           @typescript-eslint/no-unused-vars
+  164:5   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\(app)\settings\whatsapp\page.tsx:164:5
+  162 |
+  163 |   useEffect(() => {
+> 164 |     refreshStatus().catch(() => setError("Falha ao buscar status atual."));
+      |     ^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  165 |   }, []);
+  166 |
+  167 |   useEffect(() => {                        react-hooks/set-state-in-effect
+  310:53  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           react/no-unescaped-entities
+  310:74  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           react/no-unescaped-entities
+  315:21  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   @next/next/no-img-element
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\api\ai\process\route.ts
+  29:22  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  68:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  75:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\api\automations\test\route.ts
+  73:26  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  73:54  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  75:26  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\api\dashboard\route.ts
+  6:27  warning  'req' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\api\integrations\fiqon\button\route.ts
+   42:38  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  104:73  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\api\messages\send\route.ts
+   71:14  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   72:36  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   97:16  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  115:23  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  130:24  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\api\promocoes\route.ts
+  6:27  warning  'req' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\api\webhook\uazapi\route.ts
+   23:45  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  141:14  warning  'e' is defined but never used             @typescript-eslint/no-unused-vars
+  401:30  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  402:37  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  403:37  error    Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\app\api\whatsapp\webhook\configure\route.ts
+  75:28  warning  'req' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\components\inbox\ChatPanel.tsx
+  21:31  error    Component definition is missing display name  react/display-name
+  59:3   warning  'isReachingEnd' is defined but never used     @typescript-eslint/no-unused-vars
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\components\inbox\DetailsPanel.tsx
+  44:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\components\inbox\SendBox.tsx
+  34:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\components\shared\ConnectionAlert.tsx
+  4:10  warning  'AlertTriangle' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\lib\automations\engine.ts
+   70:14  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   71:36  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   89:16  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  100:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  100:61  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  148:38  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  169:48  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  244:24  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  247:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  281:24  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  283:52  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  318:36  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  318:78  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  363:24  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  378:50  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  383:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  399:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\USER\Desktop\meu-servidor-whatsapp\crm-whats\src\lib\uazapi\triggers.ts
+  1:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+✖ 72 problems (48 errors, 24 warnings)
+

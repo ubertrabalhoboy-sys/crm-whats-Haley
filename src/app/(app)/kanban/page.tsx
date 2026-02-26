@@ -15,25 +15,6 @@ type Chat = {
   contacts?: { phone: string | null; name: string | null } | null;
 };
 
-type ChatRow = Omit<Chat, "contacts"> & {
-  contacts: { phone: string | null; name: string | null }[] | null;
-};
-
-function formatDate(value: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
-}
-
-function chatTitle(chat: Chat) {
-  const name = chat.contacts?.name?.trim();
-  const phone = chat.contacts?.phone?.trim();
-  return name || phone || chat.wa_chat_id || "Chat";
-}
 
 export default async function KanbanPage() {
   const supabase = await createSupabaseServerClient();
@@ -98,10 +79,10 @@ export default async function KanbanPage() {
   }
 
   const stageList = (stages ?? []) as Stage[];
-  const chatList: Chat[] = (chats ?? []).map((c: any) => ({
+  const chatList: Chat[] = (chats ?? []).map((c) => ({
     ...c,
     contacts: Array.isArray(c.contacts) ? c.contacts[0] : c.contacts,
-  }));
+  })) as Chat[];
 
   return <KanbanBoard stageList={stageList} chatList={chatList} restaurantId={restaurantId} />;
 }

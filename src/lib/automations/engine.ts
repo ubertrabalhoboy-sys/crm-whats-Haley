@@ -123,7 +123,7 @@ export async function runAutomations(params: RunParams) {
   const now = new Date().toISOString();
   const context: AutomationContext = params.context ?? {};
 
-  let automationsQuery = supabaseServer
+  const automationsQuery = supabaseServer
     .from("automations")
     .select(
       "id, restaurant_id, stage_id, trigger, enabled, action_type, template_text, delay_seconds, cooldown_seconds, only_if, run_once_per_chat"

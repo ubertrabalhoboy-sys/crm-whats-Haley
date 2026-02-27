@@ -292,7 +292,7 @@ Use as ferramentas fornecidas para consultar cardápio, calcular carrinho, ou en
 
             if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
                 // OpenAI decided to use tools
-                for (const toolCall of responseMessage.tool_calls) {
+                for (const toolCall of responseMessage.tool_calls as any[]) {
                     console.log(`[AI LOOP] Executing tool: ${toolCall.function.name}`);
 
                     const args = JSON.parse(toolCall.function.arguments);

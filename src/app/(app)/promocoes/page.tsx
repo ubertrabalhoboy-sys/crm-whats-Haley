@@ -12,6 +12,8 @@ type ProdutoPromo = {
     preco_promo: number;
     estoque: number;
     imagem_url?: string;
+    category?: string;
+    is_extra?: boolean;
 };
 
 const fetcher = async (url: string) => {
@@ -29,6 +31,8 @@ export default function PromocoesPage() {
         preco_promo: "",
         estoque: "0",
         imagem_url: "",
+        category: "principal",
+        is_extra: false,
     });
 
     // File Upload States
@@ -106,6 +110,8 @@ export default function PromocoesPage() {
                     preco_promo: Number(formData.preco_promo),
                     estoque: Number(formData.estoque),
                     imagem_url: finalImageUrl,
+                    category: formData.category,
+                    is_extra: formData.is_extra,
                 }),
             });
 
@@ -113,7 +119,7 @@ export default function PromocoesPage() {
             if (!json.ok) throw new Error(json.error || "Falha ao salvar produto");
 
             mutate(); // Traz a lista nova
-            setFormData({ nome: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "" });
+            setFormData({ nome: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "", category: "principal", is_extra: false });
             handleRemoveImage();
             setIsAdding(false);
         } catch (err: any) {
@@ -239,6 +245,35 @@ export default function PromocoesPage() {
                                     onChange={(e) => setFormData({ ...formData, estoque: e.target.value })}
                                     className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
                                 />
+                            </div>
+
+                            {/* Category & Is Extra */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                                        Categoria
+                                    </label>
+                                    <select
+                                        value={formData.category}
+                                        onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                                        className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                                    >
+                                        <option value="principal">Principal</option>
+                                        <option value="bebida">Bebida</option>
+                                        <option value="adicional">Adicional</option>
+                                    </select>
+                                </div>
+                                <div className="flex flex-col gap-2 justify-end">
+                                    <label className="flex items-center gap-2 cursor-pointer px-4 py-3.5 rounded-2xl border border-white bg-white/80 hover:bg-indigo-50 transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.is_extra}
+                                            onChange={(e) => setFormData({ ...formData, is_extra: e.target.checked })}
+                                            className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                        />
+                                        <span className="text-xs font-bold text-slate-700">É Complemento</span>
+                                    </label>
+                                </div>
                             </div>
 
                             <div className="flex flex-col gap-2">

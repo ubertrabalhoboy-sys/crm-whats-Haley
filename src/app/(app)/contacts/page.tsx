@@ -1,6 +1,7 @@
 "use client";
 
-import { Users, Phone, Target, Gift, Ticket, Download } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Users, Phone, Target, Gift, Ticket, Download, Search, FilterX } from "lucide-react";
 import useSWR from "swr";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -38,6 +39,46 @@ export default function ContactsPage() {
     };
 
     const { data: contacts, error, isLoading } = useSWR<ChatContact[]>("crm_contacts", fetchContacts);
+
+    // Filters state
+    const [searchQuery, setSearchQuery] = useState("");
+    const [filterOrigin, setFilterOrigin] = useState<"all" | "roleta" | "direto">("all");
+    const [filterCupom, setFilterCupom] = useState<"all" | "with_cupom" | "no_cupom">("all");
+
+    // Compute filtered contacts
+    const filteredContacts = useMemo(() => {
+        if (!contacts) return [];
+        return contacts.filter((c) => {
+            const rawName = c.contacts?.name || c.contacts?.phone || c.wa_chat_id || "";
+            const finalName = rawName.includes("@") ? rawName.split("@")[0] : rawName;
+            const phone = c.contacts?.phone || c.wa_chat_id || "";
+
+            // 1. Search Query (Name or Phone)
+            const matchesSearch = searchQuery === "" ||
+                finalName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                phone.includes(searchQuery);
+
+            // 2. Filter by Origin
+            const isRoleta = c.origem_lead?.toLowerCase() === "roleta";
+            const matchesOrigin = filterOrigin === "all" ||
+                (filterOrigin === "roleta" && isRoleta) ||
+                (filterOrigin === "direto" && !isRoleta);
+
+            // 3. Filter by Cupom
+            const hasCupom = !!c.cupom_ganho;
+            const matchesCupom = filterCupom === "all" ||
+                (filterCupom === "with_cupom" && hasCupom) ||
+                (filterCupom === "no_cupom" && !hasCupom);
+
+            return matchesSearch && matchesOrigin && matchesCupom;
+        });
+    }, [contacts, searchQuery, filterOrigin, filterCupom]);
+
+    const clearFilters = () => {
+        setSearchQuery("");
+        setFilterOrigin("all");
+        setFilterCupom("all");
+    };
 
     const handleExportCSV = () => {
         if (!contacts || contacts.length === 0) return;
@@ -95,10 +136,56 @@ export default function ContactsPage() {
 
             {/* Contacts Table Section */}
             <div className="flex-1 min-h-0 mx-2 flex flex-col p-8 bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5 rounded-[2.5rem] relative z-10 overflow-hidden">
-                <h2 className="text-lg font-black uppercase tracking-widest text-[#086788] mb-6 flex items-center gap-3">
-                    <Users size={20} className="text-[#07a0c3]" />
-                    Lista de Contatos
-                </h2>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                    <h2 className="text-lg font-black uppercase tracking-widest text-[#086788] flex items-center gap-3 shrink-0">
+                        <Users size={20} className="text-[#07a0c3]" />
+                        Lista de Contatos
+                    </h2>
+
+                    {/* Filter Bar */}
+                    <div className="flex flex-wrap items-center gap-3">
+                        <div className="relative">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                                type="text"
+                                placeholder="Buscar nome ou fone..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="pl-9 pr-4 py-2 text-xs font-semibold bg-white/60 border border-white uppercase placeholder:normal-case placeholder:font-normal rounded-xl focus:outline-none focus:ring-2 focus:ring-[#086788]/20 transition-all w-full md:w-48"
+                            />
+                        </div>
+
+                        <select
+                            value={filterOrigin}
+                            onChange={(e) => setFilterOrigin(e.target.value as any)}
+                            className="px-3 py-2 text-xs font-bold uppercase text-slate-600 bg-white/60 border border-white rounded-xl focus:outline-none focus:ring-2 focus:ring-[#086788]/20 transition-all"
+                        >
+                            <option value="all">Todas Origens</option>
+                            <option value="roleta">Roleta Fiqon</option>
+                            <option value="direto">Diretamente</option>
+                        </select>
+
+                        <select
+                            value={filterCupom}
+                            onChange={(e) => setFilterCupom(e.target.value as any)}
+                            className="px-3 py-2 text-xs font-bold uppercase text-slate-600 bg-white/60 border border-white rounded-xl focus:outline-none focus:ring-2 focus:ring-[#086788]/20 transition-all"
+                        >
+                            <option value="all">Todos Cupons</option>
+                            <option value="with_cupom">Com Cupom</option>
+                            <option value="no_cupom">Sem Cupom</option>
+                        </select>
+
+                        {(searchQuery || filterOrigin !== 'all' || filterCupom !== 'all') && (
+                            <button
+                                onClick={clearFilters}
+                                className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                                title="Limpar Filtros"
+                            >
+                                <FilterX size={16} />
+                            </button>
+                        )}
+                    </div>
+                </div>
 
                 <div className="w-full overflow-hidden overflow-x-auto custom-scroll pb-2">
                     <table className="w-full text-left border-collapse">
@@ -121,12 +208,14 @@ export default function ContactsPage() {
                                     <td colSpan={4} className="py-8 text-center text-sm font-bold text-red-400">Erro ao buscar contatos.</td>
                                 </tr>
                             )}
-                            {contacts && contacts.length === 0 && (
+                            {contacts && filteredContacts.length === 0 && (
                                 <tr>
-                                    <td colSpan={4} className="py-8 text-center text-sm font-bold text-slate-400">Nenhum contato encontrado na base.</td>
+                                    <td colSpan={4} className="py-8 text-center text-sm font-bold text-slate-400">
+                                        Nenhum contato encontrado com os filtros atuais.
+                                    </td>
                                 </tr>
                             )}
-                            {contacts?.map((c) => {
+                            {filteredContacts.map((c) => {
                                 const rawName = c.contacts?.name || c.contacts?.phone || c.wa_chat_id || "Sem nome";
                                 const finalName = rawName.includes("@") ? rawName.split("@")[0] : rawName;
                                 const phone = c.contacts?.phone || c.wa_chat_id || "S/ Número";

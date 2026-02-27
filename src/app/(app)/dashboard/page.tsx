@@ -21,7 +21,9 @@ import {
   Settings,
   ArrowRight,
   CheckCircle2,
-  Circle
+  Circle,
+  Dices,
+  MessageSquare
 } from "lucide-react";
 
 const fetcher = async (url: string) => {
@@ -43,10 +45,11 @@ type ProdutoPromo = {
 type DashboardData = {
   ok: boolean;
   metrics: {
-    faturamentoZap: number;
-    economiaIfood: number;
-    roletaLeads: number;
+    leadsHoje: number;
+    leadsSemana: number;
     taxaConversao: number;
+    girosRoleta: number;
+    mensagensEnviadas: number;
     chatsComVenda: number;
     totalLeads: number;
   };
@@ -73,10 +76,11 @@ export default function DashboardPage() {
   );
 
   const metrics = data?.metrics || {
-    faturamentoZap: 0,
-    economiaIfood: 0,
-    roletaLeads: 0,
+    leadsHoje: 0,
+    leadsSemana: 0,
     taxaConversao: 0,
+    girosRoleta: 0,
+    mensagensEnviadas: 0,
     chatsComVenda: 0,
     totalLeads: 0
   };
@@ -162,94 +166,94 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8 relative z-10">
-        {/* KPI 1 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6 mb-8 relative z-10">
+        {/* KPI 1 - Leads Hoje */}
         <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Faturamento Zap</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Leads Hoje</p>
               <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
-                {isLoading ? "..." : formatCurrency(metrics.faturamentoZap)}
+                {isLoading ? "..." : metrics.leadsHoje}
               </h3>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-[#086788]/10 to-[#07a0c3]/10 text-[#086788] transition-transform group-hover:scale-110 group-hover:bg-[#086788] group-hover:text-white">
-              <Wallet size={24} />
-            </div>
-          </div>
-          <p className="mt-4 text-xs font-bold text-emerald-500 flex items-center gap-1">
-            +12% <span className="text-slate-400 font-medium">que a última semana</span>
-          </p>
-        </div>
-
-        {/* KPI 2 */}
-        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Economia iFood (27%)</p>
-              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
-                {isLoading ? "..." : formatCurrency(metrics.economiaIfood)}
-              </h3>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-[#07a0c3]/10 to-cyan-500/10 text-[#07a0c3] transition-transform group-hover:scale-110 group-hover:bg-[#07a0c3] group-hover:text-white">
-              <PiggyBank size={24} />
-            </div>
-          </div>
-          <p className="mt-4 text-xs font-bold text-amber-500 flex items-center gap-1">
-            Valor que ficou no seu bolso
-          </p>
-        </div>
-
-        {/* KPI 3 */}
-        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Leads da Roleta</p>
-              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
-                {isLoading ? "..." : metrics.roletaLeads}
-              </h3>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 text-indigo-500 transition-transform group-hover:scale-110 group-hover:bg-indigo-500 group-hover:text-white">
               <Users size={24} />
             </div>
           </div>
-          <p className="mt-4 text-xs font-bold text-indigo-500 flex items-center gap-1">
-            Novos contatos capturados
+          <p className="mt-4 text-xs font-bold text-emerald-500 flex items-center gap-1">
+            Novos contatos do dia
           </p>
         </div>
 
-        {/* KPI 4 */}
+        {/* KPI 2 - Leads Semana */}
         <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Taxa de Conversão</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Leads Semana</p>
+              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
+                {isLoading ? "..." : metrics.leadsSemana}
+              </h3>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/10 to-blue-500/10 text-indigo-500 transition-transform group-hover:scale-110 group-hover:bg-indigo-500 group-hover:text-white">
+              <Activity size={24} />
+            </div>
+          </div>
+          <p className="mt-4 text-xs font-bold text-indigo-500 flex items-center gap-1">
+            Últimos 7 dias
+          </p>
+        </div>
+
+        {/* KPI 3 - Taxa de Conversão */}
+        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Conversão Kanban</p>
               <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
                 {isLoading ? "..." : `${metrics.taxaConversao.toFixed(1)}%`}
               </h3>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/10 to-green-500/10 text-emerald-500 transition-transform group-hover:scale-110 group-hover:bg-emerald-500 group-hover:text-white">
-              <Activity size={24} />
+              <CheckCircle2 size={24} />
             </div>
           </div>
           <p className="mt-4 text-xs font-bold text-slate-400 flex items-center gap-1">
-            {metrics.chatsComVenda} vendas / {metrics.totalLeads} leads totais
+            {metrics.chatsComVenda} / {metrics.totalLeads} leads ganhos
           </p>
         </div>
 
-        {/* KPI 5 - Automações */}
+        {/* KPI 4 - Giros da Roleta */}
         <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Automações (7 dias)</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Giros da Roleta</p>
               <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
-                {isLoading ? "..." : webhookStats.total7d}
+                {isLoading ? "..." : metrics.girosRoleta}
+              </h3>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500/10 to-pink-500/10 text-purple-500 transition-transform group-hover:scale-110 group-hover:bg-purple-500 group-hover:text-white">
+              <Dices size={24} />
+            </div>
+          </div>
+          <p className="mt-4 text-xs font-bold text-purple-500 flex items-center gap-1">
+            Jogadas dos clientes
+          </p>
+        </div>
+
+        {/* KPI 5 - Mensagens Enviadas */}
+        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Msg Enviadas</p>
+              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
+                {isLoading ? "..." : metrics.mensagensEnviadas}
               </h3>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 text-amber-500 transition-transform group-hover:scale-110 group-hover:bg-amber-500 group-hover:text-white">
-              <Zap size={24} />
+              <MessageSquare size={24} />
             </div>
           </div>
           <p className="mt-4 text-xs font-bold text-amber-500 flex items-center gap-1">
-            {webhookStats.hoje} hoje <span className="text-slate-400 font-medium">• {webhookStats.successCount} ok • {webhookStats.errorCount} erros</span>
+            {webhookStats.hoje} apenas hoje
           </p>
         </div>
       </div>

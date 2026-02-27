@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Inter } from "next/font/google";
@@ -22,6 +23,9 @@ import {
   LogOut,
   Gift,
   Dices,
+  Moon,
+  Sun,
+  Settings,
 } from "lucide-react";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -81,6 +85,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
+  // Dark Mode State
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    // Check local storage or system preference on mount
+    const storedTheme = localStorage.getItem("theme");
+    if (storedTheme === "dark" || (!storedTheme && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+      setIsDark(true);
+      document.documentElement.classList.add("dark");
+    }
+  }, []);
+
+  const toggleDarkMode = () => {
+    setIsDark((prev) => {
+      const next = !prev;
+      if (next) {
+        document.documentElement.classList.add("dark");
+        localStorage.setItem("theme", "dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+        localStorage.setItem("theme", "light");
+      }
+      return next;
+    });
+  };
+
   // Fetch unread count for badge
   const sidebarFetcher = async (url: string) => { const r = await fetch(url); const j = await r.json(); return j; };
   const { data: chatsData } = useSWR<{ ok: boolean; chats: Array<{ unread_count: number | null }> }>("/api/chats", sidebarFetcher, { refreshInterval: 10000 });
@@ -94,6 +124,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { id: "Roleta", href: "/roleta", icon: <Dices size={20} /> },
     { id: "Contatos", href: "/contacts", icon: <Users size={20} /> },
     { id: "Relatórios", href: "/reports", icon: <BarChart3 size={20} /> },
+    { id: "Config Loja", href: "/settings/store", icon: <Settings size={20} /> },
   ];
 
   // Título do header baseado na rota atual (mantém visual do "activeTab")
@@ -104,7 +135,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <ToastProvider>
       <div
-        className={`${inter.className} h-screen w-full flex flex-col overflow-hidden bg-slate-200 text-slate-900 font-sans relative selection:bg-blue-200`}
+        className={`${inter.className} h-screen w-full flex flex-col overflow-hidden bg-slate-200 dark:bg-[#0a0f18] text-slate-900 dark:text-slate-100 font-sans relative selection:bg-blue-200 dark:selection:bg-blue-900`}
       >
         <ConnectionAlert />
 
@@ -139,7 +170,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* --- SIDEBAR (GLASSMORPHISM) --- */}
-          <aside className="w-80 flex flex-col wa-glass rounded-[3rem] p-8 shadow-2xl relative z-50">
+          <aside className="w-80 flex flex-col wa-glass dark:bg-slate-900/60 rounded-[3rem] p-8 shadow-2xl relative z-50 dark:border-white/10 dark:shadow-black/50">
             {/* Logo Section */}
             <div className="flex items-center gap-4 mb-14 px-2">
               <div className="h-14 w-14 rounded-[1.25rem] bg-gradient-to-br from-blue-600 to-indigo-700 shadow-lg shadow-blue-500/40 flex items-center justify-center animate-float">
@@ -149,7 +180,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-600">
                   CRM Whats
                 </p>
-                <p className="text-2xl font-[900] text-[#0f172a] tracking-tighter uppercase leading-none">
+                <p className="text-2xl font-[900] text-[#0f172a] dark:text-white tracking-tighter uppercase leading-none">
                   Painel SaaS
                 </p>
               </div>
@@ -206,8 +237,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       {/* Badge */}
                       {item.badge && item.badge > 0 && (
                         <span className={`min-w-[20px] h-5 flex items-center justify-center rounded-full text-[10px] font-black tabular-nums px-1.5 shadow-lg ${active
-                            ? 'bg-white text-blue-600'
-                            : 'bg-red-500 text-white animate-pulse shadow-red-500/40'
+                          ? 'bg-white text-blue-600'
+                          : 'bg-red-500 text-white animate-pulse shadow-red-500/40'
                           }`}>
                           {item.badge > 99 ? '99+' : item.badge}
                         </span>
@@ -218,8 +249,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               })}
             </nav>
 
-            {/* Botão Sair - Neon Glass Style */}
-            <div className="mt-auto pt-8 border-t border-white/20">
+            {/* Dark Mode Toggle & Botão Sair */}
+            <div className="mt-auto pt-6 border-t border-white/20 dark:border-white/10 flex flex-col gap-3">
+              <button
+                onClick={toggleDarkMode}
+                className="w-full px-8 py-4 rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] transition-all duration-300 flex items-center gap-3 justify-center bg-white/40 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 text-slate-700 dark:text-slate-300 hover:bg-white/80 dark:hover:bg-slate-700/80 shadow-sm"
+              >
+                {isDark ? (
+                  <>
+                    <Sun size={18} className="text-amber-400" /> Modo Claro
+                  </>
+                ) : (
+                  <>
+                    <Moon size={18} className="text-indigo-500" /> Modo Escuro
+                  </>
+                )}
+              </button>
               <div className="w-full">
                 <div className="hidden">
                   {/* mantém import do ícone e estilo como referência visual */}
@@ -249,8 +294,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                                                   <div
                                                     className={
                                                       "w-full px-8 py-4 rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] transition-all duration-300 flex items-center gap-3 justify-center " +
-                                                      "bg-transparent border border-slate-200/50 text-black " +
-                                                      "hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+                                                      "bg-transparent border border-slate-200/50 dark:border-slate-700/50 text-black dark:text-white " +
+                                                      "hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-900/50"
                                                     }
                                                   >
                                                     <LogOut size={18} />

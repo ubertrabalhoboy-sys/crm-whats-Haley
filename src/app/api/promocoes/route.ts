@@ -19,11 +19,20 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ ok: false, error: "RESTAURANT_NOT_SET" }, { status: 409 });
     }
 
-    const { data, error } = await supabase
+    // Support ?category=bebida filter for AI upsell
+    const category = req.nextUrl.searchParams.get("category");
+
+    let query = supabase
         .from("produtos_promo")
         .select("*")
         .eq("restaurant_id", profile.restaurant_id)
         .order("created_at", { ascending: false });
+
+    if (category && ["principal", "bebida", "adicional"].includes(category)) {
+        query = query.eq("category", category);
+    }
+
+    const { data, error } = await query;
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
@@ -47,7 +56,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { nome, preco_original, preco_promo, estoque, imagem_url } = body;
+    const { nome, preco_original, preco_promo, estoque, imagem_url, category, is_extra } = body;
 
     if (!nome || typeof preco_original !== 'number' || typeof preco_promo !== 'number') {
         return NextResponse.json({ ok: false, error: "MISSING_FIELDS" }, { status: 400 });
@@ -62,6 +71,8 @@ export async function POST(req: NextRequest) {
             preco_promo,
             estoque: estoque || 0,
             imagem_url: imagem_url || null,
+            category: category || "principal",
+            is_extra: is_extra || false,
         })
         .select()
         .single();

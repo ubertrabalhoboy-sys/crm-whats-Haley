@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
     // 1. Fetch Chats for metrics computation
     const { data: chats, error: chatsError } = await supabase
         .from("chats")
-        .select("valor_total_vendas, origem_lead")
+        .select("created_at, kanban_status, origem_lead")
         .eq("restaurant_id", profile.restaurant_id);
 
     if (chatsError) {
@@ -75,18 +75,24 @@ export async function GET(req: NextRequest) {
     const chatsList = chats || [];
 
     // Metrics calculation
-    // Faturamento Zap
-    const faturamentoZap = chatsList.reduce((acc, chat) => acc + (Number(chat.valor_total_vendas) || 0), 0);
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
 
-    // Economia iFood (27% do Faturamento Zap)
-    const economiaIfood = faturamentoZap * 0.27;
+    // Leads Hoje
+    const leadsHoje = chatsList.filter(chat => chat.created_at?.startsWith(todayStr)).length;
 
-    // Leads da Roleta (origem_lead == 'roleta' ou não nulo)
-    const roletaLeads = chatsList.filter(chat => chat.origem_lead === 'roleta' || chat.origem_lead !== null).length;
+    // Leads Semana
+    const leadsSemana = chatsList.filter(chat => chat.created_at && chat.created_at >= sevenDaysAgo.toISOString()).length;
 
-    // Taxa de Conversão: (Chats com vendas / Total de Leads) * 100.
-    const chatsComVenda = chatsList.filter(chat => (Number(chat.valor_total_vendas) || 0) > 0).length;
+    // Taxa de Conversão: (Chats ganho / Total) * 100
+    const chatsComVenda = chatsList.filter(chat => chat.kanban_status === 'ganho').length;
     const taxaConversao = chatsList.length > 0 ? (chatsComVenda / chatsList.length) * 100 : 0;
+
+    // Giros da Roleta (origem_lead == 'Roleta')
+    const girosRoleta = chatsList.filter(chat => chat.origem_lead?.toLowerCase() === 'roleta').length;
+
+    // Mensagens Enviadas (webhook logs success)
+    const mensagensEnviadas = webhookStats.successCount;
 
     // 4. Onboarding status
     const [restaurantRow, automationRow, firstLog] = await Promise.all([
@@ -104,10 +110,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
         ok: true,
         metrics: {
-            faturamentoZap,
-            economiaIfood,
-            roletaLeads,
+            leadsHoje,
+            leadsSemana,
             taxaConversao,
+            girosRoleta,
+            mensagensEnviadas,
             chatsComVenda,
             totalLeads: chatsList.length
         },

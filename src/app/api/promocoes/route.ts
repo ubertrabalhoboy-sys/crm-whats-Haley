@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { nome, preco_original, preco_promo, estoque, imagem_url, category, is_extra } = body;
+    const { nome, description, preco_original, preco_promo, estoque, imagem_url, category, is_extra } = body;
 
     if (!nome || typeof preco_original !== 'number' || typeof preco_promo !== 'number') {
         return NextResponse.json({ ok: false, error: "MISSING_FIELDS" }, { status: 400 });
@@ -67,6 +67,7 @@ export async function POST(req: NextRequest) {
         .insert({
             restaurant_id: profile.restaurant_id,
             nome,
+            description: description || null,
             preco_original,
             preco_promo,
             estoque: estoque || 0,

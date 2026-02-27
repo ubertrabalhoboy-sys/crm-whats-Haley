@@ -21,7 +21,7 @@ export async function GET() {
 
     const { data, error } = await supabase
         .from("restaurants")
-        .select("store_address, delivery_price_per_km, free_delivery_threshold, pix_key")
+        .select("store_address, delivery_price_per_km, free_delivery_threshold, pix_key, operating_hours")
         .eq("id", profile.restaurant_id)
         .single();
 
@@ -40,6 +40,7 @@ export async function GET() {
             free_delivery_threshold: data.free_delivery_threshold || 0,
             pix_key_masked: maskedPix,
             has_pix_key: !!data.pix_key,
+            operating_hours: data.operating_hours || {},
         },
     });
 }
@@ -61,7 +62,32 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { store_address, delivery_price_per_km, free_delivery_threshold, pix_key } = body;
+    const { store_address, delivery_price_per_km, free_delivery_threshold, pix_key, password, operating_hours } = body;
+
+    // Secure PIX Key update: Requires password validation
+    if (typeof pix_key === "string" && pix_key.trim() !== "") {
+        if (!password) {
+            return NextResponse.json({ ok: false, error: "PASSWORD_REQUIRED_FOR_PIX" }, { status: 403 });
+        }
+
+        // Validate password against Auth
+        // We use a fresh client to avoid messing with cookies
+        const { createClient } = await import("@supabase/supabase-js");
+        const authClient = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            { auth: { persistSession: false } }
+        );
+
+        const { error: authError } = await authClient.auth.signInWithPassword({
+            email: user.email!,
+            password: password,
+        });
+
+        if (authError) {
+            return NextResponse.json({ ok: false, error: "INVALID_PASSWORD" }, { status: 403 });
+        }
+    }
 
     // Build update object (only include fields that were sent)
     const updatePayload: Record<string, unknown> = {};
@@ -70,6 +96,7 @@ export async function POST(req: NextRequest) {
     if (typeof delivery_price_per_km === "number") updatePayload.delivery_price_per_km = delivery_price_per_km;
     if (typeof free_delivery_threshold === "number") updatePayload.free_delivery_threshold = free_delivery_threshold;
     if (typeof pix_key === "string") updatePayload.pix_key = pix_key.trim();
+    if (operating_hours) updatePayload.operating_hours = operating_hours;
 
     if (Object.keys(updatePayload).length === 0) {
         return NextResponse.json({ ok: false, error: "NO_FIELDS_TO_UPDATE" }, { status: 400 });

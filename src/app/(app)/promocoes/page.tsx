@@ -14,6 +14,7 @@ type ProdutoPromo = {
     imagem_url?: string;
     category?: string;
     is_extra?: boolean;
+    description?: string;
 };
 
 const fetcher = async (url: string) => {
@@ -27,6 +28,7 @@ export default function PromocoesPage() {
     const [isAdding, setIsAdding] = useState(false);
     const [formData, setFormData] = useState({
         nome: "",
+        description: "",
         preco_original: "",
         preco_promo: "",
         estoque: "0",
@@ -106,6 +108,7 @@ export default function PromocoesPage() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     nome: formData.nome,
+                    description: formData.description || null,
                     preco_original: Number(formData.preco_original),
                     preco_promo: Number(formData.preco_promo),
                     estoque: Number(formData.estoque),
@@ -119,7 +122,7 @@ export default function PromocoesPage() {
             if (!json.ok) throw new Error(json.error || "Falha ao salvar produto");
 
             mutate(); // Traz a lista nova
-            setFormData({ nome: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "", category: "principal", is_extra: false });
+            setFormData({ nome: "", description: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "", category: "principal", is_extra: false });
             handleRemoveImage();
             setIsAdding(false);
         } catch (err: any) {
@@ -197,6 +200,18 @@ export default function PromocoesPage() {
                                     onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
                                     className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
                                     placeholder="Ex: Hambúrguer Duplo"
+                                />
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                                <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                                    Descrição do Produto
+                                </label>
+                                <textarea
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                                    className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100 resize-none h-20"
+                                    placeholder="Descreva o produto para a IA e para o carrossel do WhatsApp..."
                                 />
                             </div>
 

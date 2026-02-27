@@ -70,7 +70,7 @@ export default function WhatsAppSettingsPage() {
   const [webhookConfigured, setWebhookConfigured] = useState(false);
 
   const isConnecting = statusText === "connecting";
-  const isOnline = statusText === "open" || statusText === "connected";
+  const isOnline = connected || statusText === "open" || statusText === "connected";
 
   async function refreshStatus() {
     const res = await fetch("/api/whatsapp/status", { cache: "no-store" });
@@ -78,9 +78,18 @@ export default function WhatsAppSettingsPage() {
 
     if (!json.ok) return;
 
+    // If the API confirms connected, force the status to "open" regardless of status string
+    if (json.connected === true) {
+      setStatusText("open");
+      setConnected(true);
+      setQrcode(null);
+      setPaircode(null);
+      return;
+    }
+
     const normalized = normalizeStatus(json.status);
     setStatusText(normalized.text);
-    setConnected(normalized.connected ?? !!json.connected);
+    setConnected(normalized.connected ?? false);
   }
 
   // Auto Webhook Setup 
@@ -167,7 +176,7 @@ export default function WhatsAppSettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (!isConnecting) return;
+    if (!isConnecting && !qrcode && !paircode) return;
     const timer = setInterval(() => {
       refreshStatus().catch(() => null);
     }, 2000);

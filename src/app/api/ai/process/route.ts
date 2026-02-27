@@ -43,9 +43,10 @@ export async function POST(req: NextRequest) {
         let textOutput = "";
 
         try {
+            console.log(`[api/ai/process] Gemini API key present: ${!!geminiApiKey} (length: ${geminiApiKey.length})`);
             const genAI = new GoogleGenerativeAI(geminiApiKey);
             const model = genAI.getGenerativeModel({
-                model: "gemini-1.5-flash-latest",
+                model: "gemini-2.0-flash",
                 systemInstruction: systemPrompt
             });
 

@@ -103,8 +103,11 @@ export async function GET(req: NextRequest) {
         supabase.from("webhook_logs").select("id").eq("restaurant_id", profile.restaurant_id).limit(1).maybeSingle(),
     ]);
 
+    const uazStatus = String(restaurantRow.data?.uaz_status || "").toLowerCase();
+    const isConnected = ["open", "connected", "ready", "online"].includes(uazStatus);
+
     const onboarding = {
-        whatsappConnected: restaurantRow.data?.uaz_status === "open",
+        whatsappConnected: isConnected,
         storeConfigured: !!(restaurantRow.data?.store_address && restaurantRow.data?.pix_key),
         automationConfigured: !!automationRow.data,
         firstLeadMoved: !!firstLog.data,

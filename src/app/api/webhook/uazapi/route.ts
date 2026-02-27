@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
 import { extractButtonClicked } from "@/lib/uazapi/triggers";
 import { runAutomations } from "@/lib/automations/engine";
 import { triggerFiqonWebhook } from "@/lib/fiqon-webhook";
@@ -43,6 +38,13 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  // Late initialization to avoid Next.js global caching crashes
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  );
+
   const reqUrl = new URL(req.url);
   let parsedBody: unknown = null;
   try {
@@ -458,6 +460,7 @@ export async function POST(req: Request) {
   });
 
   if (messageInsertError) {
+    console.error(`[webhook] Failed to insert message for chat ${chatId}:`, messageInsertError);
     const isDuplicateKey =
       (messageInsertError as any)?.code === "23505" ||
       String((messageInsertError as any)?.message || "").toLowerCase().includes("duplicate key") ||
@@ -467,6 +470,8 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ ok: false, error: messageInsertError.message }, { status: 500 });
   }
+
+  console.log(`[webhook] Message inserted successfully: ${chatId}`);
 
   // ─── [AI ORCHESTRATOR START] ───
   // Non-blocking call to process the incoming text with standard LLM tools.

@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export const runtime = "nodejs";
 
@@ -88,11 +94,20 @@ export async function GET() {
       );
     }
 
-    const status = data?.status ?? data?.data?.status ?? restaurant.uaz_status ?? "disconnected";
+    let status = data?.status ?? data?.data?.status ?? restaurant.uaz_status ?? "disconnected";
+
+    // Normalize if it's a state object from some Uazapi responses
+    if (typeof status === "object" && status !== null) {
+      status = (status as any).state || (status as any).status || "unknown";
+    }
+
+    const normalizedStatus = String(status).toLowerCase();
+
     const connected =
       typeof data?.connected === "boolean"
         ? data.connected
-        : ["connected", "open", "ready", "online"].includes(String(status).toLowerCase());
+        : ["connected", "open", "ready", "online"].includes(normalizedStatus);
+
     const loggedIn =
       typeof data?.loggedIn === "boolean"
         ? data.loggedIn
@@ -100,12 +115,13 @@ export async function GET() {
           ? data.logged_in
           : connected;
 
-    await supabase.from("restaurants").update({ uaz_status: status }).eq("id", restaurant.id);
+    // Sync back to DB for other parts of the system (like dashboard) using Admin Client to bypass RLS
+    await supabaseAdmin.from("restaurants").update({ uaz_status: normalizedStatus }).eq("id", restaurant.id);
 
     return NextResponse.json(
       {
         ok: true,
-        status,
+        status: normalizedStatus,
         connected,
         loggedIn,
       },

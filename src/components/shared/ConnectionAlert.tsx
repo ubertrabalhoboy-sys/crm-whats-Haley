@@ -29,14 +29,14 @@ export default function ConnectionAlert() {
 
     if (isSettingsPage) return null;
 
-    // Se estiver carregando ainda, não mostramos nada pra não piscar
+    const state = String(typeof data?.status === "string" ? data.status : (data?.status as any)?.state || "").toLowerCase();
+    const isConnected = ["open", "connected", "ready", "online"].includes(state) || data?.connected === true;
+
+    // Se sabemos que está conectado (mesmo que o refresh atual tenha dado erro de rede), ocultamos o alerta.
+    if (isConnected) return null;
+
+    // Se não temos dados e não temos erro (ainda carregando pela primeira vez) -> ocultamos pra não piscar.
     if (!data && !error) return null;
-
-    const state = typeof data?.status === "string" ? data.status : (data?.status as any)?.state;
-    const isConnected = state === "open" || state === "connected" || data?.connected === true;
-
-    // Se estiver conectado OU erro no backend (banco vazio, webhook fora etc) -> vamos alertar!
-    if (isConnected && !error) return null;
 
     return (
         <div className="w-full bg-red-500/90 text-white backdrop-blur-md border-b border-red-400 py-3 px-6 flex items-center justify-between shadow-md relative z-50">

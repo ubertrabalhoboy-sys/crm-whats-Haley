@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
-import OpenAI from "openai";
+import { GoogleGenerativeAI, Content } from "@google/generative-ai";
 import { executeAiTool, ToolContext } from "@/lib/ai/toolHandler";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { mapOpenAIToolsToGemini } from "@/lib/ai/geminiMapper";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +13,8 @@ export async function POST(req: NextRequest) {
         const { messages, restaurant_id, chat_id, wa_chat_id } = body;
 
         // 1. Validations
-        if (!process.env.OPENAI_API_KEY) {
-            return NextResponse.json({ ok: false, error: "OPENAI_API_KEY_NOT_CONFIGURED" }, { status: 500 });
+        if (!process.env.GEMINI_API_KEY) {
+            return NextResponse.json({ ok: false, error: "GEMINI_API_KEY_NOT_CONFIGURED" }, { status: 500 });
         }
 
         if (!messages || !Array.isArray(messages)) {
@@ -37,10 +37,9 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ ok: false, error: "failed_to_load_tools_config" }, { status: 500 });
         }
 
-        // 3. Initialize OpenAI and Context
-        const openai = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY,
-        });
+        // 3. Initialize Gemini and Context
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+        const GEMINI_TOOLS = mapOpenAIToolsToGemini(toolsConfig);
 
         // The tool context required by our existing toolHandler.ts
         const ctx: ToolContext = {
@@ -50,10 +49,25 @@ export async function POST(req: NextRequest) {
             base_url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
         };
 
-        const conversationLog = [...messages]; // We will mutate this array during the tool loop
+        // Separate system messages from the history for systemInstruction
+        const systemMessages = messages.filter((m: any) => m.role === "system").map((m: any) => m.content).join("\n\n");
+        const chatHistory: Content[] = messages
+            .filter((m: any) => m.role !== "system")
+            .map((m: any) => ({
+                role: m.role === "user" ? "user" : "model",
+                parts: [{ text: m.content || "" }]
+            }));
+
+        const conversationLog = [...chatHistory]; // We will mutate this array during the tool loop
         const executedToolsDebug: any[] = []; // Collect data to send back to the frontend
 
-        // 4. OpenAI Function Calling Loop (max 5 iterations)
+        const model = genAI.getGenerativeModel({
+            model: "gemini-2.0-flash",
+            systemInstruction: systemMessages || undefined,
+            tools: [{ functionDeclarations: GEMINI_TOOLS }],
+        });
+
+        // 4. Gemini Function Calling Loop (max 5 iterations)
         const MAX_STEPS = 5;
         let currentStep = 0;
         let loopActive = true;
@@ -63,25 +77,28 @@ export async function POST(req: NextRequest) {
             currentStep++;
             console.log(`[api/ai/chat] Iteration ${currentStep}...`);
 
-            const aiResponse = await openai.chat.completions.create({
-                model: "gpt-4o-mini", // Or gpt-4o depending on needs
-                messages: conversationLog,
-                tools: toolsConfig,
-                tool_choice: "auto",
-                temperature: 0.7,
+            const aiResponse = await model.generateContent({
+                contents: conversationLog
             });
 
-            const responseMessage = aiResponse.choices[0].message;
-            conversationLog.push(responseMessage); // Save assistant's reply/tool_call request into history
+            const responseMessage = aiResponse.response;
+            const functionCalls = responseMessage.functionCalls();
 
             // If the model wants to call tools
-            if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+            if (functionCalls && functionCalls.length > 0) {
+                const functionResponses: any[] = [];
 
-                for (const toolCall of responseMessage.tool_calls as any[]) {
-                    console.log(`[api/ai/chat] Executing tool: ${toolCall.function.name}`);
+                // Save model's tool calls into history
+                conversationLog.push({
+                    role: "model",
+                    parts: functionCalls.map(fc => ({ functionCall: fc }))
+                });
 
-                    const toolName = toolCall.function.name;
-                    const toolArgsString = toolCall.function.arguments;
+                for (const toolCall of functionCalls) {
+                    console.log(`[api/ai/chat] Executing tool: ${toolCall.name}`);
+
+                    const toolName = toolCall.name;
+                    const toolArgsObj = toolCall.args;
 
                     // Security: Verify toolName exists in tools.json before invoking
                     const isToolValid = toolsConfig.some((t: any) => t.function.name === toolName);
@@ -93,17 +110,14 @@ export async function POST(req: NextRequest) {
                         toolResultString = JSON.stringify({ error: `Tool ${toolName} does not exist.` });
                     } else {
                         try {
-                            // Parse args safely
-                            const argsObj = JSON.parse(toolArgsString);
-
                             // Execute relying on our safe executeAiTool handler
-                            toolResultString = await executeAiTool(toolName, argsObj, ctx);
+                            toolResultString = await executeAiTool(toolName, toolArgsObj as any, ctx);
 
                             executedToolsDebug.push({
                                 step: currentStep,
                                 tool: toolName,
-                                arguments: argsObj,
-                                result: JSON.parse(toolResultString) // Assuming toolResultString is always valid JSON
+                                arguments: toolArgsObj,
+                                result: JSON.parse(toolResultString)
                             });
                         } catch (execErr: any) {
                             console.error(`[api/ai/chat] Tool Execution Error (${toolName}):`, execErr);
@@ -111,21 +125,28 @@ export async function POST(req: NextRequest) {
                         }
                     }
 
-                    // Append the tool response back to the conversation array
-                    conversationLog.push({
-                        tool_call_id: toolCall.id,
-                        role: "tool",
-                        name: toolName,
-                        content: toolResultString,
+                    // Append the tool response back to the responses array
+                    functionResponses.push({
+                        functionResponse: {
+                            name: toolName,
+                            response: JSON.parse(toolResultString)
+                        }
                     });
                 }
 
-                // The loop iterates again, sending the updated conversationLog back to OpenAI
+                // Add the function responses back to the conversation array
+                conversationLog.push({
+                    role: "function",
+                    parts: functionResponses
+                });
 
-            } else if (responseMessage.content) {
+            } else {
                 // The model produced a standard text response. We break the loop.
-                loopActive = false;
-                finalOutputText = responseMessage.content;
+                const answer = responseMessage.text();
+                if (answer) {
+                    loopActive = false;
+                    finalOutputText = answer;
+                }
             }
         }
 

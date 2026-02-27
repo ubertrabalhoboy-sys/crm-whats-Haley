@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { extractButtonClicked } from "@/lib/uazapi/triggers";
 import { runAutomations } from "@/lib/automations/engine";
 import { triggerFiqonWebhook } from "@/lib/fiqon-webhook";
+import { processAiMessage } from "@/lib/ai/orchestrator";
 
 export const runtime = "nodejs";
 
@@ -407,6 +408,20 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ ok: false, error: messageInsertError.message }, { status: 500 });
   }
+
+  // ─── [AI ORCHESTRATOR START] ───
+  // Non-blocking call to process the incoming text with standard LLM tools.
+  // We only run this if it's a standard text message (not empty, not just a system event).
+  if (text && text.trim().length > 0) {
+    processAiMessage({
+      restaurantId,
+      chatId,
+      waChatId,
+      instanceName: instanceName || undefined,
+      incomingText: text,
+    }).catch(err => console.error("[AI LOOP] Background failure:", err));
+  }
+  // ───────────────────────────────
 
   try {
     const bodyRoot = body?.BODY;

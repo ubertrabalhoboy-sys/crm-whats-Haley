@@ -85,7 +85,7 @@ export async function POST(req: Request) {
   const context = await getRestaurantContext();
   if ("errorResponse" in context) return context.errorResponse;
 
-  const webhookUrl = `${normalizeBaseUrl(publicBaseUrl)}/api/webhook/uazapi`;
+  const webhookUrl = `${normalizeBaseUrl(publicBaseUrl)}/api/webhook/uazapi?token=${encodeURIComponent(context.instanceToken)}`;
   const payload = {
     enabled: true,
     url: webhookUrl,

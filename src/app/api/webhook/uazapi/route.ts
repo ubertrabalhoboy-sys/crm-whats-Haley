@@ -258,7 +258,10 @@ export async function POST(req: Request) {
     body?.chatId,
     body?.chat_id,
     body?.data?.chatId,
-    body?.data?.chat_id
+    body?.data?.chat_id,
+    // Baileys / Evolution API fields
+    body?.data?.key?.remoteJid,
+    body?.key?.remoteJid
   );
 
   if (eventLower === "presence.update" && waChatId && statusValue === "composing") {
@@ -305,7 +308,10 @@ export async function POST(req: Request) {
     body?.from,
     body?.phone,
     body?.data?.from,
-    body?.data?.phone
+    body?.data?.phone,
+    // Baileys / Evolution API (remoteJid often contains phone@s.whatsapp.net)
+    body?.data?.key?.remoteJid,
+    body?.key?.remoteJid
   );
 
   const phone = phoneRaw ? phoneRaw.replace(/\D/g, "") : null;
@@ -318,7 +324,12 @@ export async function POST(req: Request) {
       body?.text,
       body?.data?.text,
       body?.data?.message?.text,
-      body?.data?.body?.text
+      body?.data?.body?.text,
+      // Baileys / Evolution API conversation fields
+      body?.data?.message?.conversation,
+      body?.message?.conversation,
+      body?.data?.message?.extendedTextMessage?.text,
+      body?.message?.extendedTextMessage?.text
     ) ?? null;
 
   if (!waChatId || !phone) {

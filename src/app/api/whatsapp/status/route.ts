@@ -8,6 +8,7 @@ const supabaseAdmin = createClient(
 );
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function parseJsonSafe(text: string) {
   try {

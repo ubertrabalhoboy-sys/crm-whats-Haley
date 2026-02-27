@@ -1,7 +1,7 @@
 "use client";
 
 import useSWR from "swr";
-import { AlertTriangle, WifiOff } from "lucide-react";
+import { WifiOff } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -18,7 +18,7 @@ export default function ConnectionAlert() {
     // Don't show the alert on the settings page itself (avoid redundancy)
     const isSettingsPage = pathname === "/settings/whatsapp";
 
-    const { data, error } = useSWR<{ ok: boolean; status?: any; connected?: boolean }>(
+    const { data, error, isLoading } = useSWR<{ ok: boolean; status?: string; connected?: boolean }>(
         "/api/whatsapp/status",
         fetcher,
         {
@@ -27,16 +27,16 @@ export default function ConnectionAlert() {
         }
     );
 
-    if (isSettingsPage) return null;
+    // Não mostra nada na página de settings ou enquanto carrega (evita piscar vermelho no F5)
+    if (isSettingsPage || isLoading) return null;
 
-    const state = String(typeof data?.status === "string" ? data.status : (data?.status as any)?.state || "").toLowerCase();
-    const isConnected = ["open", "connected", "ready", "online"].includes(state) || data?.connected === true;
-
-    // Se sabemos que está conectado (mesmo que o refresh atual tenha dado erro de rede), ocultamos o alerta.
-    if (isConnected) return null;
-
-    // Se não temos dados e não temos erro (ainda carregando pela primeira vez) -> ocultamos pra não piscar.
+    // Se não temos dados e não temos erro (ainda carregando pela primeira vez)
     if (!data && !error) return null;
+
+    const isConnected = data?.connected === true || data?.status === "open" || data?.status === "connected";
+
+    // Só mostra o alerta se tiver certeza que NÃO está conectado
+    if (isConnected) return null;
 
     return (
         <div className="w-full bg-red-500/90 text-white backdrop-blur-md border-b border-red-400 py-3 px-6 flex items-center justify-between shadow-md relative z-50">

@@ -36,7 +36,8 @@ export async function POST(req: NextRequest) {
 
         const geminiApiKey = process.env.GEMINI_API_KEY;
         if (!geminiApiKey) {
-            return NextResponse.json({ ok: false, error: "Falta configurar a chave da Gemini no painel" }, { status: 400 });
+            console.error("[api/ai/process] Missing GEMINI_API_KEY environment variable");
+            return NextResponse.json({ ok: false, error: "Missing Gemini API Key. Configure GEMINI_API_KEY no .env.local" }, { status: 500 });
         }
 
         let textOutput = "";
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
         try {
             const genAI = new GoogleGenerativeAI(geminiApiKey);
             const model = genAI.getGenerativeModel({
-                model: "gemini-1.5-flash",
+                model: "gemini-1.5-flash-latest",
                 systemInstruction: systemPrompt
             });
 

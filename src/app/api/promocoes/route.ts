@@ -56,27 +56,50 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { nome, description, preco_original, preco_promo, estoque, imagem_url, category, is_extra } = body;
+    const { id, nome, description, preco_original, preco_promo, estoque, imagem_url, category, is_extra } = body;
 
     if (!nome || typeof preco_original !== 'number' || typeof preco_promo !== 'number') {
         return NextResponse.json({ ok: false, error: "MISSING_FIELDS" }, { status: 400 });
     }
 
-    const { data, error } = await supabase
-        .from("produtos_promo")
-        .insert({
-            restaurant_id: profile.restaurant_id,
-            nome,
-            description: description || null,
-            preco_original,
-            preco_promo,
-            estoque: estoque || 0,
-            imagem_url: imagem_url || null,
-            category: category || "principal",
-            is_extra: is_extra || false,
-        })
-        .select()
-        .single();
+    let data, error;
+
+    if (id) {
+        // UPDATE existing product
+        ({ data, error } = await supabase
+            .from("produtos_promo")
+            .update({
+                nome,
+                description: description || null,
+                preco_original,
+                preco_promo,
+                estoque: estoque || 0,
+                imagem_url: imagem_url || null,
+                category: category || "principal",
+                is_extra: is_extra || false,
+            })
+            .eq("id", id)
+            .eq("restaurant_id", profile.restaurant_id)
+            .select()
+            .single());
+    } else {
+        // INSERT new product
+        ({ data, error } = await supabase
+            .from("produtos_promo")
+            .insert({
+                restaurant_id: profile.restaurant_id,
+                nome,
+                description: description || null,
+                preco_original,
+                preco_promo,
+                estoque: estoque || 0,
+                imagem_url: imagem_url || null,
+                category: category || "principal",
+                is_extra: is_extra || false,
+            })
+            .select()
+            .single());
+    }
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 

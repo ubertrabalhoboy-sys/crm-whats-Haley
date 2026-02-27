@@ -27,6 +27,7 @@ const fetcher = async (url: string) => {
 export default function PromocoesPage() {
     const [isAdding, setIsAdding] = useState(false);
     const [formData, setFormData] = useState({
+        id: null as string | null,
         nome: "",
         description: "",
         preco_original: "",
@@ -107,6 +108,7 @@ export default function PromocoesPage() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                    id: formData.id,
                     nome: formData.nome,
                     description: formData.description || null,
                     preco_original: Number(formData.preco_original),
@@ -122,7 +124,7 @@ export default function PromocoesPage() {
             if (!json.ok) throw new Error(json.error || "Falha ao salvar produto");
 
             mutate(); // Traz a lista nova
-            setFormData({ nome: "", description: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "", category: "principal", is_extra: false });
+            setFormData({ id: null, nome: "", description: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "", category: "principal", is_extra: false });
             handleRemoveImage();
             setIsAdding(false);
         } catch (err: any) {
@@ -139,6 +141,36 @@ export default function PromocoesPage() {
             if (res.ok) mutate();
         } catch (err) {
             console.error(err);
+        }
+    };
+
+    const handleEdit = (product: ProdutoPromo) => {
+        setFormData({
+            id: product.id,
+            nome: product.nome,
+            description: (product as any).description || "",
+            preco_original: product.preco_original.toString(),
+            preco_promo: product.preco_promo.toString(),
+            estoque: product.estoque.toString(),
+            imagem_url: product.imagem_url || "",
+            category: (product as any).category || "principal",
+            is_extra: (product as any).is_extra || false
+        });
+        setPreviewUrl(product.imagem_url || null);
+        setImageFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        setIsAdding(true);
+        setErrorMsg(null);
+    };
+
+    const handleToggleAdding = () => {
+        if (isAdding) {
+            setIsAdding(false);
+            setFormData({ id: null, nome: "", description: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "", category: "principal", is_extra: false });
+            handleRemoveImage();
+            setErrorMsg(null);
+        } else {
+            setIsAdding(true);
         }
     };
 
@@ -164,7 +196,7 @@ export default function PromocoesPage() {
                 </div>
 
                 <button
-                    onClick={() => setIsAdding(!isAdding)}
+                    onClick={handleToggleAdding}
                     className="rounded-2xl bg-indigo-600 px-6 py-4 text-[12px] font-black uppercase tracking-widest text-white shadow-lg shadow-indigo-500/30 transition-all duration-300 active:scale-95 hover:bg-indigo-700 hover:shadow-indigo-500/50 flex items-center gap-2"
                 >
                     {isAdding ? "Cancelar Cadastro" : <><Plus size={16} /> Novo Produto</>}
@@ -179,7 +211,7 @@ export default function PromocoesPage() {
                             <div className="h-8 w-8 rounded-xl bg-purple-100 flex items-center justify-center text-purple-600">
                                 <Tag size={16} />
                             </div>
-                            <h2 className="text-lg font-bold text-indigo-900">Cadastrar Prêmio</h2>
+                            <h2 className="text-lg font-bold text-indigo-900">{formData.id ? "Editar Prêmio" : "Cadastrar Prêmio"}</h2>
                         </div>
 
                         {errorMsg && (
@@ -337,9 +369,9 @@ export default function PromocoesPage() {
                                 className="mt-4 flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-500 py-4 text-sm font-black uppercase tracking-widest text-white shadow-lg shadow-indigo-500/30 transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/40 disabled:opacity-70 disabled:hover:translate-y-0"
                             >
                                 {isUploading ? (
-                                    <><Loader2 size={18} className="animate-spin" /> Salvando Produto...</>
+                                    <><Loader2 size={18} className="animate-spin" /> Salvando...</>
                                 ) : (
-                                    "Salvar Produto"
+                                    formData.id ? "Atualizar Prêmio" : "Salvar Produto"
                                 )}
                             </button>
                         </form>
@@ -385,6 +417,9 @@ export default function PromocoesPage() {
                         {products.map((p) => (
                             <div key={p.id} className="group relative flex flex-col rounded-3xl bg-white border border-slate-100 p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
                                 <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button onClick={() => handleEdit(p)} className="h-8 w-8 rounded-full bg-amber-50 text-amber-500 flex items-center justify-center hover:bg-amber-500 hover:text-white transition-colors">
+                                        <Edit size={14} />
+                                    </button>
                                     <button onClick={() => handleDelete(p.id)} className="h-8 w-8 rounded-full bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-500 hover:text-white transition-colors">
                                         <Trash2 size={14} />
                                     </button>

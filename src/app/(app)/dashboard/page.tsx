@@ -63,6 +63,7 @@ type DashboardData = {
   };
   onboarding?: {
     whatsappConnected: boolean;
+    storeConfigured: boolean;
     automationConfigured: boolean;
     firstLeadMoved: boolean;
   };
@@ -88,8 +89,8 @@ export default function DashboardPage() {
   const produtos = data?.topProdutos || [];
   const webhookStats = data?.webhookStats || { total7d: 0, hoje: 0, successCount: 0, errorCount: 0, porDia: [] };
   const maxDayCount = Math.max(1, ...webhookStats.porDia.map(d => d.success + d.error));
-  const onboarding = data?.onboarding || { whatsappConnected: false, automationConfigured: false, firstLeadMoved: false };
-  const allComplete = onboarding.whatsappConnected && onboarding.automationConfigured && onboarding.firstLeadMoved;
+  const onboarding = data?.onboarding || { whatsappConnected: false, storeConfigured: false, automationConfigured: false, firstLeadMoved: false };
+  const allComplete = onboarding.whatsappConnected && onboarding.storeConfigured && onboarding.automationConfigured && onboarding.firstLeadMoved;
 
   return (
     <div className="w-full h-full overflow-y-auto custom-scroll px-4 pb-12">
@@ -125,7 +126,7 @@ export default function DashboardPage() {
               <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Complete os passos abaixo para ativar o sistema</p>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             {/* Step 1 */}
             <Link href="/settings/whatsapp" className={`group flex items-center gap-4 p-5 rounded-2xl border transition-all duration-300 ${onboarding.whatsappConnected ? 'border-emerald-300 bg-emerald-100/50' : 'border-white/60 bg-white/60 hover:border-emerald-300 hover:shadow-md'}`}>
               {onboarding.whatsappConnected
@@ -139,6 +140,18 @@ export default function DashboardPage() {
               <ArrowRight size={16} className="text-slate-300 shrink-0 group-hover:text-emerald-500 transition-colors" />
             </Link>
             {/* Step 2 */}
+            <Link href="/settings/store" className={`group flex items-center gap-4 p-5 rounded-2xl border transition-all duration-300 ${onboarding.storeConfigured ? 'border-emerald-300 bg-emerald-100/50' : 'border-white/60 bg-white/60 hover:border-emerald-300 hover:shadow-md'}`}>
+              {onboarding.storeConfigured
+                ? <CheckCircle2 size={24} className="text-emerald-500 shrink-0" />
+                : <Circle size={24} className="text-slate-300 shrink-0" />
+              }
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-black ${onboarding.storeConfigured ? 'text-emerald-700' : 'text-slate-700'}`}>Configurar Loja</p>
+                <p className="text-[10px] text-slate-400 font-semibold">Preencha Endereço e PIX</p>
+              </div>
+              <ArrowRight size={16} className="text-slate-300 shrink-0 group-hover:text-emerald-500 transition-colors" />
+            </Link>
+            {/* Step 3 */}
             <Link href="/kanban" className={`group flex items-center gap-4 p-5 rounded-2xl border transition-all duration-300 ${onboarding.automationConfigured ? 'border-emerald-300 bg-emerald-100/50' : 'border-white/60 bg-white/60 hover:border-emerald-300 hover:shadow-md'}`}>
               {onboarding.automationConfigured
                 ? <CheckCircle2 size={24} className="text-emerald-500 shrink-0" />

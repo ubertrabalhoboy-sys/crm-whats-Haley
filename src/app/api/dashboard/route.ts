@@ -48,12 +48,14 @@ export async function GET(req: NextRequest) {
 
     const { data: webhookLogs } = await supabase
         .from("webhook_logs")
-        .select("status, created_at")
+        .select("status, created_at, tag_disparada")
         .eq("restaurant_id", profile.restaurant_id)
         .gte("created_at", sevenDaysAgo.toISOString())
         .order("created_at", { ascending: true });
 
-    const logs = webhookLogs || [];
+    // Filter out internal system logs from being counted as Marketing/WhatsApp "Sent Messages"
+    const logs = (webhookLogs || []).filter(log => log.tag_disparada !== "ORDER_CREATED");
+
     const today = new Date().toISOString().slice(0, 10);
 
     // Group by day
@@ -96,13 +98,14 @@ export async function GET(req: NextRequest) {
 
     // 4. Onboarding status
     const [restaurantRow, automationRow, firstLog] = await Promise.all([
-        supabase.from("restaurants").select("uaz_status").eq("id", profile.restaurant_id).single(),
+        supabase.from("restaurants").select("uaz_status, store_address, pix_key").eq("id", profile.restaurant_id).single(),
         supabase.from("automations").select("id").eq("restaurant_id", profile.restaurant_id).eq("enabled", true).not("trigger", "is", null).limit(1).maybeSingle(),
         supabase.from("webhook_logs").select("id").eq("restaurant_id", profile.restaurant_id).limit(1).maybeSingle(),
     ]);
 
     const onboarding = {
         whatsappConnected: restaurantRow.data?.uaz_status === "open",
+        storeConfigured: !!(restaurantRow.data?.store_address && restaurantRow.data?.pix_key),
         automationConfigured: !!automationRow.data,
         firstLeadMoved: !!firstLog.data,
     };

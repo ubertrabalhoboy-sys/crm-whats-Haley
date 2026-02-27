@@ -9,6 +9,7 @@ import ParticleBg from "../../components/shared/ParticleBg";
 import ConnectionAlert from "../../components/shared/ConnectionAlert";
 import { ToastProvider } from "../../components/shared/Toast";
 import useSWR from "swr";
+import NotificationBell from "@/components/layout/NotificationBell";
 
 import {
   LayoutDashboard,
@@ -342,11 +343,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
 
               <div className="flex items-center gap-5">
-                {/* Botão de Notificação com estilo Tinted Glass */}
-                <button className="relative p-3.5 bg-blue-500/5 backdrop-blur-md border border-blue-200/50 rounded-2xl text-blue-600 hover:text-white hover:bg-blue-600 hover:shadow-[0_0_20px_rgba(37,99,235,0.2)] transition-all duration-300">
-                  <Bell size={22} />
-                  <span className="absolute top-3 right-3 w-2.5 h-2.5 bg-blue-600 rounded-full border-2 border-white" />
-                </button>
+                {/* Sino de Notificação Dinâmico */}
+                <NotificationBell />
 
                 {/* “Novo atendimento” funcional -> manda pro Inbox */}
                 <GlowButton asChild href="/inbox" variant="blue">

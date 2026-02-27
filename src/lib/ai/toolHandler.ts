@@ -178,16 +178,27 @@ async function handleSubmitFinalOrder(
 
     const chatId = (args.chat_id as string) || ctx.chat_id;
 
+    // 🛡️ SECURITY: recalculate prices to avoid prompt injection 🛡️
+    let realSubtotal = 0;
+    for (const item of (args.items as any[])) {
+        const { data: promo } = await db.from("produtos_promo").select("price").eq("id", item.product_id).maybeSingle();
+        if (promo) {
+            realSubtotal += (promo.price * item.quantity);
+        }
+    }
+
+    const calculatedTotal = realSubtotal - (args.discount as number || 0) + (args.delivery_fee as number || 0);
+
     const { data: order, error } = await db
         .from("orders")
         .insert({
             restaurant_id: ctx.restaurant_id,
             chat_id: chatId,
             items: args.items,
-            subtotal: args.subtotal || 0,
+            subtotal: realSubtotal,
             discount: args.discount || 0,
             delivery_fee: args.delivery_fee || 0,
-            total: args.total || 0,
+            total: calculatedTotal,
             payment_method: args.payment_method,
             change_for: args.change_for || null,
             address_number: args.address_number,
@@ -226,16 +237,46 @@ async function handleGetPixPayment(
     args: Record<string, unknown>,
     ctx: ToolContext
 ) {
-    const res = await fetch(`${ctx.base_url}/api/order/pix`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            restaurant_id: ctx.restaurant_id,
-            chat_id: args.chat_id || ctx.chat_id,
-            amount: args.amount,
-        }),
-    });
-    return res.json();
+    const db = createAdminClient();
+    const chatId = (args.chat_id as string) || ctx.chat_id;
+    const amount = Number(args.amount);
+
+    if (!amount || amount <= 0) {
+        return { ok: false, error: "MISSING_AMOUNT" };
+    }
+
+    const { data: restaurant } = await db
+        .from("restaurants")
+        .select("name, pix_key")
+        .eq("id", ctx.restaurant_id)
+        .single();
+
+    if (!restaurant?.pix_key) {
+        return { ok: false, error: "PIX_KEY_NOT_CONFIGURED", ai_instruction: "No PIX key is configured for this store." };
+    }
+
+    const { data: chat } = await db
+        .from("chats")
+        .select("wa_chat_id")
+        .eq("id", chatId)
+        .eq("restaurant_id", ctx.restaurant_id)
+        .single();
+
+    const pixPayload = {
+        phone: chat?.wa_chat_id || ctx.wa_chat_id,
+        pix: {
+            key: restaurant.pix_key,
+            name: restaurant.name || "Loja",
+            amount: Number(amount.toFixed(2)),
+            description: `Pedido via ${restaurant.name || "FoodSpin"}`,
+        },
+        message: `💰 *Pagamento PIX*\n\nValor: R$ ${amount.toFixed(2)}\nEstabelecimento: ${restaurant.name}\n\n✅ Após o pagamento, envie o comprovante aqui!`,
+    };
+
+    return {
+        ok: true,
+        pix_payload: pixPayload,
+    };
 }
 
 /**

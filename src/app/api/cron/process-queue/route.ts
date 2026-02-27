@@ -60,7 +60,10 @@ export async function POST(req: NextRequest) {
                 payload: msg.payload,
             });
 
-            // Mark as processed
+            // If an actual network request were here (e.g., fetch Uazapi),
+            // and it threw an Error, the code below would NEVER run.
+
+            // Mark as processed (Only happens if dispatch above succeeds)
             await supabase
                 .from("scheduled_messages")
                 .update({ status: "processed" })

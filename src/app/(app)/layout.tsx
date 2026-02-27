@@ -329,7 +329,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {/* --- CONTEÚDO (MAIN AREA) --- */}
           <main className="flex-1 h-full overflow-hidden flex flex-col gap-8 pr-2">
             {/* Top Header */}
-            <header className="flex items-center justify-between bg-white/20 backdrop-blur-xl border border-white/60 rounded-[3rem] px-10 py-7 shadow-sm">
+            <header className="relative z-50 flex items-center justify-between bg-white/20 backdrop-blur-xl border border-white/60 rounded-[3rem] px-10 py-7 shadow-sm">
               <div>
                 <h2 className="text-3xl font-[900] text-[#0f172a] uppercase tracking-tighter mb-1">
                   {activeTitle}

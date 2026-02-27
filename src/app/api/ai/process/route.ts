@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const dynamic = "force-dynamic";
 
@@ -33,40 +34,28 @@ export async function POST(req: NextRequest) {
             ? "Você é um atendente de restaurante educado e focado em vendas. Ajude a criar uma sugestão de resposta persuasiva e amigável para o cliente baseada no histórico da conversa."
             : "Você é um assistente analítico. Gere um resumo em tópicos curtos sobre do que se trata esta conversa, listando intenção do cliente e produtos citados.";
 
-        const openAiApiKey = process.env.OPENAI_API_KEY;
-        if (!openAiApiKey) {
-            return NextResponse.json({ ok: false, error: "Falta configurar a chave da OpenAI no painel" }, { status: 400 });
+        const geminiApiKey = process.env.GEMINI_API_KEY;
+        if (!geminiApiKey) {
+            return NextResponse.json({ ok: false, error: "Falta configurar a chave da Gemini no painel" }, { status: 400 });
         }
 
         let textOutput = "";
 
         try {
-            const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${openAiApiKey}`
-                },
-                body: JSON.stringify({
-                    model: "gpt-4o-mini",
-                    messages: [
-                        { role: "system", content: systemPrompt },
-                        { role: "user", content: historyText }
-                    ],
-                    temperature: 0.7,
-                })
+            const genAI = new GoogleGenerativeAI(geminiApiKey);
+            const model = genAI.getGenerativeModel({
+                model: "gemini-2.0-flash",
+                systemInstruction: systemPrompt
             });
 
-            if (!aiResponse.ok) {
-                const errorData = await aiResponse.json();
-                console.error("[api/ai/process] OpenAI API Error:", errorData);
-                throw new Error("Erro na comunicação com a API da OpenAI");
-            }
+            const response = await model.generateContent({
+                contents: [{ role: "user", parts: [{ text: historyText }] }]
+            });
 
-            const data = await aiResponse.json();
-            textOutput = data.choices[0].message.content;
+            textOutput = response.response.text();
+
         } catch (apiError: any) {
-            console.error("[api/ai/process] Fetch error:", apiError);
+            console.error("[api/ai/process] SDK error:", apiError);
             return NextResponse.json({ ok: false, error: "Falha ao processar com IA externa: " + apiError.message }, { status: 502 });
         }
 

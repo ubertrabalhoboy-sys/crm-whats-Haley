@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
 
     const { data: restaurant, error } = await supabase
         .from("restaurants")
-        .select("name, store_address, operating_hours")
+        .select("name, store_address, operating_hours, business_rules")
         .eq("id", restaurantId)
         .single();
 
@@ -79,7 +79,8 @@ export async function GET(req: NextRequest) {
             is_open_now: isOpenNow,
             current_day: currentDayKey,
             current_time_sp: timeStr,
-            operating_hours: hours
+            operating_hours: hours,
+            business_rules: restaurant.business_rules // 🧠 Dynamic FAQ / Knowledge Base
         }
     });
 }

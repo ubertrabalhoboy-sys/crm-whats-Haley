@@ -7,6 +7,31 @@ import { processAiMessage } from "@/lib/ai/orchestrator";
 
 export const runtime = "nodejs";
 
+// Rate Limiter Memory Map (Persists across warm serverless invocations)
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute window
+const MAX_MESSAGES_PER_MINUTE = 15; // Max allowed messages per minute
+
+async function sendRateLimitWarning(waChatId: string, instanceName: string, instanceToken: string) {
+  try {
+    await fetch("https://api.uazapi.com/v1/messages/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.UAZAPI_GLOBAL_API_KEY}`,
+        "Instance-Token": instanceToken,
+      },
+      body: JSON.stringify({
+        number: waChatId,
+        textMessage: { text: "Opa, vai com calma, minha cozinha tá processando seu pedido! Aguarde um instante antes de mandar mais mensagens. 🧑‍🍳🛑" },
+        instanceName,
+      }),
+    });
+  } catch (error) {
+    console.error("[RATE LIMIT] Failed to send warning warning to Uazapi", error);
+  }
+}
+
 export async function GET() {
   return NextResponse.json({ ok: true, route: "uazapi" }, { status: 200 });
 }
@@ -291,6 +316,34 @@ export async function POST(req: Request) {
   if (!waChatId || !phone) {
     return NextResponse.json({ ok: true, ignored: true, reason: "missing_fields" }, { status: 200 });
   }
+
+  // --- 🛡️ RATE LIMITING ENFORCEMENT 🛡️ ---
+  const now = Date.now();
+  const userRate = rateLimitMap.get(phone) || { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS };
+
+  if (now > userRate.resetAt) {
+    // Window expired, reset counter
+    userRate.count = 1;
+    userRate.resetAt = now + RATE_LIMIT_WINDOW_MS;
+  } else {
+    // Increment counter
+    userRate.count++;
+  }
+
+  rateLimitMap.set(phone, userRate);
+
+  if (userRate.count > MAX_MESSAGES_PER_MINUTE) {
+    console.warn(`[RATE LIMIT] Phone ${phone} exceeded limits (${userRate.count} msgs/min). Dropping payload.`);
+
+    // Only send the warning exactly on the threshold breach to avoid spamming them back
+    if (userRate.count === MAX_MESSAGES_PER_MINUTE + 1 && instanceName && instanceToken) {
+      // Don't await the warning so we don't block the response
+      sendRateLimitWarning(waChatId, instanceName, instanceToken);
+    }
+
+    return NextResponse.json({ ok: true, ignored: true, reason: "rate_limited" }, { status: 200 });
+  }
+  // ---------------------------------------
 
   let contactId: string;
   const { data: existingContact, error: contactSelectError } = await supabaseServer

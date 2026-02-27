@@ -141,11 +141,29 @@ export async function processAiMessage(params: OrchestratorParams) {
             iteration++;
             console.log(`[AI LOOP] Thinking... Iteration ${iteration}`);
 
+            const startTimeMs = Date.now();
             const response = await model.generateContent({
                 contents: conversationContext
             });
+            const durationMs = Date.now() - startTimeMs;
 
             const responseMessage = response.response;
+            const usage = responseMessage.usageMetadata;
+
+            // 📊 TELEMETRY: Non-blocking log to Supabase ai_logs
+            supabase.from("ai_logs").insert({
+                restaurant_id: params.restaurantId,
+                chat_id: params.chatId,
+                wa_chat_id: params.waChatId,
+                model: "gemini-2.0-flash",
+                prompt_tokens: usage?.promptTokenCount || 0,
+                completion_tokens: usage?.candidatesTokenCount || 0,
+                total_tokens: usage?.totalTokenCount || 0,
+                duration_ms: durationMs
+            }).then(({ error }) => {
+                if (error) console.error("[TELEMETRY] Failed to insert ai_logs:", error.message);
+            });
+
             const functionCalls = responseMessage.functionCalls();
 
             if (functionCalls && functionCalls.length > 0) {
@@ -230,9 +248,19 @@ export async function processAiMessage(params: OrchestratorParams) {
             await sendTextMessageToUazapi(params.waChatId, params.instanceName, fallbackMessage);
         }
 
-    } catch (err) {
+    } catch (err: any) {
         // 🛡️ CAMADA 2: Fallback de Crash Crítico
         console.error("[AI LOOP] Critical Error:", err);
+
+        // 📊 TELEMETRY: Log AI Failure
+        await supabase.from("ai_logs").insert({
+            restaurant_id: params.restaurantId,
+            chat_id: params.chatId,
+            wa_chat_id: params.waChatId,
+            model: "gemini-2.0-flash",
+            error_message: String(err.message || err),
+            duration_ms: 0
+        });
 
         const errorMessage = "Opa, nossa cozinha virtual está passando por uma instabilidade rápida. Já chamei um atendente humano para assumir seu pedido e falar com você, tá bom? 👨‍🍳";
 

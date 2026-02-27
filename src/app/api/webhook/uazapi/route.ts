@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabaseServer";
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } }
+);
 import { extractButtonClicked } from "@/lib/uazapi/triggers";
 import { runAutomations } from "@/lib/automations/engine";
 import { triggerFiqonWebhook } from "@/lib/fiqon-webhook";
@@ -97,7 +103,7 @@ export async function POST(req: Request) {
   let restaurant: { id: string } | null = null;
 
   if (instanceName) {
-    const { data, error } = await supabaseServer
+    const { data, error } = await supabaseAdmin
       .from("restaurants")
       .select("id")
       .eq("uaz_instance_name", instanceName)
@@ -112,7 +118,7 @@ export async function POST(req: Request) {
   }
 
   if (instanceRestaurantRef) {
-    const { data } = await supabaseServer
+    const { data } = await supabaseAdmin
       .from("restaurants")
       .select("id")
       .eq("id", instanceRestaurantRef)
@@ -121,7 +127,7 @@ export async function POST(req: Request) {
   }
 
   if (!restaurant && instanceId) {
-    const { data } = await supabaseServer
+    const { data } = await supabaseAdmin
       .from("restaurants")
       .select("id")
       .eq("uaz_instance_id", instanceId)
@@ -130,7 +136,7 @@ export async function POST(req: Request) {
   }
 
   if (!restaurant && instanceToken) {
-    const { data, error } = await supabaseServer
+    const { data, error } = await supabaseAdmin
       .from("restaurants")
       .select("id")
       .eq("uaz_instance_token", instanceToken)
@@ -142,7 +148,7 @@ export async function POST(req: Request) {
   }
 
   if (!restaurant && instanceOwner) {
-    const { data, error } = await supabaseServer
+    const { data, error } = await supabaseAdmin
       .from("restaurants")
       .select("id")
       .eq("uaz_instance_owner", instanceOwner)
@@ -155,7 +161,7 @@ export async function POST(req: Request) {
 
   if (!restaurant) {
     try {
-      const { error: webhookEventError } = await supabaseServer.from("webhook_events").insert({
+      const { error: webhookEventError } = await supabaseAdmin.from("webhook_events").insert({
         provider: "uazapi",
         payload: body,
         instance_name: instanceName,
@@ -233,7 +239,7 @@ export async function POST(req: Request) {
   );
 
   if ((eventLower === "message.update" || eventLower === "messages_update") && waMessageId) {
-    await supabaseServer
+    await supabaseAdmin
       .from("messages")
       .update({ status: statusValue ?? null })
       .eq("restaurant_id", restaurantId)
@@ -254,7 +260,7 @@ export async function POST(req: Request) {
   );
 
   if (eventLower === "presence.update" && waChatId && statusValue === "composing") {
-    await supabaseServer
+    await supabaseAdmin
       .from("chats")
       .update({ is_typing: true })
       .eq("restaurant_id", restaurantId)
@@ -264,7 +270,7 @@ export async function POST(req: Request) {
   }
 
   if (eventLower === "presence.update" && waChatId && statusValue === "paused") {
-    await supabaseServer
+    await supabaseAdmin
       .from("chats")
       .update({ is_typing: false })
       .eq("restaurant_id", restaurantId)
@@ -283,7 +289,7 @@ export async function POST(req: Request) {
         body?.data?.status
       ) ?? "disconnected";
 
-    await supabaseServer
+    await supabaseAdmin
       .from("restaurants")
       .update({ uaz_status: connectionStatus })
       .eq("id", restaurantId);
@@ -346,7 +352,7 @@ export async function POST(req: Request) {
   // ---------------------------------------
 
   let contactId: string;
-  const { data: existingContact, error: contactSelectError } = await supabaseServer
+  const { data: existingContact, error: contactSelectError } = await supabaseAdmin
     .from("contacts")
     .select("id")
     .eq("restaurant_id", restaurantId)
@@ -360,7 +366,7 @@ export async function POST(req: Request) {
   if (existingContact?.id) {
     contactId = existingContact.id;
   } else {
-    const { data: newContact, error: contactInsertError } = await supabaseServer
+    const { data: newContact, error: contactInsertError } = await supabaseAdmin
       .from("contacts")
       .insert({ restaurant_id: restaurantId, phone })
       .select("id")
@@ -376,7 +382,7 @@ export async function POST(req: Request) {
   }
 
   let chatId: string;
-  const { data: existingChat, error: chatSelectError } = await supabaseServer
+  const { data: existingChat, error: chatSelectError } = await supabaseAdmin
     .from("chats")
     .select("id")
     .eq("restaurant_id", restaurantId)
@@ -389,7 +395,7 @@ export async function POST(req: Request) {
 
   if (existingChat?.id) {
     chatId = existingChat.id;
-    const { error: chatUpdateError } = await supabaseServer
+    const { error: chatUpdateError } = await supabaseAdmin
       .from("chats")
       .update({
         contact_id: contactId,
@@ -404,7 +410,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: chatUpdateError.message }, { status: 500 });
     }
   } else {
-    const { data: newChat, error: chatInsertError } = await supabaseServer
+    const { data: newChat, error: chatInsertError } = await supabaseAdmin
       .from("chats")
       .insert({
         restaurant_id: restaurantId,
@@ -427,7 +433,7 @@ export async function POST(req: Request) {
   }
 
   if (waMessageId) {
-    const { data: exists, error: dedupeError } = await supabaseServer
+    const { data: exists, error: dedupeError } = await supabaseAdmin
       .from("messages")
       .select("id")
       .eq("wa_message_id", waMessageId)
@@ -442,7 +448,7 @@ export async function POST(req: Request) {
     }
   }
 
-  const { error: messageInsertError } = await supabaseServer.from("messages").insert({
+  const { error: messageInsertError } = await supabaseAdmin.from("messages").insert({
     chat_id: chatId,
     restaurant_id: restaurantId,
     direction: "in",
@@ -548,7 +554,7 @@ export async function POST(req: Request) {
 
           // Fast check if this is a known product stored in 'produtos_promo'
           // A user might pass the raw ID or a 'produto_XXX' string
-          const { data: promoData } = await supabaseServer
+          const { data: promoData } = await supabaseAdmin
             .from("produtos_promo")
             .select("nome, preco_promo")
             .or(`id.eq.${btnId},nome.ilike.%${btnId}%`)
@@ -558,7 +564,7 @@ export async function POST(req: Request) {
             console.log(`[webhook/gamification] Matching product found: ${promoData.nome} - Updating ROI.`);
 
             // Standard Approach (safe enough for most chat flows):
-            const { data: chatData } = await supabaseServer
+            const { data: chatData } = await supabaseAdmin
               .from("chats")
               .select("valor_total_vendas")
               .eq("id", chatId)
@@ -567,7 +573,7 @@ export async function POST(req: Request) {
             const val = chatData?.valor_total_vendas ? Number(chatData.valor_total_vendas) : 0;
             const newVal = val + Number(promoData.preco_promo);
 
-            await supabaseServer
+            await supabaseAdmin
               .from("chats")
               .update({
                 valor_total_vendas: newVal,
@@ -577,7 +583,7 @@ export async function POST(req: Request) {
               .eq("id", chatId);
 
             // Disparo bidirecional: buscar stage_id e disparar o Fiqon
-            const { data: stageRow } = await supabaseServer
+            const { data: stageRow } = await supabaseAdmin
               .from("kanban_stages")
               .select("id")
               .eq("restaurant_id", restaurantId)

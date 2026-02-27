@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
         const historyText = messages
             .slice(-10) // Limit to last 10
             .map((m: any) => `${m.direction === "in" ? "Cliente" : "Atendente"}: ${m.text || ""}`)
-            .join("\n");
+            .join("\n") || "O cliente acabou de iniciar o atendimento sem mandar texto legível, sugira uma recepção educada.";
 
         const systemPrompt = tipo_acao === "suggest"
             ? "Você é um atendente de restaurante educado e focado em vendas. Ajude a criar uma sugestão de resposta persuasiva e amigável para o cliente baseada no histórico da conversa."
@@ -56,7 +56,8 @@ export async function POST(req: NextRequest) {
 
         } catch (apiError: any) {
             console.error("[api/ai/process] SDK error:", apiError);
-            return NextResponse.json({ ok: false, error: "Falha ao processar com IA externa: " + apiError.message }, { status: 502 });
+            const errMsg = apiError?.message || String(apiError);
+            return NextResponse.json({ ok: false, error: "Falha ao processar com IA externa: " + errMsg }, { status: 502 });
         }
 
         return NextResponse.json({ ok: true, output: textOutput }, { status: 200 });

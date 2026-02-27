@@ -63,6 +63,10 @@ export async function GET() {
       `${baseUrl}/instance/status?token=${encodeURIComponent(restaurant.uaz_instance_token)}`,
       {
         method: "GET",
+        headers: {
+          "Authorization": `Bearer ${process.env.UAZAPI_GLOBAL_API_KEY}`,
+          "Instance-Token": restaurant.uaz_instance_token
+        },
         cache: "no-store",
       }
     );
@@ -71,14 +75,21 @@ export async function GET() {
     const data = parseJsonSafe(raw);
 
     if (!upstream.ok) {
+      console.warn("[whatsapp/status] Uazapi HTTP request failed. Assumming last known database state to prevent UI deadlock.", { upstreamStatus: upstream.status, data });
+      const fallbackStatus = restaurant.uaz_status || "disconnected";
       return NextResponse.json(
-        { ok: false, error: data?.error || "UAZAPI_STATUS_FAILED" },
-        { status: upstream.status || 502 }
+        {
+          ok: true,
+          status: fallbackStatus,
+          connected: ["open", "connected"].includes(fallbackStatus),
+          loggedIn: ["open", "connected"].includes(fallbackStatus)
+        },
+        { status: 200 }
       );
     }
 
     const status = data?.status ?? data?.data?.status ?? restaurant.uaz_status ?? "disconnected";
-	const connected =
+    const connected =
       typeof data?.connected === "boolean"
         ? data.connected
         : ["connected", "open", "ready", "online"].includes(String(status).toLowerCase());
@@ -91,13 +102,13 @@ export async function GET() {
 
     await supabase.from("restaurants").update({ uaz_status: status }).eq("id", restaurant.id);
 
- return NextResponse.json(
+    return NextResponse.json(
       {
         ok: true,
         status,
         connected,
         loggedIn,
-		 },
+      },
       { status: 200 }
     );
   } catch {

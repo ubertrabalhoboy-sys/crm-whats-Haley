@@ -18,7 +18,7 @@ export default function ConnectionAlert() {
     // Don't show the alert on the settings page itself (avoid redundancy)
     const isSettingsPage = pathname === "/settings/whatsapp";
 
-    const { data, error } = useSWR<{ ok: boolean; status?: { state: string } }>(
+    const { data, error } = useSWR<{ ok: boolean; status?: any; connected?: boolean }>(
         "/api/whatsapp/status",
         fetcher,
         {
@@ -32,8 +32,8 @@ export default function ConnectionAlert() {
     // Se estiver carregando ainda, não mostramos nada pra não piscar
     if (!data && !error) return null;
 
-    const state = data?.status?.state;
-    const isConnected = state === "open" || state === "connected";
+    const state = typeof data?.status === "string" ? data.status : (data?.status as any)?.state;
+    const isConnected = state === "open" || state === "connected" || data?.connected === true;
 
     // Se estiver conectado OU erro no backend (banco vazio, webhook fora etc) -> vamos alertar!
     if (isConnected && !error) return null;

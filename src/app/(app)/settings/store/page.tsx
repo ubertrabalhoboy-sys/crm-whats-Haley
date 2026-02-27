@@ -8,6 +8,7 @@ type DayHours = { open: string; close: string; isClosed: boolean };
 type OperatingHours = Record<string, DayHours>;
 
 type StoreSettings = {
+    store_name: string;
     store_address: string;
     delivery_price_per_km: number;
     free_delivery_threshold: number;
@@ -47,6 +48,7 @@ export default function StoreSettingsPage() {
 
     const { data, error, isLoading, mutate } = useSWR<StoreSettings>("/api/settings/store", fetcher);
 
+    const [storeName, setStoreName] = useState("");
     const [address, setAddress] = useState("");
     const [pricePerKm, setPricePerKm] = useState(0);
     const [freeThreshold, setFreeThreshold] = useState(0);
@@ -71,6 +73,7 @@ export default function StoreSettingsPage() {
 
     useEffect(() => {
         if (data) {
+            setStoreName(data.store_name || "");
             setAddress(data.store_address);
             setPricePerKm(data.delivery_price_per_km);
             setFreeThreshold(data.free_delivery_threshold);
@@ -88,6 +91,7 @@ export default function StoreSettingsPage() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                    store_name: storeName,
                     store_address: address,
                     delivery_price_per_km: pricePerKm,
                     free_delivery_threshold: freeThreshold,
@@ -193,6 +197,18 @@ export default function StoreSettingsPage() {
                         <p className="text-red-400 text-sm font-bold">Erro ao carregar configurações.</p>
                     ) : (
                         <div className="space-y-5">
+                            <div>
+                                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2 flex items-center gap-1.5">
+                                    Nome do Restaurante / Loja
+                                </label>
+                                <input
+                                    type="text"
+                                    value={storeName}
+                                    onChange={(e) => setStoreName(e.target.value)}
+                                    placeholder="Ex: Fiqon Burguer"
+                                    className="w-full px-4 py-3 text-sm font-semibold bg-white/60 dark:bg-slate-800/50 border border-white dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#086788]/20 transition-all text-slate-800 dark:text-white"
+                                />
+                            </div>
                             <div>
                                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2 flex items-center gap-1.5">
                                     <MapPin size={12} /> Endereço da Loja

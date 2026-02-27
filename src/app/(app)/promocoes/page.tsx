@@ -434,6 +434,21 @@ export default function PromocoesPage() {
                                         <ImageIcon size={24} />
                                     </div>
                                 )}
+
+                                {/* Badges */}
+                                <div className="flex flex-wrap gap-2 mb-3">
+                                    {p.category && (
+                                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-slate-100 text-slate-500 border border-slate-200">
+                                            {p.category}
+                                        </span>
+                                    )}
+                                    {p.is_extra && (
+                                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-amber-100 text-amber-600 border border-amber-200">
+                                            Complemento
+                                        </span>
+                                    )}
+                                </div>
+
                                 <h3 className="text-base font-black text-slate-800 mb-4 line-clamp-2">{p.nome}</h3>
 
                                 <div className="flex flex-col gap-1 mb-4 mt-auto">

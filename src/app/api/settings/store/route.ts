@@ -21,7 +21,7 @@ export async function GET() {
 
     const { data, error } = await supabase
         .from("restaurants")
-        .select("store_address, delivery_price_per_km, free_delivery_threshold, pix_key, operating_hours")
+        .select("name, store_address, delivery_price_per_km, free_delivery_threshold, pix_key, operating_hours")
         .eq("id", profile.restaurant_id)
         .single();
 
@@ -35,6 +35,7 @@ export async function GET() {
     return NextResponse.json({
         ok: true,
         settings: {
+            store_name: data.name || "",
             store_address: data.store_address || "",
             delivery_price_per_km: data.delivery_price_per_km || 0,
             free_delivery_threshold: data.free_delivery_threshold || 0,
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { store_address, delivery_price_per_km, free_delivery_threshold, pix_key, password, operating_hours } = body;
+    const { store_name, store_address, delivery_price_per_km, free_delivery_threshold, pix_key, password, operating_hours } = body;
 
     // Secure PIX Key update: Requires password validation
     if (typeof pix_key === "string" && pix_key.trim() !== "") {
@@ -92,6 +93,7 @@ export async function POST(req: NextRequest) {
     // Build update object (only include fields that were sent)
     const updatePayload: Record<string, unknown> = {};
 
+    if (typeof store_name === "string") updatePayload.name = store_name.trim();
     if (typeof store_address === "string") updatePayload.store_address = store_address.trim();
     if (typeof delivery_price_per_km === "number") updatePayload.delivery_price_per_km = delivery_price_per_km;
     if (typeof free_delivery_threshold === "number") updatePayload.free_delivery_threshold = free_delivery_threshold;

@@ -252,14 +252,28 @@ export async function processAiMessage(params: OrchestratorParams) {
 
     // Inject System Prompt
     const systemPrompt = {
-        role: "system",
-        content: `Você é um Assistente de Delivery de IA do FoodSpin.
-Você deve atender de forma humanizada, natural, e focar em conversão de vendas.
-Contexto atual do cliente:
-- Kanban Stage: ${chatContext?.kanban_status}
-- Cupom ganho: ${chatContext?.cupom_ganho || "Nenhum"}
-Use as ferramentas fornecidas para consultar cardápio, calcular carrinho, ou enviar mensagens interativas (Carrossel, etc). Se a tool_call falhar ou der erro, explique ao cliente.`,
-    };
+    role: "system",
+    content: `Você é o Gerente de Conversão Premium do FoodSpin. 
+Sua personalidade é "Dono Amigo": ágil, prestativo, levemente informal, mas rigoroso na logística.
+NUNCA use listas numeradas longas, termos técnicos ou textos > 3 linhas.
+
+=== DADOS INJETADOS ===
+Kanban Stage: ${chatContext?.kanban_status}
+Cupom Ganho: ${chatContext?.cupom_ganho || "Nenhum"}
+
+=== REGRAS DE COMPORTAMENTO (CRÍTICO PARA GPT-4o-MINI) ===
+1. MENSAGENS VISUAIS SILENCIOSAS: O sistema envia Carrosseis e Listas automaticamente para o WhatsApp do cliente. Se você usar 'send_uaz_carousel' ou 'send_uaz_list_menu', NÃO crie uma mensagem de texto dizendo "Estou te enviando o cardápio". Apenas execute a ferramenta e deixe o sistema agir.
+2. UPSELL OBRIGATÓRIO: Se o cliente pedir um prato principal, sugira SEMPRE um adicional ou bebida de forma fluida. Ex: "Cara, pra esse lanche ficar nota 10, uma batata acompanha bem. Mando uma?"
+3. ACOMPANHAMENTO KANBAN: Sempre que a intenção mudar, acione 'move_kanban_stage'.
+
+=== PROTOCOLO LOGÍSTICO (SIGA A ORDEM RIGOROSAMENTE) ===
+1. Resumo: Use 'calculate_cart_total' (requer itens e customer_address/GPS). Mostre o resumo.
+2. Pagamento: Use 'send_uaz_list_menu' para perguntar (PIX, Dinheiro, Cartão).
+3. GPS e Endereço: Use 'request_user_location'. APÓS o cliente enviar o GPS, PERGUNTE obrigatóriamente o Número da casa e Referência.
+4. Fechamento: Chame 'submit_final_order'. Requer payment_method, address_number e gps_location. 
+🚨 REGRA DO TROCO: Se payment_method for "dinheiro", você TEM que perguntar "Troco pra quanto?" antes e preencher o change_for, senão o sistema rejeita a venda.
+5. PIX: Se for PIX, gere o código com 'get_pix_payment'.`
+};
 
     const conversationContext = [systemPrompt, ...openaiHistory];
 
@@ -274,7 +288,7 @@ Use as ferramentas fornecidas para consultar cardápio, calcular carrinho, ou en
     let iteration = 0;
     const MAX_ITERATIONS = 5;
 
-    try {
+  try {
         while (loopActive && iteration < MAX_ITERATIONS) {
             iteration++;
             console.log(`[AI LOOP] Thinking... Iteration ${iteration}`);
@@ -294,13 +308,11 @@ Use as ferramentas fornecidas para consultar cardápio, calcular carrinho, ou en
                 // OpenAI decided to use tools
                 for (const toolCall of responseMessage.tool_calls as any[]) {
                     console.log(`[AI LOOP] Executing tool: ${toolCall.function.name}`);
-
                     const args = JSON.parse(toolCall.function.arguments);
                     const toolResultString = await executeAiTool(toolCall.function.name, args, ctx);
                     const parsedResult = JSON.parse(toolResultString);
 
                     // ─── INTERCEPT RICHS UI (Uazapi) ───
-                    // If the tool returns a prepared Uazapi payload, send it straight out.
                     if (parsedResult.uazapi_payload) {
                         await sendRichPayloadToUazapi(parsedResult.uazapi_payload, params.instanceName);
                         // Tell AI it was sent so it doesn't repeat itself
@@ -311,7 +323,7 @@ Use as ferramentas fornecidas para consultar cardápio, calcular carrinho, ou en
                             content: JSON.stringify({ ok: true, note: "Interactive visual message sent successfully to user WhatsApp. You do not need to repeat this text." })
                         });
                     } else {
-                        // Regular data response (e.g. database query, calculation)
+                        // Regular data response
                         conversationContext.push({
                             tool_call_id: toolCall.id,
                             role: "tool",
@@ -320,14 +332,12 @@ Use as ferramentas fornecidas para consultar cardápio, calcular carrinho, ou en
                         });
                     }
                 }
-                // Loop loops back to let OpenAI process the `role: "tool"` responses.
             } else if (responseMessage.content) {
                 // OpenAI produced the final natural text response
                 loopActive = false;
-
                 const finalAnswer = responseMessage.content;
                 console.log(`[AI LOOP] Final Answer Ready: "${finalAnswer.substring(0, 50)}..."`);
-
+                
                 // 1. Save to database
                 await supabase.from("messages").insert({
                     chat_id: params.chatId,
@@ -336,17 +346,44 @@ Use as ferramentas fornecidas para consultar cardápio, calcular carrinho, ou en
                     text: finalAnswer,
                     status: "sent"
                 });
-
+                
                 // 2. Dispatch text to WhatsApp
                 await sendTextMessageToUazapi(params.waChatId, params.instanceName, finalAnswer);
             }
-        }
+        } // Fim do while
 
+        // 🛡️ CAMADA 1: Fallback de Limite de Iterações
         if (iteration >= MAX_ITERATIONS) {
-            console.warn(`[AI LOOP] Reached loop limit (${MAX_ITERATIONS}) for ChatID: ${params.chatId}. Stopping to prevent infinite loops.`);
+            console.warn(`[AI LOOP] Reached loop limit (${MAX_ITERATIONS}) for ChatID: ${params.chatId}.`);
+            
+            const fallbackMessage = "Putz, deu um pequeno curto-circuito aqui no meu sistema tentando processar seu pedido! 😅 Você poderia repetir o que deseja, por favor?";
+            
+            // Salva no banco e avisa o cliente
+            await supabase.from("messages").insert({
+                chat_id: params.chatId,
+                restaurant_id: params.restaurantId,
+                direction: "out",
+                text: fallbackMessage,
+                status: "sent"
+            });
+            await sendTextMessageToUazapi(params.waChatId, params.instanceName, fallbackMessage);
         }
 
     } catch (err) {
+        // 🛡️ CAMADA 2: Fallback de Crash Crítico
         console.error("[AI LOOP] Critical Error:", err);
+        
+        const errorMessage = "Opa, nossa cozinha virtual está passando por uma instabilidade rápida. Já chamei um atendente humano para assumir seu pedido e falar com você, tá bom? 👨‍🍳";
+
+        try {
+            // Tenta avisar o cliente da falha crítica
+            await sendTextMessageToUazapi(params.waChatId, params.instanceName, errorMessage);
+            
+            // Tenta mover o cliente no Kanban para "Atenção Manual / Erro" 
+            // IMPORTANTE: Substitua o ID fictício abaixo pelo ID real da sua coluna de atendimento humano, ou omita esta linha se não tiver.
+            await supabase.from("chats").update({ stage_id: "ID_DO_ESTAGIO_ATENDIMENTO_HUMANO" }).eq("id", params.chatId);
+        } catch (fallbackErr) {
+            console.error("[AI LOOP] Failed to send fallback message:", fallbackErr);
+        }
     }
-}
+} // Fim da função processAiMessage

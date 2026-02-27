@@ -52,6 +52,8 @@ function normalizeStatus(value: unknown): {
   return { text: "disconnected" };
 }
 
+export const dynamic = 'force-dynamic';
+
 export default function WhatsAppSettingsPage() {
   const [phone, setPhone] = useState("");
   const [statusText, setStatusText] = useState<string>("disconnected");

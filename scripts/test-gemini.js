@@ -23,7 +23,7 @@ async function listModels() {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-exp"];
+    const models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash"];
 
     for (const mName of models) {
         process.stdout.write(`Testing ${mName}... `);

@@ -256,7 +256,7 @@ export default function DashboardPage() {
         <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Msg Recebida</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Msg Enviadas</p>
               <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
                 {isLoading ? "..." : metrics.mensagensEnviadas}
               </h3>
@@ -278,7 +278,7 @@ export default function DashboardPage() {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 text-amber-500">
               <Zap size={20} />
             </div>
-            <h2 className="text-xl font-black text-[#086788] tracking-tight">CVS iniciada Roleta</h2>
+            <h2 className="text-xl font-black text-[#086788] tracking-tight">Automação</h2>
           </div>
           <div className="flex items-end gap-3 h-32">
             {webhookStats.porDia.map((d) => {

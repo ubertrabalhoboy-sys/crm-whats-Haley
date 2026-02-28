@@ -172,13 +172,19 @@ export default function SalesFlow({
                                             key={chat.id}
                                             draggable
                                             onDragStart={(e) => handleDragStart(e, chat.id)}
-                                            className="group relative overflow-hidden rounded-[2.2rem] border border-white bg-white/80 p-6 shadow-sm transition-all duration-500 hover:-translate-y-[5px] hover:shadow-[0_15px_30px_-5px_rgba(8,103,136,0.15)] backdrop-blur-lg cursor-grab active:cursor-grabbing"
+                                            className={`group relative overflow-hidden rounded-[2.2rem] border p-6 shadow-sm transition-all duration-500 hover:-translate-y-[5px] hover:shadow-[0_15px_30px_-5px_rgba(8,103,136,0.15)] backdrop-blur-lg cursor-grab active:cursor-grabbing ${stage.name === "Atendimento Humano"
+                                                    ? "bg-red-50/90 border-red-200"
+                                                    : "bg-white/80 border-white"
+                                                }`}
                                         >
                                             {/* Indicador lateral */}
                                             <div className="absolute left-0 top-1/4 bottom-1/4 w-1 rounded-r-full bg-[#07a0c3] opacity-0 transition-all group-hover:opacity-100" />
 
                                             <div className="mb-4 flex items-start justify-between">
-                                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#07a0c3] to-[#086788] text-lg font-black text-white shadow-md">
+                                                <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-lg font-black text-white shadow-md ${stage.name === "Atendimento Humano"
+                                                        ? "bg-gradient-to-br from-red-500 to-red-700"
+                                                        : "bg-gradient-to-br from-[#07a0c3] to-[#086788]"
+                                                    }`}>
                                                     {isNaN(Number(getChatName(chat).charAt(0))) ? (
                                                         getChatName(chat).charAt(0).toUpperCase()
                                                     ) : (

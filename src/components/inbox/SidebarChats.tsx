@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React from "react";
 
@@ -71,10 +71,13 @@ export default React.memo(function SidebarChats({
                 <button
                   key={c.id}
                   onClick={() => onSelectChat(c.id)}
-                  className={`cursor-pointer border p-3 text-left transition-all duration-300 rounded-2xl ${active
-                    ? "border-[#128C7E]/30 bg-white/60 ring-1 ring-[#128C7E]/20 shadow-[0_10px_24px_rgba(18,140,126,0.10)]"
-                    : "wa-card hover:shadow-[0_8px_20px_rgba(18,140,126,0.08)] hover:bg-white/40"
-                    }`}
+                  className={`cursor-pointer border p-3 text-left transition-all duration-300 rounded-2xl ${
+                    active
+                      ? "border-[#128C7E]/30 bg-white/60 ring-1 ring-[#128C7E]/20 shadow-[0_10px_24px_rgba(18,140,126,0.10)]"
+                      : c.kanban_status === "Atendimento Humano"
+                        ? "bg-red-50/70 border-red-200 hover:bg-red-100/80 shadow-sm"
+                        : "wa-card hover:shadow-[0_8px_20px_rgba(18,140,126,0.08)] hover:bg-white/40"
+                  }`}
                 >
                   <div className="flex items-center gap-2.5">
                     <div className="min-w-0 flex-1 relative">

@@ -101,6 +101,7 @@ export async function POST(req: Request) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "apikey": process.env.UAZAPI_GLOBAL_API_KEY || "",
         token: context.instanceToken,
       },
       body: JSON.stringify(payload),
@@ -134,6 +135,10 @@ export async function GET() {
     `${normalizeBaseUrl(baseUrl)}/webhook?token=${encodeURIComponent(context.instanceToken)}`,
     {
       method: "GET",
+      headers: {
+        "apikey": process.env.UAZAPI_GLOBAL_API_KEY || "",
+        "token": context.instanceToken,
+      },
       cache: "no-store",
     }
   );

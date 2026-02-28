@@ -71,8 +71,8 @@ export async function GET() {
       {
         method: "GET",
         headers: {
-          "Authorization": `Bearer ${process.env.UAZAPI_GLOBAL_API_KEY}`,
-          "Instance-Token": restaurant.uaz_instance_token
+          "apikey": process.env.UAZAPI_GLOBAL_API_KEY || "",
+          "token": restaurant.uaz_instance_token
         },
         cache: "no-store",
       }

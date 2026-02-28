@@ -48,7 +48,7 @@ export async function POST(req: Request) {
   const { data: restaurant, error: restaurantError } = await supabase
     .from("restaurants")
     .select("id, uaz_instance_token")
-	 .eq("id", restaurantId)
+    .eq("id", restaurantId)
     .single();
 
   if (restaurantError || !restaurant) {
@@ -74,7 +74,7 @@ export async function POST(req: Request) {
   const instanceToken = freshRestaurant.uaz_instance_token;
   if (!instanceToken) {
     return NextResponse.json({ ok: false, error: "INSTANCE_NOT_READY" }, { status: 409 });
-	}
+  }
 
   let body: ConnectBody = {};
 
@@ -90,12 +90,14 @@ export async function POST(req: Request) {
     const upstream = await fetch(
       `${baseUrl}/instance/connect?token=${encodeURIComponent(instanceToken)}`,
       {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body.phone ? { phone: body.phone } : {}),
-      cache: "no-store",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": process.env.UAZAPI_GLOBAL_API_KEY || "",
+          "token": instanceToken
+        },
+        body: JSON.stringify(body.phone ? { phone: body.phone } : {}),
+        cache: "no-store",
       }
     );
 
@@ -140,11 +142,11 @@ export async function POST(req: Request) {
     if (qrcode) response.qrcode = qrcode;
     if (paircode) response.paircode = paircode;
     if (statusStr) response.status = statusStr;
-	 await supabase
+    await supabase
       .from("restaurants")
       .update({
         uaz_status: statusStr ?? "connecting",
-		  uaz_phone: body.phone ?? null,
+        uaz_phone: body.phone ?? null,
       })
       .eq("id", restaurant.id);
 

@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Copy, QrCode, Smartphone, SmartphoneNfc, Unplug, Zap } from "lucide-react";
+import { Copy, QrCode, Smartphone, SmartphoneNfc, Unplug, Zap, RefreshCcw } from "lucide-react";
 
 type ConnectResponse = {
   ok: boolean;
@@ -64,6 +64,7 @@ export default function WhatsAppSettingsPage() {
   const [loadingEnsure, setLoadingEnsure] = useState(false);
   const [loadingQr, setLoadingQr] = useState(false);
   const [loadingPairing, setLoadingPairing] = useState(false);
+  const [loadingWebhook, setLoadingWebhook] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Track if we already triggered the auto-webhook for this connection session
@@ -109,6 +110,25 @@ export default function WhatsAppSettingsPage() {
       setWebhookConfigured(false);
     }
   }, [isOnline, webhookConfigured]);
+
+  async function forceWebhookSync() {
+    setLoadingWebhook(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/whatsapp/webhook/configure", { method: "POST" });
+      const data = await res.json();
+      if (data.ok) {
+        setWebhookConfigured(true);
+        alert("Webhook sincronizado com sucesso!");
+      } else {
+        setError("Falha ao configurar webhook: " + (data.error || "Desconhecido"));
+      }
+    } catch (err) {
+      setError("Erro de rede ao configurar webhook.");
+    } finally {
+      setLoadingWebhook(false);
+    }
+  }
 
   async function ensureInstanceAndConnect(mode: "qr" | "pairing") {
     setError(null);
@@ -235,13 +255,24 @@ export default function WhatsAppSettingsPage() {
                   O Robô está ativo! Automações de Roleta, CRM e Envios em Massa estão operando normalmente.
                 </p>
 
-                <button
-                  onClick={disconnectInstance}
-                  className="mt-8 px-6 py-3 rounded-2xl bg-red-50 text-red-600 font-bold border border-red-100 hover:bg-red-500 hover:text-white transition-all duration-300 shadow-sm flex items-center gap-2"
-                >
-                  <Unplug size={18} />
-                  Desconectar Dispositivo
-                </button>
+                <div className="flex flex-col sm:flex-row items-center gap-4 mt-8">
+                  <button
+                    onClick={forceWebhookSync}
+                    disabled={loadingWebhook}
+                    className="px-6 py-3 rounded-2xl bg-teal-50 text-teal-700 font-bold border border-teal-100 hover:bg-teal-500 hover:text-white transition-all duration-300 shadow-sm flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <RefreshCcw size={18} className={loadingWebhook ? "animate-spin" : ""} />
+                    {loadingWebhook ? "Sincronizando..." : "Forçar Sincronização (Webhook)"}
+                  </button>
+
+                  <button
+                    onClick={disconnectInstance}
+                    className="px-6 py-3 rounded-2xl bg-red-50 text-red-600 font-bold border border-red-100 hover:bg-red-500 hover:text-white transition-all duration-300 shadow-sm flex items-center gap-2"
+                  >
+                    <Unplug size={18} />
+                    Desconectar
+                  </button>
+                </div>
               </>
             ) : (
               <>

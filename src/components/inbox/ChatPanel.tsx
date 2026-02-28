@@ -56,7 +56,6 @@ export default function ChatPanel({
   msgsWrapRef,
   bottomRef,
   topObserverRef,
-  isReachingEnd,
   onMsgsScroll,
   onJumpToLatest,
   onSend,
@@ -69,13 +68,12 @@ export default function ChatPanel({
   msgsWrapRef: RefObject<HTMLDivElement | null>;
   bottomRef: RefObject<HTMLDivElement | null>;
   topObserverRef?: RefObject<HTMLDivElement | null>;
-  isReachingEnd?: boolean;
   onMsgsScroll: () => void;
   onJumpToLatest: () => void;
   onSend: (text: string) => Promise<void>;
 }) {
   return (
-    <main className="flex min-h-0 min-w-0 h-[calc(100vh-250px)] flex-col overflow-hidden rounded-[2rem] bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5">
+    <main className="flex min-h-0 min-w-0 h-[calc(100vh-250px)] flex-col overflow-hidden rounded-[2rem] bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5 transition-all duration-500">
       <div className="sticky top-0 z-[2] border-b wa-divider bg-white/35 p-3 backdrop-blur-xl">
         <div className="flex items-center gap-2.5">
           <div className="min-w-0 flex-1">
@@ -91,55 +89,61 @@ export default function ChatPanel({
             </div>
           </div>
 
-          <span className="rounded-full border wa-divider bg-white/45 px-2.5 py-1.5 text-xs font-semibold text-slate-700">
+          <span className="rounded-full border wa-divider bg-white/45 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-all">
             {selectedChat?.kanban_status || "Novo"}
           </span>
         </div>
 
         {selectedChat?.is_typing && (
-          <div className="mt-1.5 text-xs font-semibold text-[#128C7E]">digitando...</div>
+          <div className="mt-1.5 text-xs font-semibold text-[#128C7E] animate-pulse">digitando...</div>
         )}
       </div>
 
       <div
         ref={msgsWrapRef}
         onScroll={onMsgsScroll}
-        className="relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto bg-[radial-gradient(900px_320px_at_50%_0%,rgba(18,140,126,0.08)_0%,rgba(255,255,255,0.0)_58%),linear-gradient(180deg,rgba(255,255,255,0.12)_0%,rgba(255,255,255,0.05)_100%)] p-3.5"
+        className="relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto bg-[radial-gradient(900px_320px_at_50%_0%,rgba(18,140,126,0.08)_0%,rgba(255,255,255,0.0)_58%),linear-gradient(180deg,rgba(255,255,255,0.12)_0%,rgba(255,255,255,0.05)_100%)] p-3.5 scroll-smooth"
       >
         {/* Infinite Scroll trigger target */}
         <div ref={topObserverRef} className="h-4 w-full shrink-0" />
-        {loadingMsgs && (
+
+        {loadingMsgs && messages.length === 0 ? (
           <div className="flex flex-col gap-4 w-full mt-2">
-            <div className="self-start bg-white/20 animate-pulse rounded-3xl rounded-tl-none border border-white/30 h-12 w-[60%]" />
-            <div className="self-end bg-white/20 animate-pulse rounded-3xl rounded-tr-none h-12 w-[50%]" />
-            <div className="self-start bg-white/20 animate-pulse rounded-3xl rounded-tl-none border border-white/30 h-16 w-[40%]" />
-            <div className="self-end bg-white/20 animate-pulse rounded-3xl rounded-tr-none h-12 w-[60%]" />
+            <div className="self-start bg-white/30 animate-pulse rounded-3xl rounded-tl-none border border-white/40 h-14 w-[65%]" />
+            <div className="self-end bg-indigo-100/30 animate-pulse rounded-3xl rounded-tr-none h-12 w-[55%]" />
+            <div className="self-start bg-white/30 animate-pulse rounded-3xl rounded-tl-none border border-white/40 h-20 w-[45%]" />
           </div>
-        )}
+        ) : (
+          <>
+            {messages.length === 0 && selectedChatId && !loadingMsgs && (
+              <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2 opacity-60">
+                <span className="text-sm font-medium">Nenhuma mensagem encontrada</span>
+                <span className="text-xs">Inicie uma conversa abaixo</span>
+              </div>
+            )}
 
-        {!loadingMsgs && messages.length === 0 && selectedChatId && (
-          <div className="text-slate-600">Sem mensagens nesse chat.</div>
+            {messages.map((m) => (
+              <MemoizedMessageBubble key={m.id} m={m} />
+            ))}
+          </>
         )}
-
-        {messages.map((m) => (
-          <MemoizedMessageBubble key={m.id} m={m} />
-        ))}
 
         {hasNewWhileUp && (
-          <div className="pointer-events-none sticky bottom-3 flex justify-center">
+          <div className="pointer-events-none sticky bottom-3 flex justify-center z-[5] animate-in fade-in slide-in-from-bottom-4">
             <button
               onClick={onJumpToLatest}
-              className="pointer-events-auto wa-btn wa-btn-glass cursor-pointer rounded-full px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-[0_14px_30px_rgba(18,140,126,0.10)]"
+              className="pointer-events-auto wa-btn wa-btn-glass cursor-pointer rounded-full px-4 py-2 text-[13px] font-bold text-slate-700 shadow-2xl shadow-[#086788]/20 bg-white/80 border border-white hover:scale-105 active:scale-95 transition-all"
             >
               ⬇ Novas mensagens
             </button>
           </div>
         )}
 
-        <div ref={bottomRef} />
+        <div ref={bottomRef} className="h-1 shrink-0" />
       </div>
 
       <SendBox disabled={!selectedChatId} onSend={onSend} messages={messages} />
     </main>
   );
 }
+

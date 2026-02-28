@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { processAiMessage } from "@/lib/ai/orchestrator";
 
 export async function POST(
     req: NextRequest,
@@ -94,6 +95,7 @@ export async function POST(
         }
 
         // 6. Criar chat no Kanban
+        const prizeMessage = `🎰 Roleta: ${prize.label}`;
         const { data: newChat, error: chatError } = await supabaseServer
             .from("chats")
             .insert({
@@ -103,7 +105,7 @@ export async function POST(
                 origem_lead: "Roleta",
                 cupom_ganho: prize.label,
                 kanban_status: kanbanStatus,
-                last_message: `🎰 Roleta: ${prize.label}`,
+                last_message: prizeMessage,
                 unread_count: 1,
             })
             .select("id")
@@ -113,6 +115,15 @@ export async function POST(
             console.error("[Spin] Erro ao criar chat:", chatError?.message);
             return NextResponse.json({ ok: false, error: "Falha ao registrar lead." }, { status: 500 });
         }
+
+        // 6.1 Registrar a primeira mensagem no histórico para a IA ver
+        await supabaseServer.from("messages").insert({
+            restaurant_id: restaurantId,
+            chat_id: newChat.id,
+            direction: "in",
+            text: prizeMessage,
+            status: "read"
+        });
 
         // 7. Disparar Webhook do Fiqon (fire-and-forget)
         if (firstStage?.id) {
@@ -159,6 +170,23 @@ export async function POST(
                 });
             }
         }
+
+        // 7.1 ACORDAR A IA (PROATIVA)
+        // Buscamos o nome da instância para enviar a msg
+        const { data: inst } = await supabaseServer
+            .from("restaurants")
+            .select("uaz_instance_name")
+            .eq("id", restaurantId)
+            .single();
+
+        // Disparar o orquestrador (não aguardamos a resposta para não travar o frontend)
+        processAiMessage({
+            restaurantId,
+            chatId: newChat.id,
+            waChatId: whatsapp,
+            incomingText: prizeMessage,
+            instanceName: inst?.uaz_instance_name || undefined
+        }).catch(e => console.error("[Spin IA Trigger] Failed:", e));
 
         // 8. Retornar resultado ao frontend
         return NextResponse.json({

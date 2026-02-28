@@ -45,7 +45,7 @@ export default function InboxPage() {
     mutate: mutateChats,
     isValidating: isValidatingChats,
   } = useSWR<{ ok: boolean; chats: Chat[] }>(`/api/chats`, fetcher, {
-    refreshInterval: 5000, // Replaces our manual setInterval polling safely
+    refreshInterval: 3000, // Replaces our manual setInterval polling safely
     revalidateOnFocus: true,
   });
 
@@ -81,7 +81,6 @@ export default function InboxPage() {
     isValidating: isValidatingMsgs,
   } = useSWRInfinite(getKey, fetcher, {
     refreshInterval: selectedChatId ? 3000 : 0, // Fallback safe polling
-    revalidateFirstPage: false // Only background poll first page
   });
 
   // Flatten and merge messages

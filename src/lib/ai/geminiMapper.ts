@@ -39,7 +39,7 @@ function mapSchema(schema: any): any {
     };
 
     if (schema.enum) {
-        res.enumValues = schema.enum;
+        res.enum = schema.enum;
     }
 
     if (schema.properties) {

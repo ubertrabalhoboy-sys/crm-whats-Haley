@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI, Content } from "@google/generative-ai";
 import { executeAiTool, ToolContext } from "./toolHandler";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 import fs from "fs";
 import path from "path";
 import { mapOpenAIToolsToGemini } from "./geminiMapper";
@@ -18,50 +18,100 @@ type OrchestratorParams = {
     incomingText: string;
 };
 
-/**
- * Envia uma mensagem de texto simples nativa via Uazapi.
- */
-async function sendTextMessageToUazapi(waChatId: string, instanceName: string | undefined, text: string, restaurantId: string) {
-    if (!instanceName || !process.env.UAZAPI_GLOBAL_API_KEY) {
-        console.warn("[AI LOOP] Missing Uazapi credentials for plain text response.");
-        return;
-    }
+// ─── SUPABASE ADMIN CLIENT (Service Role — sem cookies) ───
+// O orquestrador roda em background (fire-and-forget), então NÃO pode
+// depender de cookies de sessão. Usamos a service_role key.
+function getSupabaseAdmin() {
+    return createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { persistSession: false } }
+    );
+}
 
-    // Obter o token da instância via DB para enviar a msg (exemplo simplificado)
-    const supabase = await createSupabaseServerClient();
-    const { data: rest } = await supabase.from("restaurants").select("uaz_instance_token").eq("id", restaurantId).maybeSingle();
-
-    // Mock simplificado do endpoint Uazapi:
-    await fetch(`https://api.uazapi.com/v1/messages/send`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${process.env.UAZAPI_GLOBAL_API_KEY}`,
-            "Instance-Token": rest?.uaz_instance_token || ""
-        },
-        body: JSON.stringify({
-            number: waChatId,
-            textMessage: { text },
-            instanceName,
-        })
-    }).catch(e => console.error("[AI LOOP] Failed to send to Uazapi:", e));
+function normalizeBaseUrl(url: string) {
+    return url.replace(/\/$/, "");
 }
 
 /**
- * Envia Payloads Ricos (Carousel, List, Button) diretamente para a Uazapi
+ * Envia uma mensagem de texto simples via Uazapi.
+ * Usa o mesmo padrão funcional do engine.ts (automações).
  */
-async function sendRichPayloadToUazapi(uazapiPayload: any, instanceName: string | undefined) {
-    if (!instanceName || !process.env.UAZAPI_GLOBAL_API_KEY) {
-        console.warn("[AI LOOP] Missing Uazapi credentials for rich payload.");
-        return;
+async function sendTextMessage(number: string, text: string, instanceToken: string) {
+    const base = process.env.UAZAPI_BASE_URL;
+    if (!base || !instanceToken) {
+        console.warn("[AI LOOP] sendTextMessage: UAZAPI_BASE_URL or instanceToken missing.");
+        return null;
     }
 
-    // Inject the instanceName as required by the tool architecture
-    const payload = { ...uazapiPayload, instanceName };
+    const cleanNumber = number.split("@")[0].replace(/\D/g, "");
+    console.log(`[AI LOOP] Sending text to ${cleanNumber} via ${normalizeBaseUrl(base)}/send/text`);
 
-    console.log("[AI LOOP] Dispatching Rich UI to Uazapi.");
-    // Implementation would forward `payload` directly to Uazapi sending endpoint
-    // fetch('https://api.uazapi.com/v1/messages/send', { method: 'POST', body: JSON.stringify(payload) })
+    const res = await fetch(`${normalizeBaseUrl(base)}/send/text`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "token": instanceToken,
+        },
+        body: JSON.stringify({ number: cleanNumber, text }),
+    });
+
+    const raw = await res.text();
+    let json: any = null;
+    try { json = JSON.parse(raw); } catch { json = raw; }
+
+    if (!res.ok) {
+        console.error(`[AI LOOP] Uazapi send failed (${res.status}):`, json);
+        return null;
+    }
+
+    console.log("[AI LOOP] Uazapi send OK:", typeof json === "object" ? JSON.stringify(json).substring(0, 100) : raw.substring(0, 100));
+    return json;
+}
+
+/**
+ * Envia Payloads Ricos (Carousel, List, Button) via Uazapi.
+ * Os payloads vêm formatados do toolHandler (send_uaz_carousel, send_uaz_list_menu, etc.)
+ */
+async function sendRichPayload(uazapiPayload: any, instanceToken: string) {
+    const base = process.env.UAZAPI_BASE_URL;
+    if (!base || !instanceToken) {
+        console.warn("[AI LOOP] sendRichPayload: UAZAPI_BASE_URL or instanceToken missing.");
+        return null;
+    }
+
+    // Detectar o tipo de payload e escolher o endpoint correto
+    let endpoint = "/send/text"; // fallback
+    if (uazapiPayload.listMessage || uazapiPayload.list) {
+        endpoint = "/send/list";
+    } else if (uazapiPayload.buttonsMessage || uazapiPayload.buttons) {
+        endpoint = "/send/buttons";
+    } else if (uazapiPayload.templateMessage || uazapiPayload.template) {
+        endpoint = "/send/template";
+    }
+
+    console.log(`[AI LOOP] Dispatching Rich UI to ${normalizeBaseUrl(base)}${endpoint}`);
+
+    const res = await fetch(`${normalizeBaseUrl(base)}${endpoint}`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "token": instanceToken,
+        },
+        body: JSON.stringify(uazapiPayload),
+    });
+
+    const raw = await res.text();
+    let json: any = null;
+    try { json = JSON.parse(raw); } catch { json = raw; }
+
+    if (!res.ok) {
+        console.error(`[AI LOOP] Rich payload send failed (${res.status}):`, json);
+        return null;
+    }
+
+    console.log("[AI LOOP] Rich payload sent OK.");
+    return json;
 }
 
 /**
@@ -70,7 +120,22 @@ async function sendRichPayloadToUazapi(uazapiPayload: any, instanceName: string 
  */
 export async function processAiMessage(params: OrchestratorParams) {
     console.log(`[AI LOOP] Started for ChatID: ${params.chatId}`);
-    const supabase = await createSupabaseServerClient();
+    const supabase = getSupabaseAdmin();
+
+    // 0. Obter o token da instância Uazapi para enviar mensagens
+    const { data: restData } = await supabase
+        .from("restaurants")
+        .select("name, uaz_instance_token")
+        .eq("id", params.restaurantId)
+        .single();
+
+    const instanceToken = restData?.uaz_instance_token || "";
+    const restaurantName = restData?.name || "FoodSpin";
+
+    if (!instanceToken) {
+        console.error(`[AI LOOP] No uaz_instance_token found for restaurant ${params.restaurantId}. Cannot send messages.`);
+        return;
+    }
 
     // 1. Fetch History & Context
     const { data: messages } = await supabase
@@ -84,12 +149,6 @@ export async function processAiMessage(params: OrchestratorParams) {
         .from("chats")
         .select("stage_id, kanban_status, metadata, cupom_ganho, kanban_stages(name)")
         .eq("id", params.chatId)
-        .single();
-
-    const { data: restaurant } = await supabase
-        .from("restaurants")
-        .select("name")
-        .eq("id", params.restaurantId)
         .single();
 
     if (!messages) return;
@@ -112,7 +171,7 @@ export async function processAiMessage(params: OrchestratorParams) {
     }
 
     const finalPromptContent = rawPrompt
-        .replace(/{nome_restaurante}/g, restaurant?.name || "FoodSpin")
+        .replace(/{nome_restaurante}/g, restaurantName)
         .replace(/{kanban_status}/g, (chatContext?.kanban_stages as any)?.name || chatContext?.kanban_status || "Desconhecido")
         .replace(/{cupom_ganho}/g, chatContext?.cupom_ganho || "Nenhum");
 
@@ -182,9 +241,9 @@ export async function processAiMessage(params: OrchestratorParams) {
                     const toolResultString = await executeAiTool(toolCall.name, args as any, ctx);
                     const parsedResult = JSON.parse(toolResultString);
 
-                    // ─── INTERCEPT RICHS UI (Uazapi) ───
+                    // ─── INTERCEPT RICH UI (Uazapi) ───
                     if (parsedResult.uazapi_payload) {
-                        await sendRichPayloadToUazapi(parsedResult.uazapi_payload, params.instanceName);
+                        await sendRichPayload(parsedResult.uazapi_payload, instanceToken);
                         // Tell AI it was sent so it doesn't repeat itself
                         functionResponses.push({
                             functionResponse: {
@@ -214,19 +273,27 @@ export async function processAiMessage(params: OrchestratorParams) {
                 const finalAnswer = responseMessage.text();
                 if (finalAnswer) {
                     loopActive = false;
-                    console.log(`[AI LOOP] Final Answer Ready: "${finalAnswer.substring(0, 50)}..."`);
+                    console.log(`[AI LOOP] Final Answer Ready: "${finalAnswer.substring(0, 80)}..."`);
 
-                    // 1. Save to database
+                    // 1. Send to WhatsApp
+                    const sendResult = await sendTextMessage(params.waChatId, finalAnswer, instanceToken);
+                    const waMessageId = sendResult?.id || sendResult?.messageId || null;
+
+                    // 2. Save to database
                     await supabase.from("messages").insert({
                         chat_id: params.chatId,
                         restaurant_id: params.restaurantId,
                         direction: "out",
                         text: finalAnswer,
+                        wa_message_id: waMessageId,
                         status: "sent"
                     });
 
-                    // 2. Dispatch text to WhatsApp
-                    await sendTextMessageToUazapi(params.waChatId, params.instanceName, finalAnswer, params.restaurantId);
+                    // 3. Update chat last_message
+                    await supabase.from("chats").update({
+                        last_message: finalAnswer,
+                        updated_at: new Date().toISOString(),
+                    }).eq("id", params.chatId);
                 }
             }
         } // Fim do while
@@ -237,7 +304,7 @@ export async function processAiMessage(params: OrchestratorParams) {
 
             const fallbackMessage = "Putz, deu um pequeno curto-circuito aqui no meu sistema tentando processar seu pedido! 😅 Você poderia repetir o que deseja, por favor?";
 
-            // Salva no banco e avisa o cliente
+            await sendTextMessage(params.waChatId, fallbackMessage, instanceToken);
             await supabase.from("messages").insert({
                 chat_id: params.chatId,
                 restaurant_id: params.restaurantId,
@@ -245,7 +312,6 @@ export async function processAiMessage(params: OrchestratorParams) {
                 text: fallbackMessage,
                 status: "sent"
             });
-            await sendTextMessageToUazapi(params.waChatId, params.instanceName, fallbackMessage, params.restaurantId);
         }
 
     } catch (err: any) {
@@ -265,12 +331,13 @@ export async function processAiMessage(params: OrchestratorParams) {
         const errorMessage = "Opa, nossa cozinha virtual está passando por uma instabilidade rápida. Já chamei um atendente humano para assumir seu pedido e falar com você, tá bom? 👨‍🍳";
 
         try {
-            // Tenta avisar o cliente da falha crítica
-            await sendTextMessageToUazapi(params.waChatId, params.instanceName, errorMessage, params.restaurantId);
+            await sendTextMessage(params.waChatId, errorMessage, instanceToken);
 
-            // Tenta mover o cliente no Kanban para "Atenção Manual / Erro" 
-            // IMPORTANTE: Substitua o ID fictício abaixo pelo ID real da sua coluna de atendimento humano, ou omita esta linha se não tiver.
-            await supabase.from("chats").update({ stage_id: "ID_DO_ESTAGIO_ATENDIMENTO_HUMANO" }).eq("id", params.chatId);
+            // Mover para Atendimento Humano
+            await supabase.from("chats").update({
+                kanban_status: "Atendimento Humano",
+                updated_at: new Date().toISOString(),
+            }).eq("id", params.chatId);
         } catch (fallbackErr) {
             console.error("[AI LOOP] Failed to send fallback message:", fallbackErr);
         }

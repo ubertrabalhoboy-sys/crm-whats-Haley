@@ -21,7 +21,7 @@ type OrchestratorParams = {
 /**
  * Envia uma mensagem de texto simples nativa via Uazapi.
  */
-async function sendTextMessageToUazapi(waChatId: string, instanceName: string | undefined, text: string) {
+async function sendTextMessageToUazapi(waChatId: string, instanceName: string | undefined, text: string, restaurantId: string) {
     if (!instanceName || !process.env.UAZAPI_GLOBAL_API_KEY) {
         console.warn("[AI LOOP] Missing Uazapi credentials for plain text response.");
         return;
@@ -29,7 +29,7 @@ async function sendTextMessageToUazapi(waChatId: string, instanceName: string | 
 
     // Obter o token da instância via DB para enviar a msg (exemplo simplificado)
     const supabase = await createSupabaseServerClient();
-    const { data: rest } = await supabase.from("restaurants").select("uaz_instance_token").eq("id", "restaurantId").maybeSingle();
+    const { data: rest } = await supabase.from("restaurants").select("uaz_instance_token").eq("id", restaurantId).maybeSingle();
 
     // Mock simplificado do endpoint Uazapi:
     await fetch(`https://api.uazapi.com/v1/messages/send`, {
@@ -132,7 +132,7 @@ export async function processAiMessage(params: OrchestratorParams) {
     try {
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
         const model = genAI.getGenerativeModel({
-            model: "gemini-2.5-flash",
+            model: "gemini-1.5-flash",
             systemInstruction: finalPromptContent,
             tools: [{ functionDeclarations: GEMINI_TOOLS }],
         });
@@ -155,7 +155,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                 restaurant_id: params.restaurantId,
                 chat_id: params.chatId,
                 wa_chat_id: params.waChatId,
-                model: "gemini-2.5-flash",
+                model: "gemini-1.5-flash",
                 prompt_tokens: usage?.promptTokenCount || 0,
                 completion_tokens: usage?.candidatesTokenCount || 0,
                 total_tokens: usage?.totalTokenCount || 0,
@@ -226,7 +226,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                     });
 
                     // 2. Dispatch text to WhatsApp
-                    await sendTextMessageToUazapi(params.waChatId, params.instanceName, finalAnswer);
+                    await sendTextMessageToUazapi(params.waChatId, params.instanceName, finalAnswer, params.restaurantId);
                 }
             }
         } // Fim do while
@@ -245,7 +245,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                 text: fallbackMessage,
                 status: "sent"
             });
-            await sendTextMessageToUazapi(params.waChatId, params.instanceName, fallbackMessage);
+            await sendTextMessageToUazapi(params.waChatId, params.instanceName, fallbackMessage, params.restaurantId);
         }
 
     } catch (err: any) {
@@ -266,7 +266,7 @@ export async function processAiMessage(params: OrchestratorParams) {
 
         try {
             // Tenta avisar o cliente da falha crítica
-            await sendTextMessageToUazapi(params.waChatId, params.instanceName, errorMessage);
+            await sendTextMessageToUazapi(params.waChatId, params.instanceName, errorMessage, params.restaurantId);
 
             // Tenta mover o cliente no Kanban para "Atenção Manual / Erro" 
             // IMPORTANTE: Substitua o ID fictício abaixo pelo ID real da sua coluna de atendimento humano, ou omita esta linha se não tiver.

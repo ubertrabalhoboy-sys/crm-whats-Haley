@@ -27,6 +27,7 @@ import {
   Moon,
   Sun,
   Settings,
+  Smartphone,
 } from "lucide-react";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -126,6 +127,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { id: "Contatos", href: "/contacts", icon: <Users size={20} /> },
     { id: "Relatórios", href: "/reports", icon: <BarChart3 size={20} /> },
     { id: "Config Loja", href: "/settings/store", icon: <Settings size={20} /> },
+    { id: "WhatsApp", href: "/settings/whatsapp", icon: <Smartphone size={20} /> },
   ];
 
   // Título do header baseado na rota atual (mantém visual do "activeTab")

@@ -43,10 +43,9 @@ export async function POST(req: NextRequest) {
         let textOutput = "";
 
         try {
-            console.log(`[api/ai/process] Gemini API key present: ${!!geminiApiKey} (length: ${geminiApiKey.length})`);
-            const genAI = new GoogleGenerativeAI(geminiApiKey);
+            const genAI = new GoogleGenerativeAI(geminiApiKey); // O SDK por padrão usa v1 quando não especificado, mas vamos mudar o modelo
             const model = genAI.getGenerativeModel({
-                model: "gemini-2.0-flash",
+                model: "gemini-1.5-flash",
                 systemInstruction: systemPrompt
             });
 

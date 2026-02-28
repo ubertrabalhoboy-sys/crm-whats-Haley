@@ -43,10 +43,9 @@ export async function POST(req: NextRequest) {
         let textOutput = "";
 
         try {
-            // @ts-ignore - Forçando v1 conforme solicitado pelo usuário para evitar erro 404/Retired
-            const genAI = new GoogleGenerativeAI(geminiApiKey, { apiVersion: "v1" }); // Força versão estável v1
+            const genAI = new GoogleGenerativeAI(geminiApiKey);
             const model = genAI.getGenerativeModel({
-                model: "gemini-1.5-flash",
+                model: "gemini-2.5-flash",
                 systemInstruction: systemPrompt
             });
 

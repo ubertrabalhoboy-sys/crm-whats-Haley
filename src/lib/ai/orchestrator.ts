@@ -130,10 +130,9 @@ export async function processAiMessage(params: OrchestratorParams) {
     const MAX_ITERATIONS = 5;
 
     try {
-        // @ts-ignore - Forçando v1 conforme solicitado pelo usuário
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!, { apiVersion: "v1" });
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
         const model = genAI.getGenerativeModel({
-            model: "gemini-1.5-flash",
+            model: "gemini-2.5-flash",
             systemInstruction: finalPromptContent,
             tools: [{ functionDeclarations: GEMINI_TOOLS }],
         });
@@ -156,7 +155,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                 restaurant_id: params.restaurantId,
                 chat_id: params.chatId,
                 wa_chat_id: params.waChatId,
-                model: "gemini-1.5-flash",
+                model: "gemini-2.5-flash",
                 prompt_tokens: usage?.promptTokenCount || 0,
                 completion_tokens: usage?.candidatesTokenCount || 0,
                 total_tokens: usage?.totalTokenCount || 0,
@@ -258,7 +257,7 @@ export async function processAiMessage(params: OrchestratorParams) {
             restaurant_id: params.restaurantId,
             chat_id: params.chatId,
             wa_chat_id: params.waChatId,
-            model: "gemini-1.5-flash",
+            model: "gemini-2.5-flash",
             error_message: String(err.message || err),
             duration_ms: 0
         });

@@ -43,7 +43,8 @@ export async function POST(req: NextRequest) {
         let textOutput = "";
 
         try {
-            const genAI = new GoogleGenerativeAI(geminiApiKey); // O SDK por padrão usa v1 quando não especificado, mas vamos mudar o modelo
+            // @ts-ignore - Forçando v1 conforme solicitado pelo usuário para evitar erro 404/Retired
+            const genAI = new GoogleGenerativeAI(geminiApiKey, { apiVersion: "v1" }); // Força versão estável v1
             const model = genAI.getGenerativeModel({
                 model: "gemini-1.5-flash",
                 systemInstruction: systemPrompt

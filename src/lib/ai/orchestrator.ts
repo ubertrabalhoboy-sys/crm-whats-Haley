@@ -130,7 +130,8 @@ export async function processAiMessage(params: OrchestratorParams) {
     const MAX_ITERATIONS = 5;
 
     try {
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+        // @ts-ignore - Forçando v1 conforme solicitado pelo usuário
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!, { apiVersion: "v1" });
         const model = genAI.getGenerativeModel({
             model: "gemini-1.5-flash",
             systemInstruction: finalPromptContent,

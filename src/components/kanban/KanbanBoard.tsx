@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/shared/Toast";
@@ -62,7 +62,8 @@ export default function KanbanBoard({
         setLocalChats(chatList);
     }, [chatList]);
 
-    const supabase = createSupabaseBrowserClient();
+    // Stable Supabase client reference (prevents React hydration mismatch #418)
+    const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
     const scrollByAmount = (amount: number) => {
         if (scrollRef.current) {

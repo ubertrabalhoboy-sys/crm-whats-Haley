@@ -62,24 +62,10 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && isCriticalPath(pathname)) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("email_verified, created_at")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    const emailVerified = profile?.email_verified ?? false;
-    const createdAt = profile?.created_at ? new Date(profile.created_at).getTime() : Date.now();
-    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const expired = createdAt < sevenDaysAgo;
-
-    if (!emailVerified && expired) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/verify-email";
-      return NextResponse.redirect(url);
-    }
-  }
+  // NOTE: email_verified column does not exist in profiles table.
+  // Skipping the email verification gate to avoid SQL errors on every request.
+  // This block can be re-enabled once the column is added via migration.
+  // if (user && isCriticalPath(pathname)) { ... }
 
   return response;
 }

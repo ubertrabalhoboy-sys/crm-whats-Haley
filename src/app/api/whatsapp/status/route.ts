@@ -95,7 +95,14 @@ export async function GET() {
       );
     }
 
-    let status = data?.status ?? data?.data?.status ?? restaurant.uaz_status ?? "disconnected";
+    let status =
+      data?.instance?.state ??
+      data?.instance?.status ??
+      data?.state ??
+      data?.status ??
+      data?.data?.status ??
+      restaurant.uaz_status ??
+      "disconnected";
 
     // Normalize if it's a state object from some Uazapi responses
     if (typeof status === "object" && status !== null) {

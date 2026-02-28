@@ -254,25 +254,6 @@ export default function WhatsAppSettingsPage() {
                 <p className="text-sm font-semibold text-emerald-800/60 mt-2 max-w-xs">
                   O Robô está ativo! Automações de Roleta, CRM e Envios em Massa estão operando normalmente.
                 </p>
-
-                <div className="flex flex-col sm:flex-row items-center gap-4 mt-8">
-                  <button
-                    onClick={forceWebhookSync}
-                    disabled={loadingWebhook}
-                    className="px-6 py-3 rounded-2xl bg-teal-50 text-teal-700 font-bold border border-teal-100 hover:bg-teal-500 hover:text-white transition-all duration-300 shadow-sm flex items-center gap-2 disabled:opacity-50"
-                  >
-                    <RefreshCcw size={18} className={loadingWebhook ? "animate-spin" : ""} />
-                    {loadingWebhook ? "Sincronizando..." : "Forçar Sincronização (Webhook)"}
-                  </button>
-
-                  <button
-                    onClick={disconnectInstance}
-                    className="px-6 py-3 rounded-2xl bg-red-50 text-red-600 font-bold border border-red-100 hover:bg-red-500 hover:text-white transition-all duration-300 shadow-sm flex items-center gap-2"
-                  >
-                    <Unplug size={18} />
-                    Desconectar
-                  </button>
-                </div>
               </>
             ) : (
               <>
@@ -283,10 +264,37 @@ export default function WhatsAppSettingsPage() {
                 </div>
                 <h3 className="text-3xl font-black text-red-600 uppercase tracking-tighter">Desconectado</h3>
                 <p className="text-sm font-semibold text-red-800/60 mt-2 max-w-xs">
-                  O sistema está paralisado. Conecte um aparelho ao lado para reativar as automações de vendas imediatamente.
+                  O sistema aparenta estar paralisado. Conecte um aparelho ao lado, atualize o status, ou force a sincronização.
                 </p>
               </>
             )}
+
+            <div className="flex flex-col sm:flex-row items-center gap-4 mt-8 w-full justify-center">
+              <button
+                onClick={refreshStatus}
+                className="px-6 py-3 rounded-2xl bg-indigo-50 text-indigo-700 font-bold border border-indigo-100 hover:bg-indigo-500 hover:text-white transition-all duration-300 shadow-sm flex items-center gap-2"
+              >
+                <RefreshCcw size={18} />
+                Atualizar Status
+              </button>
+
+              <button
+                onClick={forceWebhookSync}
+                disabled={loadingWebhook}
+                className="px-6 py-3 rounded-2xl bg-teal-50 text-teal-700 font-bold border border-teal-100 hover:bg-teal-500 hover:text-white transition-all duration-300 shadow-sm flex items-center gap-2 disabled:opacity-50"
+              >
+                <Zap size={18} className={loadingWebhook ? "animate-pulse" : ""} />
+                {loadingWebhook ? "Sincronizando..." : "Sincronizar Webhook"}
+              </button>
+
+              <button
+                onClick={disconnectInstance}
+                className="px-6 py-3 rounded-2xl bg-red-50 text-red-600 font-bold border border-red-100 hover:bg-red-500 hover:text-white transition-all duration-300 shadow-sm flex items-center gap-2"
+              >
+                <Unplug size={18} />
+                Desconectar
+              </button>
+            </div>
 
             {error && (
               <div className="mt-6 w-full p-4 bg-red-50 border border-red-100 text-red-600 text-sm font-bold rounded-xl">

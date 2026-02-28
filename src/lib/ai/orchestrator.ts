@@ -147,7 +147,7 @@ export async function processAiMessage(params: OrchestratorParams) {
 
     const { data: chatContext } = await supabase
         .from("chats")
-        .select("stage_id, kanban_status, metadata, cupom_ganho, kanban_stages(name)")
+        .select("stage_id, kanban_status, cupom_ganho, kanban_stages(name)")
         .eq("id", params.chatId)
         .single();
 
@@ -331,15 +331,27 @@ export async function processAiMessage(params: OrchestratorParams) {
         const errorMessage = "Opa, nossa cozinha virtual está passando por uma instabilidade rápida. Já chamei um atendente humano para assumir seu pedido e falar com você, tá bom? 👨‍🍳";
 
         try {
-            await sendTextMessage(params.waChatId, errorMessage, instanceToken);
+            const sendResult = await sendTextMessage(params.waChatId, errorMessage, instanceToken);
+            const waMessageId = sendResult?.id || sendResult?.messageId || null;
+
+            // Salvar a mensagem fallback no histórico do banco para aparecer no frontend
+            await supabase.from("messages").insert({
+                chat_id: params.chatId,
+                restaurant_id: params.restaurantId,
+                direction: "out",
+                text: errorMessage,
+                wa_message_id: waMessageId,
+                status: "sent"
+            });
 
             // Mover para Atendimento Humano
             await supabase.from("chats").update({
                 kanban_status: "Atendimento Humano",
+                last_message: errorMessage,
                 updated_at: new Date().toISOString(),
             }).eq("id", params.chatId);
         } catch (fallbackErr) {
-            console.error("[AI LOOP] Failed to send fallback message:", fallbackErr);
+            console.error("[AI LOOP] Failed to send/save fallback message:", fallbackErr);
         }
     }
 } // Fim da função processAiMessage

@@ -11,10 +11,21 @@ export async function POST(
 
         const body = await req.json();
         const nome = (body.nome || "").trim();
-        const whatsapp = (body.whatsapp || "").replace(/\D/g, "").trim();
+        let whatsapp = (body.whatsapp || "").replace(/\D/g, "").trim();
 
+        // Validação básica de DDD + Número (ex: 31999999999) => mínimo 10 dígitos, máximo 11 dígitos
         if (!nome || !whatsapp || whatsapp.length < 10) {
-            return NextResponse.json({ ok: false, error: "Nome e WhatsApp válidos são obrigatórios." }, { status: 400 });
+            return NextResponse.json({ ok: false, error: "Nome e WhatsApp com DDD (mínimo 10 dígitos) são obrigatórios." }, { status: 400 });
+        }
+
+        // Adicionar o prefixo 55 do Brasil se não estiver presente (assumindo que números locais começam com DDD, ex: 31...)
+        if (!whatsapp.startsWith("55") && whatsapp.length <= 11) {
+            whatsapp = `55${whatsapp}`;
+        }
+
+        // Formatação exigida: 5531999999999@s.whatsapp.net
+        if (!whatsapp.endsWith("@s.whatsapp.net")) {
+            whatsapp = `${whatsapp}@s.whatsapp.net`;
         }
 
         // 1. Anti-fraude: 1 giro por WhatsApp por restaurante (permanente)

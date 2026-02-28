@@ -217,6 +217,13 @@ export default function RoletaPremiumPage({ params }: any) {
         e.preventDefault();
         if (!formData.name || !formData.whatsapp || isSpinning || slices.length === 0) return;
 
+        // Validação de DDD no frontend
+        const digitsOnly = formData.whatsapp.replace(/\D/g, "");
+        if (digitsOnly.length < 10) {
+            setToastMsg("Insira o seu telefone com o prefixo DDD (ex: 11 99999-9999).");
+            return;
+        }
+
         setShowModal(false);
         setHasRegistered(true);
         setIsSpinning(true);

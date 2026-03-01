@@ -29,8 +29,7 @@ function normalizeBaseUrl(url: string) {
 
 /**
  * 🛡️ Utilitário Atualizado: Garante ordem User -> Model -> User.
- * Se houver mensagens seguidas do mesmo lado (ex: 3 mensagens do cliente),
- * ele CONCATENA os textos para não haver PERDA DE DADOS.
+ * Se houver mensagens seguidas do mesmo lado, ele CONCATENA os textos.
  */
 function sanitizeGeminiHistory(history: Content[]): Content[] {
     const sanitized: Content[] = [];
@@ -74,9 +73,12 @@ async function sendTextMessage(number: string, text: string, instanceToken: stri
 async function sendRichPayload(uazapiPayload: any, instanceToken: string) {
     const base = process.env.UAZAPI_BASE_URL;
     if (!base || !instanceToken) return null;
+
+    // CORREÇÃO DE ROTEAMENTO UAZAPI (Adicionado Carousel e Buttons modernos)
     let endpoint = "/send/text";
-    if (uazapiPayload.listMessage || uazapiPayload.list) endpoint = "/send/list";
-    else if (uazapiPayload.buttonsMessage || uazapiPayload.buttons) endpoint = "/send/buttons";
+    if (uazapiPayload.carousel) endpoint = "/send/carousel";
+    else if (uazapiPayload.type === "button" || uazapiPayload.buttonsMessage) endpoint = "/send/buttons";
+    else if (uazapiPayload.listMessage || uazapiPayload.list) endpoint = "/send/list";
     else if (uazapiPayload.templateMessage || uazapiPayload.template) endpoint = "/send/template";
 
     const res = await fetch(`${normalizeBaseUrl(base)}${endpoint}`, {
@@ -124,14 +126,11 @@ export async function processAiMessage(params: OrchestratorParams) {
         }));
     }
 
-    // ⏱️ Injeção de contexto temporal para auxiliar a decisão da IA
     const diasSemana = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
     const agora = new Date();
-    // Usa toLocaleString para garantir o fuso horário correto caso o servidor esteja em UTC
     const horaLocal = agora.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
     const contextoTemporal = `[Hoje: ${diasSemana[agora.getDay()]}, Hora Atual: ${horaLocal}]`;
 
-    // REGRA DE OURO: Gatilho invisível para Roleta ou preenchimento de input
     if (geminiHistory.length === 0) {
         const triggerText = params.incomingText || `🎰 Roleta: [${chatContext?.cupom_ganho || "Prêmio Ativado"}] ${contextoTemporal}`;
         geminiHistory.push({ role: "user", parts: [{ text: triggerText }] });
@@ -190,6 +189,12 @@ export async function processAiMessage(params: OrchestratorParams) {
                 duration_ms: durationMs
             }).then(({ error }) => { if (error) console.error("[TELEMETRY] Error:", error.message); });
 
+            // CORREÇÃO VITAL: Extrai o texto SEMPRE, mesmo se houver ferramenta.
+            let textPart = "";
+            try { textPart = responseMessage.text(); } catch (e) { /* Sem texto */ }
+
+            const cleanText = textPart ? textPart.replace(/<thought>[\s\S]*?<\/thought>/g, "").trim() : "";
+
             const functionCalls = responseMessage.functionCalls();
 
             if (functionCalls && functionCalls.length > 0) {
@@ -207,7 +212,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                     if (parsedResult.uazapi_payload) {
                         await sendRichPayload(parsedResult.uazapi_payload, instanceToken);
                         functionResponses.push({
-                            functionResponse: { name: toolCall.name, response: { ok: true, note: "Rich UI sent." } }
+                            functionResponse: { name: toolCall.name, response: { ok: true, note: "Enviado ao WhatsApp." } }
                         });
                     } else {
                         functionResponses.push({
@@ -216,32 +221,32 @@ export async function processAiMessage(params: OrchestratorParams) {
                     }
                 }
                 conversationContext.push({ role: "function", parts: functionResponses });
+
+                if (cleanText) {
+                    await sendTextMessage(params.waChatId, cleanText, instanceToken);
+                    await supabase.from("messages").insert({
+                        chat_id: params.chatId, restaurant_id: params.restaurantId,
+                        direction: "out", text: cleanText, status: "sent"
+                    });
+                }
             } else {
-                let finalAnswer = responseMessage.text();
-                if (finalAnswer) {
-                    finalAnswer = finalAnswer.replace(/<thought>[\s\S]*?<\/thought>/g, "").trim();
+                loopActive = false;
 
-                    if (!finalAnswer) {
-                        console.warn("[AI LOOP] Empty response after stripping thoughts.");
-                        iteration++;
-                        continue;
-                    }
-
-                    loopActive = false;
-                    const sendResult = await sendTextMessage(params.waChatId, finalAnswer, instanceToken);
+                if (cleanText) {
+                    const sendResult = await sendTextMessage(params.waChatId, cleanText, instanceToken);
                     const waId = sendResult?.id || sendResult?.messageId || null;
 
                     await supabase.from("messages").insert({
                         chat_id: params.chatId,
                         restaurant_id: params.restaurantId,
                         direction: "out",
-                        text: finalAnswer,
+                        text: cleanText,
                         wa_message_id: waId,
                         status: "sent"
                     });
 
                     await supabase.from("chats").update({
-                        last_message: finalAnswer,
+                        last_message: cleanText,
                         updated_at: new Date().toISOString(),
                     }).eq("id", params.chatId);
                 }
@@ -253,3 +258,4 @@ export async function processAiMessage(params: OrchestratorParams) {
         await sendTextMessage(params.waChatId, errorMessage, instanceToken);
     }
 }
+

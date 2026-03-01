@@ -4,26 +4,19 @@ import { FunctionDeclaration, SchemaType } from "@google/generative-ai";
  * Maps an OpenAPI/JSON Schema type to Google Generative AI SchemaType.
  */
 function mapType(typeStr: string | string[]): SchemaType {
-    // If it's an array of types (like ["string", "null"]), take the first non-null type
+    // Pega o tipo principal ignorando o 'null' provisoriamente
     if (Array.isArray(typeStr)) {
         typeStr = typeStr.find(t => t !== "null") || "string";
     }
 
     switch (typeStr) {
-        case "string":
-            return SchemaType.STRING;
-        case "number":
-            return SchemaType.NUMBER;
-        case "integer":
-            return SchemaType.INTEGER;
-        case "boolean":
-            return SchemaType.BOOLEAN;
-        case "array":
-            return SchemaType.ARRAY;
-        case "object":
-            return SchemaType.OBJECT;
-        default:
-            return SchemaType.STRING;
+        case "string": return SchemaType.STRING;
+        case "number": return SchemaType.NUMBER;
+        case "integer": return SchemaType.INTEGER;
+        case "boolean": return SchemaType.BOOLEAN;
+        case "array": return SchemaType.ARRAY;
+        case "object": return SchemaType.OBJECT;
+        default: return SchemaType.STRING;
     }
 }
 
@@ -37,6 +30,11 @@ function mapSchema(schema: any): any {
         type: mapType(schema.type),
         description: schema.description,
     };
+
+    // CORREÇÃO: Informa ao Gemini que o campo pode ser Null (Essencial para cupom_code e change_for)
+    if (Array.isArray(schema.type) && schema.type.includes("null")) {
+        res.nullable = true;
+    }
 
     if (schema.enum) {
         res.enum = schema.enum;

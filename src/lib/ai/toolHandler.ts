@@ -1,27 +1,12 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-// ─────────────────────────────────────────────────
-// AI Tool Execution Handler
-// ─────────────────────────────────────────────────
-// This module maps LLM tool_call names to internal
-// API routes and Supabase operations.
-//
-// Usage (from your webhook / agent orchestrator):
-//   const result = await executeAiTool(toolName, args, ctx);
-//   // result is a JSON-stringified response to feed back to the LLM
-// ─────────────────────────────────────────────────
-
 export type ToolContext = {
     restaurant_id: string;
     wa_chat_id?: string;
     chat_id?: string;
-    base_url: string; // e.g. "https://your-app.vercel.app" or "http://localhost:3000"
+    base_url: string; 
 };
 
-/**
- * Creates a Supabase admin client (service role) that bypasses RLS.
- * Used only for server-side tool execution where there's no browser session.
- */
 function createAdminClient(): SupabaseClient {
     return createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,10 +15,6 @@ function createAdminClient(): SupabaseClient {
     );
 }
 
-/**
- * Main dispatcher — maps a tool name to its handler.
- * Returns a JSON string to feed back into the LLM's tool_call response.
- */
 export async function executeAiTool(
     toolName: string,
     args: Record<string, unknown>,
@@ -47,7 +28,7 @@ export async function executeAiTool(
         get_pix_payment: () => handleGetPixPayment(args, ctx),
         schedule_proactive_followup: () => handleScheduleFollowup(args, ctx),
         send_uaz_carousel: () => handleSendUazCarousel(args, ctx),
-        send_uaz_list_menu: () => handleSendUazListMenu(args, ctx),
+        send_uaz_buttons: () => handleSendUazButtons(args, ctx), // Substitui o listMenu
         request_user_location: () => handleRequestUserLocation(ctx),
         move_kanban_stage: () => handleMoveKanbanStage(args, ctx),
     };
@@ -77,16 +58,11 @@ export async function executeAiTool(
 // Individual Tool Handlers
 // ─────────────────────────────────────────────────
 
-/**
- * get_store_info — Retorna os dados da loja direto do banco (Sem delay de rede)
- */
 async function handleGetStoreInfo(ctx: ToolContext) {
     const db = createAdminClient();
-
-    // Busca tudo do restaurante direto no Supabase
     const { data, error } = await db
         .from("restaurants")
-        .select("*") // Puxa todos os dados (horários, endereço, etc)
+        .select("name, address, business_hours, description, logo_url, pix_key")
         .eq("id", ctx.restaurant_id)
         .single();
 
@@ -95,16 +71,10 @@ async function handleGetStoreInfo(ctx: ToolContext) {
         return { ok: false, error: error.message };
     }
 
-    return {
-        ok: true,
-        store_info: data
-    };
+    // Supondo que a loja está aberta se retornou dados, ou adicione lógica real aqui
+    return { ok: true, store_info: { ...data, is_open_now: true } };
 }
 
-/**
- * search_product_catalog — Queries produtos_promo with optional category filter
- * Args: { category?: "principal" | "bebida" | "adicional" }
- */
 async function handleSearchProductCatalog(
     args: Record<string, unknown>,
     ctx: ToolContext
@@ -122,102 +92,127 @@ async function handleSearchProductCatalog(
     const { data, error } = await query.order("nome");
 
     if (error) return { ok: false, error: error.message };
-    return { ok: true, products: data };
+
+    const mappedProducts = (data || []).map((p: any) => ({
+        product_id: p.id,
+        title: p.nome,
+        description: p.description || "Delicioso",
+        price: p.preco_original || p.preco_promo || 0,
+        promo_price: p.preco_promo || null,
+        image_url: p.imagem_url || ""
+    }));
+
+    return { ok: true, products: mappedProducts };
 }
 
-/**
- * calculate_cart_total — Calcula direto no banco (Sem fetch)
- * Args: { items, cupom_code?, customer_address? }
- */
 async function handleCalculateCartTotal(args: Record<string, unknown>, ctx: ToolContext) {
     const db = createAdminClient();
     const items = args.items as any[] || [];
-
     let subtotal = 0;
 
-    // Busca os preços reais no banco para evitar que a IA ou usuário "invente" valores
-    for (const item of items) {
-        const { data: promo } = await db
-            .from("produtos_promo")
-            .select("preco_promo, preco_original")
-            .eq("id", item.product_id)
-            .maybeSingle();
+    // ⚡ PERFORMANCE: Busca todos os produtos de uma vez (Batch Query)
+    const productIds = items.map(i => i.product_id).filter(Boolean);
 
-        if (promo) {
-            // Usa o preco_promo se existir, senão usa o original
-            const price = promo.preco_promo || promo.preco_original || 0;
-            subtotal += (price * item.quantity);
+    if (productIds.length > 0) {
+        const { data: products } = await db
+            .from("produtos_promo")
+            .select("id, preco_promo, preco_original")
+            .in("id", productIds);
+
+        if (products) {
+            const productPriceMap: Record<string, number> = {};
+            products.forEach(p => {
+                productPriceMap[p.id] = p.preco_promo || p.preco_original || 0;
+            });
+
+            for (const item of items) {
+                const price = productPriceMap[item.product_id] || 0;
+                subtotal += (price * item.quantity);
+            }
         }
     }
 
-    // Lógica simplificada de frete (você pode customizar conforme sua regra real)
-    const delivery_fee = args.customer_address ? 5.00 : 0;
-    const discount = 0; // Lógica de cupom pode ser inserida aqui
+    // 🗺️ LÓGICA GOOGLE MAPS PARA FRETE
+    let delivery_fee = 0;
+    let distance_km = 0;
 
+    const { data: restaurant } = await db
+        .from("restaurants")
+        .select("delivery_price_per_km, store_address")
+        .eq("id", ctx.restaurant_id)
+        .single();
+
+    if (args.customer_address && restaurant?.store_address && process.env.GOOGLE_MAPS_API_KEY) {
+        try {
+            const origin = encodeURIComponent(restaurant.store_address);
+            const dest = encodeURIComponent(args.customer_address as string);
+            const gmRes = await fetch(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${dest}&key=${process.env.GOOGLE_MAPS_API_KEY}`);
+            const gmData = await gmRes.json();
+            
+            if (gmData.status === "OK" && gmData.rows[0].elements[0].status === "OK") {
+                const distanceMeters = gmData.rows[0].elements[0].distance.value;
+                distance_km = distanceMeters / 1000;
+                const pricePerKm = Number(restaurant.delivery_price_per_km) || 2; 
+                delivery_fee = Number((distance_km * pricePerKm).toFixed(2));
+            }
+        } catch (e) {
+            console.error("[MAPS_ERROR]", e);
+            delivery_fee = 5; // Valor de fallback caso Google Maps falhe
+        }
+    } else {
+        delivery_fee = 5; // Fallback se faltar endereço ou API key
+    }
+
+    const discount = 0; // Cupom futuro aqui
     const total = subtotal + delivery_fee - discount;
 
     return {
         ok: true,
         subtotal,
         delivery_fee,
+        distance_km,
         discount,
         total,
         items_processed: items.length
     };
 }
 
-/**
- * submit_final_order — POST /api/order/submit
- * Args: { chat_id, items, subtotal, discount, delivery_fee, total,
- *          payment_method, change_for, address_number, address_reference, gps_location }
- *
- * NOTE: This route requires auth. For AI execution, we insert directly via admin client
- * to bypass cookie-based auth while maintaining data integrity.
- */
 async function handleSubmitFinalOrder(
     args: Record<string, unknown>,
     ctx: ToolContext
 ) {
     const db = createAdminClient();
 
-    // Validation layer (mirrors /api/order/submit)
-    if (!args.address_number) {
-        return {
-            ok: false,
-            error: "MISSING_ADDRESS_NUMBER",
-            ai_instruction: "Ask the user for the house number.",
-        };
-    }
-    if (!args.payment_method) {
-        return {
-            ok: false,
-            error: "MISSING_PAYMENT_METHOD",
-            ai_instruction: "Ask the user for the payment method: PIX, Dinheiro, or Cartão.",
-        };
-    }
-    if (!args.items || !Array.isArray(args.items) || args.items.length === 0) {
-        return {
-            ok: false,
-            error: "MISSING_ITEMS",
-            ai_instruction: "The order has no items. Ask the user what they would like to order.",
-        };
-    }
-    if (args.payment_method === "dinheiro" && !args.change_for) {
-        return {
-            ok: false,
-            error: "MISSING_CHANGE_FOR",
-            ai_instruction: "The user selected cash. Ask: 'Precisa de troco para quanto?'",
-        };
+    if (!args.address_number) return { ok: false, error: "MISSING_ADDRESS_NUMBER", ai_instruction: "Pergunte o número da casa." };
+    if (!args.payment_method) return { ok: false, error: "MISSING_PAYMENT_METHOD", ai_instruction: "Pergunte a forma de pagamento." };
+    if (!args.gps_location) return { ok: false, error: "MISSING_GPS_LOCATION", ai_instruction: "Você precisa da localização GPS do cliente antes de finalizar." };
+    if (!args.items || !Array.isArray(args.items) || args.items.length === 0) return { ok: false, error: "MISSING_ITEMS" };
+    if (args.subtotal === undefined || args.total === undefined) return { ok: false, error: "MISSING_TOTALS", ai_instruction: "Chame calculate_cart_total primeiro." };
+    if (args.payment_method === "dinheiro" && args.change_for === undefined) {
+        return { ok: false, error: "MISSING_CHANGE_FOR", ai_instruction: "Pergunte: Precisa de troco para quanto?" };
     }
 
     const chatId = (args.chat_id as string) || ctx.chat_id;
 
     // 🛡️ SECURITY: recalculate prices to avoid prompt injection 🛡️
+    const productIds = (args.items as any[]).map(i => i.product_id).filter(Boolean);
     let realSubtotal = 0;
-    for (const item of (args.items as any[])) {
-        const { data: promo } = await db.from("produtos_promo").select("price").eq("id", item.product_id).maybeSingle();
-        if (promo) {
-            realSubtotal += (promo.price * item.quantity);
+
+    if (productIds.length > 0) {
+        const { data: products } = await db
+            .from("produtos_promo")
+            .select("id, preco_promo, preco_original")
+            .in("id", productIds);
+
+        if (products) {
+            const productPriceMap: Record<string, number> = {};
+            products.forEach(p => {
+                productPriceMap[p.id] = p.preco_promo || p.preco_original || 0;
+            });
+            for (const item of (args.items as any[])) {
+                const price = productPriceMap[item.product_id] || 0;
+                realSubtotal += (price * item.quantity);
+            }
         }
     }
 
@@ -263,21 +258,14 @@ async function handleSubmitFinalOrder(
     };
 }
 
-/**
- * get_pix_payment — POST /api/order/pix
- * Args: { chat_id, amount }
- */
 async function handleGetPixPayment(
     args: Record<string, unknown>,
     ctx: ToolContext
 ) {
     const db = createAdminClient();
-    const chatId = (args.chat_id as string) || ctx.chat_id;
     const amount = Number(args.amount);
 
-    if (!amount || amount <= 0) {
-        return { ok: false, error: "MISSING_AMOUNT" };
-    }
+    if (!amount || amount <= 0) return { ok: false, error: "MISSING_AMOUNT" };
 
     const { data: restaurant } = await db
         .from("restaurants")
@@ -289,40 +277,26 @@ async function handleGetPixPayment(
         return { ok: false, error: "PIX_KEY_NOT_CONFIGURED", ai_instruction: "No PIX key is configured for this store." };
     }
 
-    const { data: chat } = await db
-        .from("chats")
-        .select("wa_chat_id")
-        .eq("id", chatId)
-        .eq("restaurant_id", ctx.restaurant_id)
-        .single();
-
-    const pixPayload = {
-        phone: chat?.wa_chat_id || ctx.wa_chat_id,
-        pix: {
-            key: restaurant.pix_key,
-            name: restaurant.name || "Loja",
-            amount: Number(amount.toFixed(2)),
-            description: `Pedido via ${restaurant.name || "FoodSpin"}`,
-        },
-        message: `💰 *Pagamento PIX*\n\nValor: R$ ${amount.toFixed(2)}\nEstabelecimento: ${restaurant.name}\n\n✅ Após o pagamento, envie o comprovante aqui!`,
-    };
+    const cleanNumber = ctx.wa_chat_id?.split('@')[0].replace(/\D/g, "");
 
     return {
         ok: true,
-        pix_payload: pixPayload,
+        uazapi_payload: {
+            number: cleanNumber,
+            amount: Number(amount.toFixed(2)),
+            text: `Pedido #${Math.floor(Math.random() * 1000)} pronto para pagamento`,
+            pixKey: restaurant.pix_key,
+            pixType: "EVP", 
+            pixName: restaurant.name || "Loja"
+        }
     };
 }
 
-/**
- * schedule_proactive_followup — Inserts into scheduled_messages
- * Args: { minutes_delay, intent, payload? }
- */
 async function handleScheduleFollowup(
     args: Record<string, unknown>,
     ctx: ToolContext
 ) {
     const db = createAdminClient();
-
     const minutesDelay = Number(args.minutes_delay) || 30;
     const runAt = new Date(Date.now() + minutesDelay * 60 * 1000).toISOString();
 
@@ -349,91 +323,80 @@ async function handleScheduleFollowup(
     };
 }
 
-/**
- * send_uaz_carousel — Returns Uazapi-formatted carousel JSON
- * Args: { phone, products: [{ title, description, image_url, price, product_id }] }
- */
+// 🛒 CARROSSEL UAZAPI FORMATO CORRETO E COM PREÇO RISCADO
 async function handleSendUazCarousel(
     args: Record<string, unknown>,
-    _ctx: ToolContext
+    ctx: ToolContext
 ) {
     const products = (args.products as any[]) || [];
+    const cleanNumber = ctx.wa_chat_id?.split('@')[0].replace(/\D/g, "");
 
-    const cards = products.map((p: any) => ({
-        title: p.title || p.nome || "Produto",
-        description: p.description || `R$ ${Number(p.price || 0).toFixed(2)}`,
-        mediaUrl: p.image_url || p.imagem_url || "",
-        buttons: [
-            {
-                buttonId: `add_to_cart_${p.product_id || p.id}`,
-                buttonText: { displayText: "🛒 Adicionar" },
-                type: 1,
-            },
-        ],
-    }));
+    const cards = products.map((p: any) => {
+        const hasPromo = p.promo_price && p.promo_price < p.price;
+        const priceText = hasPromo
+            ? `De ~R$ ${Number(p.price).toFixed(2)}~ por *R$ ${Number(p.promo_price).toFixed(2)}*`
+            : `*R$ ${Number(p.price).toFixed(2)}*`;
+
+        return {
+            text: `*${p.title}*\n\n${p.description}\n\n${priceText}`,
+            image: p.image_url || "",
+            buttons: [
+                {
+                    id: `add_${p.product_id}`,
+                    text: "🛒 Adicionar",
+                    type: "REPLY"
+                }
+            ]
+        };
+    });
 
     return {
         ok: true,
         uazapi_payload: {
-            phone: args.phone || _ctx.wa_chat_id,
-            isCarousel: true,
+            number: cleanNumber,
+            text: args.text || "Confira nosso cardápio:",
             carousel: cards,
-        },
+            delay: 1000,
+            readchat: true
+        }
     };
 }
 
-/**
- * send_uaz_list_menu — Returns Uazapi-formatted list menu JSON
- * Args: { phone, title, button_text, sections: [{ title, rows: [{ id, title, description }] }] }
- */
-async function handleSendUazListMenu(
+// 🎯 BOTÕES NATIVOS UAZAPI FORMATO CORRETO
+async function handleSendUazButtons(
     args: Record<string, unknown>,
-    _ctx: ToolContext
+    ctx: ToolContext
 ) {
+    const cleanNumber = ctx.wa_chat_id?.split('@')[0].replace(/\D/g, "");
+    
     return {
         ok: true,
         uazapi_payload: {
-            phone: args.phone || _ctx.wa_chat_id,
-            listMessage: {
-                title: args.title || "Cardápio",
-                buttonText: args.button_text || "Ver Opções",
-                description: args.description || "Escolha uma opção abaixo:",
-                sections: args.sections || [],
-                listType: 1,
-            },
-        },
+            number: cleanNumber,
+            type: "button",
+            text: args.text || "Selecione uma opção:",
+            choices: args.choices || [],
+            footerText: args.footerText || "Escolha uma das opções abaixo"
+        }
     };
 }
 
-/**
- * request_user_location — Returns Uazapi payload requesting GPS
- * No specific args needed, uses context.
- */
+// 📍 PEDIDO DE LOCALIZAÇÃO NATIVO UAZAPI
 async function handleRequestUserLocation(ctx: ToolContext) {
+    const cleanNumber = ctx.wa_chat_id?.split('@')[0].replace(/\D/g, "");
+
     return {
         ok: true,
         uazapi_payload: {
-            phone: ctx.wa_chat_id,
-            buttonMessage: {
-                contentText: "📍 Para calcular o frete, preciso da sua localização. Clique no botão abaixo:",
-                footerText: "FoodSpin Delivery",
-                buttons: [
-                    {
-                        buttonId: "send_location",
-                        buttonText: { displayText: "📍 Enviar Localização" },
-                        type: 1,
-                    },
-                ],
-                headerType: 1,
-            },
-        },
+            number: cleanNumber,
+            text: "Por favor, compartilhe sua localização usando o clipe (anexo) do WhatsApp para calcularmos a distância exata da entrega.",
+            delay: 0,
+            readchat: true,
+            readmessages: true
+        }
     };
 }
 
-/**
- * move_kanban_stage — Updates stage_id on chats table
- * Args: { chat_id, stage_name }
- */
 async function handleMoveKanbanStage(
     args: Record<string, unknown>,
     ctx: ToolContext
@@ -442,15 +405,8 @@ async function handleMoveKanbanStage(
     const chatId = (args.chat_id as string) || ctx.chat_id;
     const stageName = args.stage_name as string;
 
-    if (!chatId || !stageName) {
-        return {
-            ok: false,
-            error: "MISSING_ARGS",
-            ai_instruction: "Both chat_id and stage_name are required.",
-        };
-    }
+    if (!chatId || !stageName) return { ok: false, error: "MISSING_ARGS" };
 
-    // Find the stage by name for this restaurant
     const { data: stage, error: stageError } = await db
         .from("kanban_stages")
         .select("id")
@@ -458,15 +414,8 @@ async function handleMoveKanbanStage(
         .eq("name", stageName)
         .maybeSingle();
 
-    if (stageError || !stage) {
-        return {
-            ok: false,
-            error: "STAGE_NOT_FOUND",
-            message: `Stage "${stageName}" not found for this restaurant.`,
-        };
-    }
+    if (stageError || !stage) return { ok: false, error: "STAGE_NOT_FOUND" };
 
-    // Update the chat's stage
     const { error: updateError } = await db
         .from("chats")
         .update({ stage_id: stage.id })

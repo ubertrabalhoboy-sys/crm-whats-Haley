@@ -49,21 +49,35 @@ export async function POST(req: NextRequest) {
 
     for (const msg of pendingMessages) {
         try {
-            // --- Dispatch Logic ---
-            // Future integration: Send via Uazapi/Fiqon based on msg.intent
-            // For now, log the action:
-            console.log(`[CRON] Processing scheduled message:`, {
-                id: msg.id,
-                intent: msg.intent,
-                wa_chat_id: msg.wa_chat_id,
-                restaurant_id: msg.restaurant_id,
-                payload: msg.payload,
-            });
+            // 1. Map wa_chat_id to the internal chat_id (UUID)
+            const { data: chat, error: chatError } = await supabase
+                .from("chats")
+                .select("id")
+                .eq("wa_chat_id", msg.wa_chat_id)
+                .eq("restaurant_id", msg.restaurant_id)
+                .single();
 
-            // If an actual network request were here (e.g., fetch Uazapi),
-            // and it threw an Error, the code below would NEVER run.
+            if (chatError || !chat) {
+                console.warn(`[CRON] No chat found for wa_chat_id: ${msg.wa_chat_id}. Skipping.`);
+            } else {
+                // 2. Dispatch to webhook_logs to trigger Fiqon/Automation
+                const { error: logError } = await supabase
+                    .from("webhook_logs")
+                    .insert({
+                        restaurant_id: msg.restaurant_id,
+                        chat_id: chat.id,
+                        tag_disparada: msg.intent, // e.g. "abandoned_cart"
+                        status: "dispatched",
+                    });
 
-            // Mark as processed (Only happens if dispatch above succeeds)
+                if (logError) {
+                    console.error(`[CRON] Error inserting webhook_log for message ${msg.id}:`, logError.message);
+                } else {
+                    console.log(`[CRON] Dispatched intent "${msg.intent}" for chat ${chat.id}`);
+                }
+            }
+
+            // 3. Mark as processed
             await supabase
                 .from("scheduled_messages")
                 .update({ status: "processed" })
@@ -72,7 +86,6 @@ export async function POST(req: NextRequest) {
             processedCount++;
         } catch (err) {
             console.error(`[CRON] Failed to process message ${msg.id}:`, err);
-            // Continue with next message — don't let one failure block the batch.
         }
     }
 

@@ -22,11 +22,7 @@
                 "properties": {
                     "category": {
                         "type": "string",
-                        "enum": [
-                            "principal",
-                            "bebida",
-                            "adicional"
-                        ],
+                        "enum": ["principal", "bebida", "adicional"],
                         "description": "Categoria obrigatória para filtrar o catálogo."
                     },
                     "query": {
@@ -34,9 +30,7 @@
                         "description": "Opcional. Termo de busca (ex: 'coca-cola', 'bacon')."
                     }
                 },
-                "required": [
-                    "category"
-                ]
+                "required": ["category"]
             }
         }
     },
@@ -44,7 +38,7 @@
         "type": "function",
         "function": {
             "name": "calculate_cart_total",
-            "description": "Calcula subtotal, desconto, frete e total via API interna (/api/order/calculate). Nunca calcule na mão. 'customer_address' pode ser: 'lat,lng', link Google Maps, ou endereço textual derivado do GPS.",
+            "description": "Calcula subtotal, desconto, frete dinâmico via Google Maps e total. NUNCA calcule na mão. 'customer_address' deve ser o endereço do cliente.",
             "parameters": {
                 "type": "object",
                 "additionalProperties": false,
@@ -56,36 +50,22 @@
                             "type": "object",
                             "additionalProperties": false,
                             "properties": {
-                                "product_id": {
-                                    "type": "string"
-                                },
-                                "quantity": {
-                                    "type": "integer",
-                                    "minimum": 1
-                                }
+                                "product_id": { "type": "string" },
+                                "quantity": { "type": "integer", "minimum": 1 }
                             },
-                            "required": [
-                                "product_id",
-                                "quantity"
-                            ]
+                            "required": ["product_id", "quantity"]
                         }
                     },
                     "cupom_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ],
+                        "type": ["string", "null"],
                         "description": "Opcional. Código do cupom (se existir)."
                     },
                     "customer_address": {
                         "type": "string",
-                        "description": "Localização/endereço do cliente. Preferencial: '-23.5505,-46.6333'. Também pode ser link do Google Maps ou texto tipo 'Rua X, nº Y (via GPS)'."
+                        "description": "Endereço textual do cliente (ex: 'Rua X, 123'). Usado para cálculo da distância."
                     }
                 },
-                "required": [
-                    "items",
-                    "customer_address"
-                ]
+                "required": ["items", "customer_address"]
             }
         }
     },
@@ -98,10 +78,7 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                    "chat_id": {
-                        "type": "string",
-                        "description": "Opcional. Se omitido, o handler usa ctx.chat_id."
-                    },
+                    "chat_id": { "type": "string", "description": "Opcional. Se omitido, o handler usa ctx.chat_id." },
                     "items": {
                         "type": "array",
                         "minItems": 1,
@@ -109,76 +86,30 @@
                             "type": "object",
                             "additionalProperties": false,
                             "properties": {
-                                "product_id": {
-                                    "type": "string"
-                                },
-                                "quantity": {
-                                    "type": "integer",
-                                    "minimum": 1
-                                }
+                                "product_id": { "type": "string" },
+                                "quantity": { "type": "integer", "minimum": 1 }
                             },
-                            "required": [
-                                "product_id",
-                                "quantity"
-                            ]
+                            "required": ["product_id", "quantity"]
                         }
                     },
-                    "subtotal": {
-                        "type": "number",
-                        "minimum": 0
-                    },
-                    "discount": {
-                        "type": "number",
-                        "minimum": 0
-                    },
-                    "delivery_fee": {
-                        "type": "number",
-                        "minimum": 0
-                    },
-                    "total": {
-                        "type": "number",
-                        "minimum": 0
-                    },
+                    "subtotal": { "type": "number", "minimum": 0 },
+                    "discount": { "type": "number", "minimum": 0 },
+                    "delivery_fee": { "type": "number", "minimum": 0 },
+                    "total": { "type": "number", "minimum": 0 },
                     "payment_method": {
                         "type": "string",
-                        "enum": [
-                            "pix",
-                            "dinheiro",
-                            "cartao"
-                        ]
+                        "enum": ["pix", "dinheiro", "cartao"]
                     },
                     "change_for": {
-                        "type": [
-                            "number",
-                            "null"
-                        ],
+                        "type": ["number", "null"],
                         "minimum": 0,
                         "description": "Troco para quanto. Obrigatório quando payment_method='dinheiro'. Use null se não for dinheiro."
                     },
-                    "address_number": {
-                        "type": "string",
-                        "description": "Número da residência."
-                    },
-                    "address_reference": {
-                        "type": [
-                            "string",
-                            "null"
-                        ],
-                        "description": "Ponto de referência (opcional)."
-                    },
-                    "gps_location": {
-                        "type": "string",
-                        "description": "String GPS/endereço derivado. Preferencial: '-23.5505,-46.6333'. Também pode ser link do Google Maps ou 'Rua X, nº Y (via GPS)'."
-                    }
+                    "address_number": { "type": "string", "description": "Número da residência." },
+                    "address_reference": { "type": ["string", "null"], "description": "Ponto de referência (opcional)." },
+                    "gps_location": { "type": "string", "description": "String GPS/endereço derivado." }
                 },
-                "required": [
-                    "items",
-                    "subtotal",
-                    "total",
-                    "payment_method",
-                    "address_number",
-                    "gps_location"
-                ]
+                "required": ["items", "subtotal", "total", "payment_method", "address_number", "gps_location"]
             }
         }
     },
@@ -186,24 +117,15 @@
         "type": "function",
         "function": {
             "name": "get_pix_payment",
-            "description": "Gera cobrança/payload PIX via API interna (/api/order/pix). Use quando payment_method='pix'.",
+            "description": "Gera cobrança PIX nativa da Uazapi. Use quando payment_method='pix'.",
             "parameters": {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                    "chat_id": {
-                        "type": "string",
-                        "description": "Opcional. Se omitido, o handler usa ctx.chat_id/ctx.wa_chat_id."
-                    },
-                    "amount": {
-                        "type": "number",
-                        "minimum": 0,
-                        "description": "Valor total do pedido."
-                    }
+                    "chat_id": { "type": "string", "description": "Opcional." },
+                    "amount": { "type": "number", "minimum": 0, "description": "Valor total do pedido." }
                 },
-                "required": [
-                    "amount"
-                ]
+                "required": ["amount"]
             }
         }
     },
@@ -216,19 +138,10 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                    "minutes_delay": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "description": "Minutos para disparar."
-                    },
+                    "minutes_delay": { "type": "integer", "minimum": 1, "description": "Minutos para disparar." },
                     "intent": {
                         "type": "string",
-                        "enum": [
-                            "abandoned_cart",
-                            "delayed_coupon",
-                            "follow_up",
-                            "remarketing"
-                        ],
+                        "enum": ["abandoned_cart", "delayed_coupon", "follow_up", "remarketing"],
                         "description": "Tipo de follow-up."
                     },
                     "payload": {
@@ -237,10 +150,7 @@
                         "description": "Dados livres para salvar (ex: cupom, preferências, texto sugerido)."
                     }
                 },
-                "required": [
-                    "minutes_delay",
-                    "intent"
-                ]
+                "required": ["minutes_delay", "intent"]
             }
         }
     },
@@ -248,15 +158,12 @@
         "type": "function",
         "function": {
             "name": "send_uaz_carousel",
-            "description": "Retorna JSON de carrossel no formato Uazapi. Use para vitrines e ofertas. Envie 'products' já na ordem correta do banco.",
+            "description": "Retorna JSON de carrossel no formato Uazapi. Use para exibir produtos. Mostra preço normal vs preço promo.",
             "parameters": {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                    "phone": {
-                        "type": "string",
-                        "description": "Opcional. Se omitido, o handler usa ctx.wa_chat_id."
-                    },
+                    "text": { "type": "string", "description": "Texto acima do carrossel." },
                     "products": {
                         "type": "array",
                         "minItems": 1,
@@ -264,109 +171,39 @@
                             "type": "object",
                             "additionalProperties": false,
                             "properties": {
-                                "title": {
-                                    "type": "string"
-                                },
-                                "description": {
-                                    "type": "string"
-                                },
-                                "image_url": {
-                                    "type": "string",
-                                    "format": "uri"
-                                },
-                                "price": {
-                                    "type": "number",
-                                    "minimum": 0
-                                },
-                                "product_id": {
-                                    "type": "string",
-                                    "description": "ID do produto no banco (usado no buttonId add_to_cart_*)."
-                                }
+                                "title": { "type": "string" },
+                                "description": { "type": "string" },
+                                "image_url": { "type": "string", "format": "uri" },
+                                "price": { "type": "number", "minimum": 0 },
+                                "promo_price": { "type": ["number", "null"] },
+                                "product_id": { "type": "string" }
                             },
-                            "required": [
-                                "title",
-                                "description",
-                                "image_url",
-                                "product_id"
-                            ]
+                            "required": ["title", "description", "image_url", "price", "product_id"]
                         }
                     }
                 },
-                "required": [
-                    "products"
-                ]
+                "required": ["text", "products"]
             }
         }
     },
     {
         "type": "function",
         "function": {
-            "name": "send_uaz_list_menu",
-            "description": "Retorna JSON de menu/lista interativa no formato Uazapi. Use para pagamento e escolhas.",
+            "name": "send_uaz_buttons",
+            "description": "Retorna JSON de botões nativos (Type: button) no formato Uazapi. Ideal para 'Usar Agora / Usar Depois' ou 'Forma de Pagamento'.",
             "parameters": {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                    "phone": {
-                        "type": "string",
-                        "description": "Opcional. Se omitido, o handler usa ctx.wa_chat_id."
-                    },
-                    "title": {
-                        "type": "string",
-                        "description": "Título do menu (ex: 'Pagamento')."
-                    },
-                    "button_text": {
-                        "type": "string",
-                        "description": "Texto do botão (ex: 'Ver Opções')."
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Texto acima das opções."
-                    },
-                    "sections": {
+                    "text": { "type": "string", "description": "Pergunta ou texto principal." },
+                    "choices": {
                         "type": "array",
-                        "minItems": 1,
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "properties": {
-                                "title": {
-                                    "type": "string"
-                                },
-                                "rows": {
-                                    "type": "array",
-                                    "minItems": 1,
-                                    "items": {
-                                        "type": "object",
-                                        "additionalProperties": false,
-                                        "properties": {
-                                            "id": {
-                                                "type": "string"
-                                            },
-                                            "title": {
-                                                "type": "string"
-                                            },
-                                            "description": {
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": [
-                                            "id",
-                                            "title"
-                                        ]
-                                    }
-                                }
-                            },
-                            "required": [
-                                "title",
-                                "rows"
-                            ]
-                        }
-                    }
+                        "items": { "type": "string" },
+                        "description": "Array de strings com as opções (ex: ['PIX', 'Dinheiro'])."
+                    },
+                    "footerText": { "type": "string", "description": "Rodapé da mensagem." }
                 },
-                "required": [
-                    "sections"
-                ]
+                "required": ["text", "choices", "footerText"]
             }
         }
     },
@@ -374,7 +211,7 @@
         "type": "function",
         "function": {
             "name": "request_user_location",
-            "description": "Retorna payload Uazapi pedindo localização (GPS). Não precisa de args; usa ctx.wa_chat_id.",
+            "description": "Retorna payload Uazapi pedindo localização (GPS) com botão nativo.",
             "parameters": {
                 "type": "object",
                 "additionalProperties": false,
@@ -392,18 +229,10 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                    "chat_id": {
-                        "type": "string",
-                        "description": "Opcional. Se omitido, o handler usa ctx.chat_id."
-                    },
-                    "stage_name": {
-                        "type": "string",
-                        "description": "Nome exato do stage (kanban_stages.name), ex: 'Cozinha'."
-                    }
+                    "chat_id": { "type": "string", "description": "Opcional." },
+                    "stage_name": { "type": "string", "description": "Nome exato do stage." }
                 },
-                "required": [
-                    "stage_name"
-                ]
+                "required": ["stage_name"]
             }
         }
     }

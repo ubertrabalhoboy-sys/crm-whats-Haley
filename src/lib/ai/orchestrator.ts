@@ -36,7 +36,6 @@ function sanitizeGeminiHistory(history: Content[]): Content[] {
     const sanitized: Content[] = [];
 
     for (const msg of history) {
-        // Exige que a conversa inicie com o usuário
         if (sanitized.length === 0) {
             if (msg.role === "user") {
                 sanitized.push({ role: msg.role, parts: [{ text: msg.parts[0]?.text || "" }] });
@@ -46,14 +45,12 @@ function sanitizeGeminiHistory(history: Content[]): Content[] {
 
         const lastSanitized = sanitized[sanitized.length - 1];
 
-        // Se a role for igual (ex: cliente mandou duas msgs seguidas), junta os textos.
         if (msg.role === lastSanitized.role) {
             const currentText = msg.parts[0]?.text || "";
             if (currentText) {
                 lastSanitized.parts[0].text += `\n${currentText}`;
             }
         } else {
-            // Se alternou a role corretamente, apenas adiciona
             sanitized.push({ role: msg.role, parts: [{ text: msg.parts[0]?.text || "" }] });
         }
     }
@@ -95,7 +92,6 @@ export async function processAiMessage(params: OrchestratorParams) {
     console.log(`[AI LOOP] Started for ChatID: ${params.chatId}`);
     const supabase = getSupabaseAdmin();
 
-    // 1. Alteração aplicada aqui: Adicionado o system_prompt na busca
     const { data: restData } = await supabase
         .from("restaurants")
         .select("name, uaz_instance_token, system_prompt")
@@ -106,7 +102,6 @@ export async function processAiMessage(params: OrchestratorParams) {
     const restaurantName = restData?.name || "FoodSpin";
     if (!instanceToken) return;
 
-    // 2. Busca de Histórico e Contexto
     const { data: messages } = await supabase
         .from("messages")
         .select("direction, text")
@@ -120,7 +115,6 @@ export async function processAiMessage(params: OrchestratorParams) {
         .eq("id", params.chatId)
         .single();
 
-    // 3. Construção do Histórico (Formato Gemini)
     let geminiHistory: Content[] = [];
     if (messages && messages.length > 0) {
         messages.reverse();
@@ -130,9 +124,16 @@ export async function processAiMessage(params: OrchestratorParams) {
         }));
     }
 
+    // ⏱️ Injeção de contexto temporal para auxiliar a decisão da IA
+    const diasSemana = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+    const agora = new Date();
+    // Usa toLocaleString para garantir o fuso horário correto caso o servidor esteja em UTC
+    const horaLocal = agora.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+    const contextoTemporal = `[Hoje: ${diasSemana[agora.getDay()]}, Hora Atual: ${horaLocal}]`;
+
     // REGRA DE OURO: Gatilho invisível para Roleta ou preenchimento de input
     if (geminiHistory.length === 0) {
-        const triggerText = params.incomingText || `🎰 Roleta: [${chatContext?.cupom_ganho || "Prêmio Ativado"}]`;
+        const triggerText = params.incomingText || `🎰 Roleta: [${chatContext?.cupom_ganho || "Prêmio Ativado"}] ${contextoTemporal}`;
         geminiHistory.push({ role: "user", parts: [{ text: triggerText }] });
     } else if (params.incomingText && geminiHistory[geminiHistory.length - 1].role === "model") {
         geminiHistory.push({ role: "user", parts: [{ text: params.incomingText }] });
@@ -140,7 +141,6 @@ export async function processAiMessage(params: OrchestratorParams) {
 
     const conversationContext = sanitizeGeminiHistory(geminiHistory);
 
-    // 4. Alteração aplicada aqui: Usando o banco de dados no lugar do texto gigante
     const fallbackPrompt = `Você é o Gerente de Conversão Premium do restaurante {nome_restaurante}. Responda de forma curta, amigável e auxilie o cliente com o seu pedido.`;
     const rawPrompt = restData?.system_prompt || fallbackPrompt;
 
@@ -179,7 +179,6 @@ export async function processAiMessage(params: OrchestratorParams) {
             const responseMessage = response.response;
             const usage = responseMessage.usageMetadata;
 
-            // Telemetria mantida conforme original
             supabase.from("ai_logs").insert({
                 restaurant_id: params.restaurantId,
                 chat_id: params.chatId,
@@ -220,7 +219,6 @@ export async function processAiMessage(params: OrchestratorParams) {
             } else {
                 let finalAnswer = responseMessage.text();
                 if (finalAnswer) {
-                    // 🛡️ REMOVER PENSAMENTOS: Limpa blocos <thought>...</thought> (inclusive quebras de linha)
                     finalAnswer = finalAnswer.replace(/<thought>[\s\S]*?<\/thought>/g, "").trim();
 
                     if (!finalAnswer) {

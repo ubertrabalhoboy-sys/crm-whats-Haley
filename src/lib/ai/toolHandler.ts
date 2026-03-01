@@ -78,13 +78,27 @@ export async function executeAiTool(
 // ─────────────────────────────────────────────────
 
 /**
- * get_store_info — Returns store address, hours, and is_open_now
+ * get_store_info — Retorna os dados da loja direto do banco (Sem delay de rede)
  */
 async function handleGetStoreInfo(ctx: ToolContext) {
-    const res = await fetch(
-        `${ctx.base_url}/api/store/info?restaurant_id=${ctx.restaurant_id}`
-    );
-    return res.json();
+    const db = createAdminClient();
+
+    // Busca tudo do restaurante direto no Supabase
+    const { data, error } = await db
+        .from("restaurants")
+        .select("*") // Puxa todos os dados (horários, endereço, etc)
+        .eq("id", ctx.restaurant_id)
+        .single();
+
+    if (error) {
+        console.error("[TOOL: get_store_info] Erro no banco:", error.message);
+        return { ok: false, error: error.message };
+    }
+
+    return {
+        ok: true,
+        store_info: data
+    };
 }
 
 /**
@@ -112,24 +126,44 @@ async function handleSearchProductCatalog(
 }
 
 /**
- * calculate_cart_total — POST /api/order/calculate
+ * calculate_cart_total — Calcula direto no banco (Sem fetch)
  * Args: { items, cupom_code?, customer_address? }
  */
-async function handleCalculateCartTotal(
-    args: Record<string, unknown>,
-    ctx: ToolContext
-) {
-    const res = await fetch(`${ctx.base_url}/api/order/calculate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            restaurant_id: ctx.restaurant_id,
-            items: args.items,
-            cupom_code: args.cupom_code || null,
-            customer_address: args.customer_address || null,
-        }),
-    });
-    return res.json();
+async function handleCalculateCartTotal(args: Record<string, unknown>, ctx: ToolContext) {
+    const db = createAdminClient();
+    const items = args.items as any[] || [];
+
+    let subtotal = 0;
+
+    // Busca os preços reais no banco para evitar que a IA ou usuário "invente" valores
+    for (const item of items) {
+        const { data: promo } = await db
+            .from("produtos_promo")
+            .select("preco_promo, preco_original")
+            .eq("id", item.product_id)
+            .maybeSingle();
+
+        if (promo) {
+            // Usa o preco_promo se existir, senão usa o original
+            const price = promo.preco_promo || promo.preco_original || 0;
+            subtotal += (price * item.quantity);
+        }
+    }
+
+    // Lógica simplificada de frete (você pode customizar conforme sua regra real)
+    const delivery_fee = args.customer_address ? 5.00 : 0;
+    const discount = 0; // Lógica de cupom pode ser inserida aqui
+
+    const total = subtotal + delivery_fee - discount;
+
+    return {
+        ok: true,
+        subtotal,
+        delivery_fee,
+        discount,
+        total,
+        items_processed: items.length
+    };
 }
 
 /**

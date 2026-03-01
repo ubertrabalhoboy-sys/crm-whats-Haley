@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Bot, Save, Loader2 } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import useSWR from "swr";
@@ -26,7 +26,7 @@ interface CRMAutomationProps {
 
 export default function CRMAutomation({ stages, restaurantId }: CRMAutomationProps) {
     const { showToast } = useToast();
-    const supabase = createSupabaseBrowserClient();
+    const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
     const [localAutomations, setLocalAutomations] = useState<Record<string, Automation>>({});
     const [savingAutomations, setSavingAutomations] = useState<Record<string, boolean>>({});

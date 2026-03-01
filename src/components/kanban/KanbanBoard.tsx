@@ -8,6 +8,7 @@ import { Loader2 } from "lucide-react";
 
 // Dynamic imports for better performance
 const SalesFlow = dynamic(() => import("./SalesFlow"), {
+    ssr: false,
     loading: () => (
         <div className="flex-1 flex items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-[#086788]" />
@@ -16,6 +17,7 @@ const SalesFlow = dynamic(() => import("./SalesFlow"), {
 });
 
 const CRMAutomation = dynamic(() => import("./CRMAutomation"), {
+    ssr: false,
     loading: () => (
         <div className="flex-1 flex items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-[#07a0c3]" />

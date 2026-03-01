@@ -34,7 +34,7 @@ function normalizeBaseUrl(url: string) {
  */
 function sanitizeGeminiHistory(history: Content[]): Content[] {
     const sanitized: Content[] = [];
-    
+
     for (const msg of history) {
         // Exige que a conversa inicie com o usuário
         if (sanitized.length === 0) {
@@ -45,7 +45,7 @@ function sanitizeGeminiHistory(history: Content[]): Content[] {
         }
 
         const lastSanitized = sanitized[sanitized.length - 1];
-        
+
         // Se a role for igual (ex: cliente mandou duas msgs seguidas), junta os textos.
         if (msg.role === lastSanitized.role) {
             const currentText = msg.parts[0]?.text || "";
@@ -57,7 +57,7 @@ function sanitizeGeminiHistory(history: Content[]): Content[] {
             sanitized.push({ role: msg.role, parts: [{ text: msg.parts[0]?.text || "" }] });
         }
     }
-    
+
     return sanitized;
 }
 
@@ -77,7 +77,7 @@ async function sendTextMessage(number: string, text: string, instanceToken: stri
 async function sendRichPayload(uazapiPayload: any, instanceToken: string) {
     const base = process.env.UAZAPI_BASE_URL;
     if (!base || !instanceToken) return null;
-    let endpoint = "/send/text"; 
+    let endpoint = "/send/text";
     if (uazapiPayload.listMessage || uazapiPayload.list) endpoint = "/send/list";
     else if (uazapiPayload.buttonsMessage || uazapiPayload.buttons) endpoint = "/send/buttons";
     else if (uazapiPayload.templateMessage || uazapiPayload.template) endpoint = "/send/template";
@@ -218,8 +218,17 @@ export async function processAiMessage(params: OrchestratorParams) {
                 }
                 conversationContext.push({ role: "function", parts: functionResponses });
             } else {
-                const finalAnswer = responseMessage.text();
+                let finalAnswer = responseMessage.text();
                 if (finalAnswer) {
+                    // 🛡️ REMOVER PENSAMENTOS: Limpa blocos <thought>...</thought> (inclusive quebras de linha)
+                    finalAnswer = finalAnswer.replace(/<thought>[\s\S]*?<\/thought>/g, "").trim();
+
+                    if (!finalAnswer) {
+                        console.warn("[AI LOOP] Empty response after stripping thoughts.");
+                        iteration++;
+                        continue;
+                    }
+
                     loopActive = false;
                     const sendResult = await sendTextMessage(params.waChatId, finalAnswer, instanceToken);
                     const waId = sendResult?.id || sendResult?.messageId || null;

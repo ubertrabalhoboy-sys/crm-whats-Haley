@@ -213,6 +213,44 @@ function buildPixPayloadFingerprint(payload: PixPayload) {
     ].join("|");
 }
 
+function buildStablePayloadFingerprint(value: unknown): string | null {
+    if (Array.isArray(value)) {
+        const items = value
+            .map((item) => buildStablePayloadFingerprint(item))
+            .filter((item): item is string => item !== null);
+        return `[${items.join(",")}]`;
+    }
+
+    if (typeof value === "object" && value !== null) {
+        const record = value as Record<string, unknown>;
+        const entries = Object.keys(record)
+            .sort()
+            .map((key) => {
+                const serializedValue = buildStablePayloadFingerprint(record[key]);
+                return serializedValue === null ? `${JSON.stringify(key)}:null` : `${JSON.stringify(key)}:${serializedValue}`;
+            });
+        return `{${entries.join(",")}}`;
+    }
+
+    if (typeof value === "string") {
+        return JSON.stringify(value);
+    }
+
+    if (typeof value === "number") {
+        return Number.isFinite(value) ? String(value) : null;
+    }
+
+    if (typeof value === "boolean") {
+        return value ? "true" : "false";
+    }
+
+    if (value === null) {
+        return "null";
+    }
+
+    return null;
+}
+
 async function wasPixPayloadAlreadySent(
     supabase: ReturnType<typeof getSupabaseAdmin>,
     chatId: string,
@@ -240,6 +278,39 @@ async function wasPixPayloadAlreadySent(
         }
 
         return buildPixPayloadFingerprint(existingPayload) === targetFingerprint;
+    });
+}
+
+async function wasOutgoingPayloadAlreadySent(
+    supabase: ReturnType<typeof getSupabaseAdmin>,
+    chatId: string,
+    payload: Record<string, unknown>,
+    triggerMessageCreatedAt?: string
+) {
+    let query = supabase
+        .from("messages")
+        .select("payload")
+        .eq("chat_id", chatId)
+        .eq("direction", "out")
+        .order("created_at", { ascending: false });
+
+    if (triggerMessageCreatedAt) {
+        query = query.gte("created_at", triggerMessageCreatedAt);
+    }
+
+    const { data: recentOutboundMessages } = await query.limit(20);
+    const targetFingerprint = buildStablePayloadFingerprint(payload);
+    if (!targetFingerprint) {
+        return false;
+    }
+
+    return ((recentOutboundMessages || []) as Array<{ payload: unknown }>).some((message) => {
+        const existingPayload = asRecord(message.payload);
+        if (!existingPayload) {
+            return false;
+        }
+
+        return buildStablePayloadFingerprint(existingPayload) === targetFingerprint;
     });
 }
 
@@ -1619,6 +1690,27 @@ export async function processAiMessage(params: OrchestratorParams) {
                             const carouselToolResult = asRecord(JSON.parse(carouselToolRaw));
                             const carouselPayload = asRecord(carouselToolResult?.uazapi_payload);
                             if (carouselPayload) {
+                                if (
+                                    await wasOutgoingPayloadAlreadySent(
+                                        supabase,
+                                        params.chatId,
+                                        carouselPayload,
+                                        ctx.trigger_message_created_at
+                                    )
+                                ) {
+                                    console.warn("[AI LOOP] Duplicate auto-carousel skipped", {
+                                        chatId: params.chatId,
+                                    });
+                                    logAiEvent("auto_carousel_skipped", {
+                                        chatId: params.chatId,
+                                        iteration,
+                                        reason: "DUPLICATE_PAYLOAD_IN_CURRENT_TURN",
+                                        autoTriggeredBy: "search_product_catalog",
+                                    });
+                                    loopActive = false;
+                                    break;
+                                }
+
                                 const sendResult = await sendRichPayload(carouselPayload, instanceToken);
                                 if (wasOutboundDeliveryAccepted(sendResult)) {
                                     markPayloadSent(turnMetrics);

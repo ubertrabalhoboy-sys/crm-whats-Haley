@@ -367,6 +367,7 @@ export async function POST(req: Request) {
       body?.data?.message?.extendedTextMessage?.text,
       body?.message?.extendedTextMessage?.text
     ) ?? null;
+  const extractedButtonClicked = extractButtonClicked(body);
 
   const locationLat = readNumber(
     body?.BODY?.message?.content?.degreesLatitude,
@@ -579,17 +580,18 @@ export async function POST(req: Request) {
   // ─── [AI ORCHESTRATOR START] ───
   // Non-blocking call to process the incoming text with standard LLM tools.
   // We only run this if it's a standard text message (not empty, not just a system event).
-  if (text && text.trim().length > 0) {
+  const buttonAiIncomingText =
+    extractedButtonClicked?.buttonId || extractedButtonClicked?.displayText || null;
+
+  if (buttonAiIncomingText) {
     processAiMessage({
       restaurantId,
       chatId,
       waChatId,
       instanceName: instanceName || undefined,
-      incomingText: text,
-    }).catch(err => console.error("[AI LOOP] Background failure:", err));
-  }
-
-  if (isLocationMessage) {
+      incomingText: buttonAiIncomingText,
+    }).catch(err => console.error("[AI LOOP] Button click failure:", err));
+  } else if (isLocationMessage) {
     processAiMessage({
       restaurantId,
       chatId,
@@ -597,6 +599,14 @@ export async function POST(req: Request) {
       instanceName: instanceName || undefined,
       incomingText: `CLIENT_ACTION:location_shared lat=${locationLat} lng=${locationLng}`,
     }).catch(err => console.error("[AI LOOP] Location share failure:", err));
+  } else if (text && text.trim().length > 0) {
+    processAiMessage({
+      restaurantId,
+      chatId,
+      waChatId,
+      instanceName: instanceName || undefined,
+      incomingText: text,
+    }).catch(err => console.error("[AI LOOP] Background failure:", err));
   }
   // ───────────────────────────────
 
@@ -641,19 +651,18 @@ export async function POST(req: Request) {
       }
 
     } else {
-      const buttonClicked = extractButtonClicked(body);
-      if (buttonClicked?.buttonId && buttonClicked?.chatId && buttonClicked?.messageId) {
-        const fingerprint = `btn:${buttonClicked.chatId}:${buttonClicked.messageId}`;
+      if (extractedButtonClicked?.buttonId && extractedButtonClicked?.chatId && extractedButtonClicked?.messageId) {
+        const fingerprint = `btn:${extractedButtonClicked.chatId}:${extractedButtonClicked.messageId}`;
         await runAutomations({
           restaurant_id: restaurantId,
           chat_id: chatId,
           trigger: "button_clicked",
           fingerprint,
           context: {
-            buttonId: buttonClicked.buttonId,
-            displayText: buttonClicked.displayText,
-            messageId: buttonClicked.messageId,
-            chatId: buttonClicked.chatId,
+            buttonId: extractedButtonClicked.buttonId,
+            displayText: extractedButtonClicked.displayText,
+            messageId: extractedButtonClicked.messageId,
+            chatId: extractedButtonClicked.chatId,
             waChatId,
             instanceName,
           },
@@ -662,13 +671,12 @@ export async function POST(req: Request) {
     }
 
     const b = body?.BODY ?? body;
-    const buttonClicked = extractButtonClicked(body);
 
-    if (buttonClicked?.buttonId && buttonClicked?.chatId && buttonClicked?.messageId) {
+    if (extractedButtonClicked?.buttonId && extractedButtonClicked?.chatId && extractedButtonClicked?.messageId) {
       // FIRE AND FORGET GAMIFICATION INTERCEPTOR (Non-Blocking)
       (async () => {
         try {
-          const btnId = buttonClicked.buttonId;
+          const btnId = extractedButtonClicked.buttonId;
 
           // Fast check if this is a known product stored in 'produtos_promo'
           // A user might pass the raw ID or a 'produto_XXX' string
@@ -720,25 +728,7 @@ export async function POST(req: Request) {
       })();
     }
 
-    if (buttonClicked) {
-      const aiIncomingText =
-        readString(
-          buttonClicked.buttonId,
-          b?.message?.buttonOrListid,
-          b?.message?.content?.selectedButtonID,
-          b?.message?.content?.Response?.SelectedDisplayText
-        ) ?? null;
-
-      if (aiIncomingText) {
-        processAiMessage({
-          restaurantId,
-          chatId,
-          waChatId,
-          instanceName: instanceName || undefined,
-          incomingText: aiIncomingText,
-        }).catch(err => console.error("[AI LOOP] Button click failure:", err));
-      }
-
+    if (extractedButtonClicked) {
       const fiqonWebhookUrl = process.env.FIQON_WEBHOOK_URL;
       if (!fiqonWebhookUrl) {
         console.warn("[fiqon-forward] missing_env");

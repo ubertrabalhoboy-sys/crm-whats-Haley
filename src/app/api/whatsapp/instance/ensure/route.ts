@@ -16,6 +16,25 @@ function normalizeDeleteError(value: unknown) {
   return value.trim().toLowerCase();
 }
 
+function shouldIgnoreDeleteFailure(status: number, errorText: string | null) {
+  if (status === 404) {
+    return true;
+  }
+
+  if (!errorText) {
+    return false;
+  }
+
+  return (
+    errorText.includes("not found") ||
+    errorText.includes("nao encontrada") ||
+    errorText.includes("invalid token") ||
+    errorText.includes("token invalido") ||
+    errorText.includes("instance expired") ||
+    errorText.includes("instancia expirada")
+  );
+}
+
 export async function POST(req: Request) {
   const reqUrl = new URL(req.url);
   const forceParam = (reqUrl.searchParams.get("force") || "").toLowerCase();
@@ -108,14 +127,12 @@ export async function POST(req: Request) {
       const deleteRaw = await deleteUpstream.text();
       const deleteData = parseJsonSafe(deleteRaw);
       const errorText = normalizeDeleteError(deleteData?.error);
-      const alreadyMissing =
-        deleteUpstream.status === 404 ||
-        Boolean(
-          errorText &&
-            (errorText.includes("not found") || errorText.includes("nao encontrada"))
-        );
+      const ignorableDeleteFailure = shouldIgnoreDeleteFailure(
+        deleteUpstream.status,
+        errorText
+      );
 
-      if (!deleteUpstream.ok && !alreadyMissing) {
+      if (!deleteUpstream.ok && !ignorableDeleteFailure) {
         return NextResponse.json(
           { ok: false, error: deleteData?.error || "UAZAPI_INSTANCE_DELETE_FAILED" },
           { status: deleteUpstream.status || 502 }

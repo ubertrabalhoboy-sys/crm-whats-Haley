@@ -35,6 +35,79 @@ function shouldIgnoreDeleteFailure(status: number, errorText: string | null) {
   );
 }
 
+type DeleteRemoteInstanceParams = {
+  baseUrl: string;
+  adminToken: string;
+  globalApiKey: string;
+  instanceId?: string | null;
+  instanceName?: string | null;
+  instanceToken?: string | null;
+};
+
+async function deleteRemoteInstance(params: DeleteRemoteInstanceParams) {
+  const attempts: Array<{ value: string; source: "instance_id" | "instance_name" | "instance_token" }> = [];
+
+  if (typeof params.instanceId === "string" && params.instanceId.trim()) {
+    attempts.push({ value: params.instanceId.trim(), source: "instance_id" });
+  }
+
+  if (typeof params.instanceName === "string" && params.instanceName.trim()) {
+    attempts.push({ value: params.instanceName.trim(), source: "instance_name" });
+  }
+
+  if (typeof params.instanceToken === "string" && params.instanceToken.trim()) {
+    attempts.push({ value: params.instanceToken.trim(), source: "instance_token" });
+  }
+
+  let lastFailure: { status: number; error: unknown } | null = null;
+
+  for (const attempt of attempts) {
+    const url =
+      attempt.source === "instance_token"
+        ? `${params.baseUrl}/instance?token=${encodeURIComponent(attempt.value)}`
+        : `${params.baseUrl}/instance/delete/${encodeURIComponent(attempt.value)}`;
+
+    const headers: Record<string, string> = {
+      admintoken: params.adminToken,
+      apikey: params.globalApiKey,
+    };
+
+    if (attempt.source === "instance_token") {
+      headers.token = attempt.value;
+    }
+
+    const upstream = await fetch(url, {
+      method: "DELETE",
+      headers,
+      cache: "no-store",
+    });
+
+    const upstreamRaw = await upstream.text();
+    const upstreamData = parseJsonSafe(upstreamRaw);
+    const errorText = normalizeDeleteError(upstreamData?.error);
+    const ignorableDeleteFailure = shouldIgnoreDeleteFailure(upstream.status, errorText);
+
+    if (upstream.ok || ignorableDeleteFailure) {
+      return { ok: true as const };
+    }
+
+    lastFailure = {
+      status: upstream.status || 502,
+      error: upstreamData?.error || "UAZAPI_INSTANCE_DELETE_FAILED",
+    };
+  }
+
+  if (!attempts.length) {
+    return { ok: true as const };
+  }
+
+  return {
+    ok: false as const,
+    status: lastFailure?.status || 502,
+    error: lastFailure?.error || "UAZAPI_INSTANCE_DELETE_FAILED",
+  };
+}
+
 export async function POST() {
   const baseUrl = process.env.UAZAPI_BASE_URL;
   const adminToken = process.env.UAZAPI_ADMIN_TOKEN;
@@ -70,7 +143,7 @@ export async function POST() {
   let hasExpiresColumn = true;
   let restaurantSelect = await supabase
     .from("restaurants")
-    .select("id, uaz_instance_token, uaz_expires_at")
+    .select("id, uaz_instance_id, uaz_instance_name, uaz_instance_token, uaz_expires_at")
     .eq("id", restaurantId)
     .single();
 
@@ -78,7 +151,7 @@ export async function POST() {
     hasExpiresColumn = false;
     restaurantSelect = await supabase
       .from("restaurants")
-      .select("id, uaz_instance_token")
+      .select("id, uaz_instance_id, uaz_instance_name, uaz_instance_token")
       .eq("id", restaurantId)
       .single();
   }
@@ -92,39 +165,25 @@ export async function POST() {
     );
   }
 
-  const instanceToken = restaurant.uaz_instance_token;
-  if (instanceToken) {
-    const upstream = await fetch(
-      `${baseUrl}/instance?token=${encodeURIComponent(instanceToken)}`,
-      {
-        method: "DELETE",
-        headers: {
-          admintoken: adminToken,
-          apikey: process.env.UAZAPI_GLOBAL_API_KEY || "",
-          token: instanceToken,
-        },
-        cache: "no-store",
-      }
-    );
+  const deleteResult = await deleteRemoteInstance({
+    baseUrl,
+    adminToken,
+    globalApiKey: process.env.UAZAPI_GLOBAL_API_KEY || "",
+    instanceId: restaurant.uaz_instance_id,
+    instanceName: restaurant.uaz_instance_name,
+    instanceToken: restaurant.uaz_instance_token,
+  });
 
-    const upstreamRaw = await upstream.text();
-    const upstreamData = parseJsonSafe(upstreamRaw);
-    const errorText = normalizeDeleteError(upstreamData?.error);
-    const ignorableDeleteFailure = shouldIgnoreDeleteFailure(
-      upstream.status,
-      errorText
+  if (!deleteResult.ok) {
+    return NextResponse.json(
+      { ok: false, error: deleteResult.error || "UAZAPI_INSTANCE_DELETE_FAILED" },
+      { status: deleteResult.status || 502 }
     );
-
-    if (!upstream.ok && !ignorableDeleteFailure) {
-      return NextResponse.json(
-        { ok: false, error: upstreamData?.error || "UAZAPI_INSTANCE_DELETE_FAILED" },
-        { status: upstream.status || 502 }
-      );
-    }
   }
 
   const resetPayload: Record<string, unknown> = {
     uaz_instance_id: null,
+    uaz_instance_name: null,
     uaz_instance_token: null,
     uaz_status: "disconnected",
     uaz_phone: null,

@@ -48,6 +48,79 @@ function isMaxInstancesError(errorText: unknown) {
   );
 }
 
+type DeleteRemoteInstanceParams = {
+  baseUrl: string;
+  adminToken: string;
+  globalApiKey: string;
+  instanceId?: string | null;
+  instanceName?: string | null;
+  instanceToken?: string | null;
+};
+
+async function deleteRemoteInstance(params: DeleteRemoteInstanceParams) {
+  const attempts: Array<{ value: string; source: "instance_id" | "instance_name" | "instance_token" }> = [];
+
+  if (typeof params.instanceId === "string" && params.instanceId.trim()) {
+    attempts.push({ value: params.instanceId.trim(), source: "instance_id" });
+  }
+
+  if (typeof params.instanceName === "string" && params.instanceName.trim()) {
+    attempts.push({ value: params.instanceName.trim(), source: "instance_name" });
+  }
+
+  if (typeof params.instanceToken === "string" && params.instanceToken.trim()) {
+    attempts.push({ value: params.instanceToken.trim(), source: "instance_token" });
+  }
+
+  let lastFailure: { status: number; error: unknown } | null = null;
+
+  for (const attempt of attempts) {
+    const url =
+      attempt.source === "instance_token"
+        ? `${params.baseUrl}/instance?token=${encodeURIComponent(attempt.value)}`
+        : `${params.baseUrl}/instance/delete/${encodeURIComponent(attempt.value)}`;
+
+    const headers: Record<string, string> = {
+      admintoken: params.adminToken,
+      apikey: params.globalApiKey,
+    };
+
+    if (attempt.source === "instance_token") {
+      headers.token = attempt.value;
+    }
+
+    const upstream = await fetch(url, {
+      method: "DELETE",
+      headers,
+      cache: "no-store",
+    });
+
+    const upstreamRaw = await upstream.text();
+    const upstreamData = parseJsonSafe(upstreamRaw);
+    const errorText = normalizeDeleteError(upstreamData?.error);
+    const ignorableDeleteFailure = shouldIgnoreDeleteFailure(upstream.status, errorText);
+
+    if (upstream.ok || ignorableDeleteFailure) {
+      return { ok: true as const, source: attempt.source, ignored: !upstream.ok };
+    }
+
+    lastFailure = {
+      status: upstream.status || 502,
+      error: upstreamData?.error || "UAZAPI_INSTANCE_DELETE_FAILED",
+    };
+  }
+
+  if (!attempts.length) {
+    return { ok: true as const, source: null, ignored: true };
+  }
+
+  return {
+    ok: false as const,
+    status: lastFailure?.status || 502,
+    error: lastFailure?.error || "UAZAPI_INSTANCE_DELETE_FAILED",
+  };
+}
+
 export async function POST(req: Request) {
   const reqUrl = new URL(req.url);
   const forceParam = (reqUrl.searchParams.get("force") || "").toLowerCase();
@@ -87,7 +160,9 @@ export async function POST(req: Request) {
   let hasExpiresColumn = true;
   let restaurantSelect = await supabase
     .from("restaurants")
-    .select("id, uaz_instance_id, uaz_instance_token, uaz_status, uaz_phone, uaz_expires_at")
+    .select(
+      "id, uaz_instance_id, uaz_instance_name, uaz_instance_token, uaz_status, uaz_phone, uaz_expires_at"
+    )
     .eq("id", restaurantId)
     .single();
 
@@ -95,7 +170,7 @@ export async function POST(req: Request) {
     hasExpiresColumn = false;
     restaurantSelect = await supabase
       .from("restaurants")
-      .select("id, uaz_instance_id, uaz_instance_token, uaz_status, uaz_phone")
+      .select("id, uaz_instance_id, uaz_instance_name, uaz_instance_token, uaz_status, uaz_phone")
       .eq("id", restaurantId)
       .single();
   }
@@ -121,39 +196,22 @@ export async function POST(req: Request) {
   }
 
   if (forceRecreate) {
-    const existingToken = restaurant.uaz_instance_token;
+    const deleteResult = await deleteRemoteInstance({
+      baseUrl,
+      adminToken,
+      globalApiKey: process.env.UAZAPI_GLOBAL_API_KEY || "",
+      instanceId: restaurant.uaz_instance_id,
+      instanceName: restaurant.uaz_instance_name,
+      instanceToken: restaurant.uaz_instance_token,
+    });
 
-    if (existingToken) {
-      const deleteUpstream = await fetch(
-        `${baseUrl}/instance?token=${encodeURIComponent(existingToken)}`,
-        {
-          method: "DELETE",
-          headers: {
-            admintoken: adminToken,
-            apikey: process.env.UAZAPI_GLOBAL_API_KEY || "",
-            token: existingToken,
-          },
-          cache: "no-store",
-        }
-      );
-
-      const deleteRaw = await deleteUpstream.text();
-      const deleteData = parseJsonSafe(deleteRaw);
-      const errorText = normalizeDeleteError(deleteData?.error);
-      const ignorableDeleteFailure = shouldIgnoreDeleteFailure(
-        deleteUpstream.status,
-        errorText
-      );
-
-      if (!deleteUpstream.ok && !ignorableDeleteFailure) {
-        console.warn("[whatsapp/instance/ensure] Non-blocking instance delete failure", {
-          restaurantId,
-          upstreamStatus: deleteUpstream.status,
-          error: deleteData?.error || null,
-        });
-      }
+    if (!deleteResult.ok) {
+      console.warn("[whatsapp/instance/ensure] Non-blocking instance delete failure", {
+        restaurantId,
+        error: deleteResult.error,
+        upstreamStatus: deleteResult.status,
+      });
     }
-
   }
 
   const payload = {
@@ -231,9 +289,7 @@ export async function POST(req: Request) {
     uaz_status: status,
     uaz_phone: null,
   };
-  if (instanceName) {
-    updatePayload.uaz_instance_name = instanceName;
-  }
+  updatePayload.uaz_instance_name = instanceName || payload.name;
   if (hasExpiresColumn) {
     updatePayload.uaz_expires_at = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   }

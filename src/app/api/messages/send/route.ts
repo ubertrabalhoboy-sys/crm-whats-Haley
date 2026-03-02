@@ -1,14 +1,38 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+type ChatWithContact = {
+  id: string;
+  wa_chat_id: string | null;
+  contacts:
+    | { phone?: string | null }
+    | Array<{ phone?: string | null }>
+    | null;
+};
+
 function normalizeBaseUrl(url: string) {
   return url.replace(/\/$/, "");
 }
 
 function guessNumberFromChatId(waChatId: string | null) {
   if (!waChatId) return null;
-  // "553199999999@s.whatsapp.net" -> "553199999999"
   return waChatId.split("@")[0] ?? null;
+}
+
+function readContactPhone(chat: ChatWithContact) {
+  if (Array.isArray(chat.contacts)) {
+    return chat.contacts[0]?.phone ?? null;
+  }
+
+  return chat.contacts?.phone ?? null;
+}
+
+function parseJsonSafe(text: string) {
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(req: Request) {
@@ -37,42 +61,55 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json();
-
-  const chat_id: string | undefined = body?.chat_id;
+  const chatId: string | undefined = body?.chat_id;
   const text: string | undefined = body?.text;
 
-  if (!chat_id || !text) {
+  if (!chatId || !text) {
     return NextResponse.json({ ok: false, error: "Missing chat_id or text" }, { status: 400 });
   }
 
-  // Pega chat + contato (pra ter phone)
-  const { data: chat, error: chErr } = await supabase
+  const { data: restaurant, error: restaurantError } = await supabase
+    .from("restaurants")
+    .select("uaz_instance_token")
+    .eq("id", restaurantId)
+    .single();
+
+  if (restaurantError || !restaurant?.uaz_instance_token) {
+    return NextResponse.json(
+      { ok: false, error: restaurantError?.message || "INSTANCE_TOKEN_MISSING" },
+      { status: 409 }
+    );
+  }
+
+  const { data: chat, error: chatError } = await supabase
     .from("chats")
     .select("id, wa_chat_id, contacts(phone)")
-    .eq("id", chat_id)
+    .eq("id", chatId)
     .eq("restaurant_id", restaurantId)
     .single();
 
-  if (chErr || !chat) {
-    return NextResponse.json({ ok: false, error: chErr?.message || "Chat not found" }, { status: 404 });
+  if (chatError || !chat) {
+    return NextResponse.json(
+      { ok: false, error: chatError?.message || "Chat not found" },
+      { status: 404 }
+    );
   }
 
-  const base = process.env.UAZAPI_BASE_URL;
-  const token = process.env.UAZAPI_TOKEN;
-
-  if (!base || !token) {
-    return NextResponse.json({ ok: false, error: "UAZAPI env not configured" }, { status: 500 });
+  const baseUrl = process.env.UAZAPI_BASE_URL;
+  const instanceToken = restaurant.uaz_instance_token;
+  if (!baseUrl || !instanceToken) {
+    return NextResponse.json(
+      { ok: false, error: "UAZAPI env not configured" },
+      { status: 500 }
+    );
   }
 
-  const sendUrl = `${normalizeBaseUrl(base)}/send/text`;
-
-  // ✅ GARANTE number só com dígitos
+  const typedChat = chat as ChatWithContact;
   const rawNumber =
-    (chat as any)?.contacts?.phone ||
-    guessNumberFromChatId((chat as any)?.wa_chat_id ?? null) ||
+    readContactPhone(typedChat) ||
+    guessNumberFromChatId(typedChat.wa_chat_id) ||
     "";
-
-  const number = String(rawNumber).replace(/\D/g, ""); // remove tudo que não for número
+  const number = String(rawNumber).replace(/\D/g, "");
 
   if (!number) {
     return NextResponse.json(
@@ -81,25 +118,22 @@ export async function POST(req: Request) {
     );
   }
 
-  // ✅ payload mais compatível: number + text
+  const sendUrl = `${normalizeBaseUrl(baseUrl)}/send/text`;
   const payload = { number, text };
 
   const uazRes = await fetch(sendUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      token: token, // ✅ UazAPI usa header 'token'
+      apikey: process.env.UAZAPI_GLOBAL_API_KEY || "",
+      token: instanceToken,
     },
     body: JSON.stringify(payload),
+    cache: "no-store",
   });
 
   const raw = await uazRes.text();
-  let uazJson: any = null;
-  try {
-    uazJson = JSON.parse(raw);
-  } catch {
-    // se vier HTML/texto, fica em raw
-  }
+  const uazJson = parseJsonSafe(raw);
 
   if (!uazRes.ok) {
     return NextResponse.json(
@@ -108,26 +142,28 @@ export async function POST(req: Request) {
     );
   }
 
-  const wa_message_id = uazJson?.id || uazJson?.messageId || null;
+  const waMessageId =
+    (uazJson && typeof uazJson === "object" && "id" in uazJson && uazJson.id) ||
+    (uazJson && typeof uazJson === "object" && "messageId" in uazJson && uazJson.messageId) ||
+    null;
 
-  // salva no banco como mensagem enviada
-  const { error: mErr } = await supabase.from("messages").insert({
-    chat_id: (chat as any).id,
+  const { error: messageError } = await supabase.from("messages").insert({
+    chat_id: typedChat.id,
     restaurant_id: restaurantId,
     direction: "out",
-    wa_message_id,
+    wa_message_id: waMessageId,
     text,
     payload: uazJson ?? raw,
   });
 
-  if (mErr) {
-    return NextResponse.json({ ok: false, error: mErr.message }, { status: 500 });
+  if (messageError) {
+    return NextResponse.json({ ok: false, error: messageError.message }, { status: 500 });
   }
 
   await supabase
     .from("chats")
     .update({ last_message: text, updated_at: new Date().toISOString() })
-    .eq("id", (chat as any).id)
+    .eq("id", typedChat.id)
     .eq("restaurant_id", restaurantId);
 
   return NextResponse.json({ ok: true, uaz: uazJson ?? raw });

@@ -270,18 +270,31 @@ export async function executeAiTool(
 
 async function handleGetStoreInfo(ctx: ToolContext) {
     const db = createAdminClient();
-    const { data, error } = await db
+    let storeQuery = await db
         .from("restaurants")
         .select("name, store_address, operating_hours, business_rules, description, logo_url, pix_key")
         .eq("id", ctx.restaurant_id)
         .single();
 
+    if (storeQuery.error?.message?.includes("business_rules")) {
+        storeQuery = await db
+            .from("restaurants")
+            .select("name, store_address, operating_hours, description, logo_url, pix_key")
+            .eq("id", ctx.restaurant_id)
+            .single();
+    }
+
+    const { data, error } = storeQuery;
     if (error) return { ok: false, error: error.message };
 
     return {
         ok: true,
         store_info: {
             ...data,
+            business_rules:
+                typeof (data as Record<string, unknown>)?.business_rules !== "undefined"
+                    ? (data as Record<string, unknown>).business_rules
+                    : null,
             address: data.store_address,
             business_hours: data.operating_hours,
             is_open_now: computeIsOpenNow(data.operating_hours),

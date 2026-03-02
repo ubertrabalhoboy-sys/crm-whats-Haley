@@ -3,49 +3,71 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
+type StoreInfoRow = {
+    name: string | null;
+    store_address: string | null;
+    operating_hours: unknown;
+    business_rules?: unknown;
+};
+
 export async function GET(req: NextRequest) {
     const supabase = await createSupabaseServerClient();
-
-    // As this is for the AI, it should receive the restaurant_id in query 
-    // or rely on a generic auth if the AI uses an API key. 
-    // Here we'll take restaurant_id from the query params.
     const restaurantId = req.nextUrl.searchParams.get("restaurant_id");
 
     if (!restaurantId) {
         return NextResponse.json({ ok: false, error: "MISSING_RESTAURANT_ID" }, { status: 400 });
     }
 
-    const { data: restaurant, error } = await supabase
+    let restaurantQuery = await supabase
         .from("restaurants")
         .select("name, store_address, operating_hours, business_rules")
         .eq("id", restaurantId)
         .single();
 
+    if (restaurantQuery.error?.message?.includes("business_rules")) {
+        restaurantQuery = await supabase
+            .from("restaurants")
+            .select("name, store_address, operating_hours")
+            .eq("id", restaurantId)
+            .single();
+    }
+
+    const { data: restaurant, error } = restaurantQuery;
+
     if (error || !restaurant) {
         return NextResponse.json({ ok: false, error: "RESTAURANT_NOT_FOUND" }, { status: 404 });
     }
 
-    // Determine if open right now in America/Sao_Paulo timezone
-    const now = new Date();
-    const options: Intl.DateTimeFormatOptions = { timeZone: "America/Sao_Paulo", weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false };
-    const spTime = new Intl.DateTimeFormat("en-US", options).format(now);
-    // spTime pattern: "Monday, 14:30"
+    const typedRestaurant = restaurant as StoreInfoRow;
 
+    const now = new Date();
+    const options: Intl.DateTimeFormatOptions = {
+        timeZone: "America/Sao_Paulo",
+        weekday: "long",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+    };
+    const spTime = new Intl.DateTimeFormat("en-US", options).format(now);
     const [weekdayStr, timeStr] = spTime.split(", ");
 
     const daysMap: Record<string, string> = {
-        "Monday": "segunda",
-        "Tuesday": "terca",
-        "Wednesday": "quarta",
-        "Thursday": "quinta",
-        "Friday": "sexta",
-        "Saturday": "sabado",
-        "Sunday": "domingo"
+        Monday: "segunda",
+        Tuesday: "terca",
+        Wednesday: "quarta",
+        Thursday: "quinta",
+        Friday: "sexta",
+        Saturday: "sabado",
+        Sunday: "domingo",
     };
     const currentDayKey = daysMap[weekdayStr];
 
-    const hours = restaurant.operating_hours as Record<string, { open: string; close: string; isClosed: boolean }> || {};
-    const todayHours = hours[currentDayKey];
+    const hours =
+        (typedRestaurant.operating_hours as Record<
+            string,
+            { open: string; close: string; isClosed: boolean }
+        >) || {};
+    const todayHours = currentDayKey ? hours[currentDayKey] : undefined;
 
     let isOpenNow = false;
 
@@ -59,28 +81,30 @@ export async function GET(req: NextRequest) {
         const closeTotalMins = closeH * 60 + closeM;
 
         if (closeTotalMins < openTotalMins) {
-            // Passes midnight (e.g., 18:00 to 02:00)
             if (currTotalMins >= openTotalMins || currTotalMins <= closeTotalMins) {
                 isOpenNow = true;
             }
-        } else {
-            // Normal day (e.g., 10:00 to 22:00)
-            if (currTotalMins >= openTotalMins && currTotalMins <= closeTotalMins) {
-                isOpenNow = true;
-            }
+        } else if (
+            currTotalMins >= openTotalMins &&
+            currTotalMins <= closeTotalMins
+        ) {
+            isOpenNow = true;
         }
     }
 
     return NextResponse.json({
         ok: true,
         store_info: {
-            name: restaurant.name,
-            store_address: restaurant.store_address,
+            name: typedRestaurant.name,
+            store_address: typedRestaurant.store_address,
             is_open_now: isOpenNow,
             current_day: currentDayKey,
             current_time_sp: timeStr,
             operating_hours: hours,
-            business_rules: restaurant.business_rules // 🧠 Dynamic FAQ / Knowledge Base
-        }
+            business_rules:
+                typeof typedRestaurant.business_rules !== "undefined"
+                    ? typedRestaurant.business_rules
+                    : null,
+        },
     });
 }

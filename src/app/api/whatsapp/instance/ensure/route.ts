@@ -133,10 +133,11 @@ export async function POST(req: Request) {
       );
 
       if (!deleteUpstream.ok && !ignorableDeleteFailure) {
-        return NextResponse.json(
-          { ok: false, error: deleteData?.error || "UAZAPI_INSTANCE_DELETE_FAILED" },
-          { status: deleteUpstream.status || 502 }
-        );
+        console.warn("[whatsapp/instance/ensure] Non-blocking instance delete failure", {
+          restaurantId,
+          upstreamStatus: deleteUpstream.status,
+          error: deleteData?.error || null,
+        });
       }
     }
 

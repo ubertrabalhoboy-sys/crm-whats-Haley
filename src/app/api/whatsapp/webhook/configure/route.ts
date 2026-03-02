@@ -15,6 +15,25 @@ function parseJsonSafe(text: string) {
   }
 }
 
+function normalizeUpstreamError(value: unknown) {
+  if (typeof value !== "string") return null;
+  return value.trim().toLowerCase();
+}
+
+function isExpiredOrInvalidInstance(status: number, errorText: string | null) {
+  if (status === 404) return true;
+  if (!errorText) return false;
+
+  return (
+    errorText.includes("invalid token") ||
+    errorText.includes("token invalido") ||
+    errorText.includes("instance expired") ||
+    errorText.includes("instancia expirada") ||
+    errorText.includes("not found") ||
+    errorText.includes("nao encontrada")
+  );
+}
+
 async function getRestaurantContext() {
   const supabase = await createSupabaseServerClient();
   const {
@@ -145,8 +164,15 @@ export async function GET() {
 
   const raw = await upstream.text();
   const data = parseJsonSafe(raw);
+  const errorText = normalizeUpstreamError(data?.error);
 
   if (!upstream.ok) {
+    if (isExpiredOrInvalidInstance(upstream.status, errorText)) {
+      return NextResponse.json(
+        { ok: true, configured: false, url: null, events: [] },
+        { status: 200 }
+      );
+    }
     return NextResponse.json(
       { ok: false, error: data?.error || "UAZAPI_WEBHOOK_STATUS_FAILED" },
       { status: upstream.status || 502 }

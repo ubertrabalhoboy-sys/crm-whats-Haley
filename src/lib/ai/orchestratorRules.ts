@@ -9,6 +9,31 @@ type TurnEvidence = {
     hasPixQuote: boolean;
 };
 
+type DelayedCouponDeferralContext = {
+    latestInboundText: string;
+    latestOutboundText: string;
+    hasCartItems: boolean;
+};
+
+type StructuredReplyContext = {
+    text: string;
+    hasCartItems: boolean;
+    locationConfirmed: boolean;
+    addressConfirmed: boolean;
+    referenceConfirmed: boolean;
+    hasFreightCalculation: boolean;
+    hasPaymentMethod: boolean;
+};
+
+function normalizeLooseText(text: string) {
+    return text
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 export function stripThoughtBlocks(text: string) {
     return text
         .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
@@ -79,4 +104,68 @@ export function detectUnverifiedCommercialClaim(
     }
 
     return { risky: false } as const;
+}
+
+export function shouldHandleDelayedCouponDeferral(
+    details: DelayedCouponDeferralContext
+) {
+    if (details.hasCartItems) {
+        return false;
+    }
+
+    const latestInboundNormalized = normalizeLooseText(details.latestInboundText);
+    const latestOutboundNormalized = normalizeLooseText(details.latestOutboundText);
+
+    if (!latestInboundNormalized || !latestOutboundNormalized) {
+        return false;
+    }
+
+    const acceptedDeferral =
+        /^(sim|pode ser|pode sim|ta bom|tudo bem|beleza|blz|ok|certo|fechou|outro dia)\b/.test(
+            latestInboundNormalized
+        ) ||
+        /^(pode|ta|tah)\b/.test(latestInboundNormalized);
+
+    if (!acceptedDeferral) {
+        return false;
+    }
+
+    const asksForAnotherDay =
+        latestOutboundNormalized.includes("outro dia") ||
+        latestOutboundNormalized.includes("usar outro dia");
+    const mentionsCouponFlow =
+        /(cupom|premio|roleta|loja|cozinha|descansando|fechad)/.test(
+            latestOutboundNormalized
+        );
+
+    return asksForAnotherDay && mentionsCouponFlow;
+}
+
+export function detectStructuredReplyIntent(details: StructuredReplyContext) {
+    const normalized = normalizeLooseText(details.text);
+
+    const asksForLocation =
+        details.hasCartItems &&
+        !details.locationConfirmed &&
+        /(localiz|gps|compartilh)/.test(normalized);
+
+    if (asksForLocation) {
+        return { kind: "request_location" as const };
+    }
+
+    const asksForPaymentChoice =
+        details.locationConfirmed &&
+        details.addressConfirmed &&
+        details.referenceConfirmed &&
+        details.hasFreightCalculation &&
+        !details.hasPaymentMethod &&
+        /pix/.test(normalized) &&
+        /(dinheiro|cartao|cartao)/.test(normalized) &&
+        /(pagamento|pagar|forma de pagamento|como prefere|escolha)/.test(normalized);
+
+    if (asksForPaymentChoice) {
+        return { kind: "payment_buttons" as const };
+    }
+
+    return null;
 }

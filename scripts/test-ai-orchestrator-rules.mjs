@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import {
+    detectStructuredReplyIntent,
     detectUnverifiedCommercialClaim,
     normalizeOutboundText,
+    shouldHandleDelayedCouponDeferral,
     stripThoughtBlocks,
 } from "../src/lib/ai/orchestratorRules.ts";
 
@@ -84,6 +86,74 @@ assert.deepEqual(
         { hasFreightCalculation: false, hasPixQuote: false }
     ),
     { risky: false }
+);
+
+assert.equal(
+    shouldHandleDelayedCouponDeferral({
+        latestInboundText: "pode ser",
+        latestOutboundText:
+            "A loja esta fechada agora, mas seu cupom esta garantido. Voce prefere usar outro dia?",
+        hasCartItems: false,
+    }),
+    true
+);
+
+assert.equal(
+    shouldHandleDelayedCouponDeferral({
+        latestInboundText: "pode ser",
+        latestOutboundText: "Confira nossas opcoes de lanche",
+        hasCartItems: false,
+    }),
+    false
+);
+
+assert.equal(
+    shouldHandleDelayedCouponDeferral({
+        latestInboundText: "sim",
+        latestOutboundText:
+            "A loja esta fechada agora, mas seu cupom esta garantido. Voce prefere usar outro dia?",
+        hasCartItems: true,
+    }),
+    false
+);
+
+assert.deepEqual(
+    detectStructuredReplyIntent({
+        text: "Perfeito. Agora clique no botao abaixo e compartilhe sua localizacao para eu seguir.",
+        hasCartItems: true,
+        locationConfirmed: false,
+        addressConfirmed: false,
+        referenceConfirmed: false,
+        hasFreightCalculation: false,
+        hasPaymentMethod: false,
+    }),
+    { kind: "request_location" }
+);
+
+assert.deepEqual(
+    detectStructuredReplyIntent({
+        text: "Como prefere pagar? PIX, Dinheiro ou Cartao?",
+        hasCartItems: true,
+        locationConfirmed: true,
+        addressConfirmed: true,
+        referenceConfirmed: true,
+        hasFreightCalculation: true,
+        hasPaymentMethod: false,
+    }),
+    { kind: "payment_buttons" }
+);
+
+assert.equal(
+    detectStructuredReplyIntent({
+        text: "Me manda o numero da casa",
+        hasCartItems: true,
+        locationConfirmed: true,
+        addressConfirmed: false,
+        referenceConfirmed: false,
+        hasFreightCalculation: false,
+        hasPaymentMethod: false,
+    }),
+    null
 );
 
 console.log("AI orchestrator rules smoke tests passed");

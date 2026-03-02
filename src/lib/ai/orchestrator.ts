@@ -13,8 +13,10 @@ import {
     readCartSnapshotMeta,
 } from "./heuristics";
 import {
+    detectStructuredReplyIntent,
     detectUnverifiedCommercialClaim,
     normalizeOutboundText,
+    shouldHandleDelayedCouponDeferral,
     stripThoughtBlocks,
 } from "./orchestratorRules";
 import {
@@ -1286,6 +1288,8 @@ export async function processAiMessage(params: OrchestratorParams) {
         .single();
 
     const typedChatContext = (chatContext || null) as ChatContextRecord | null;
+    const latestOutboundMessage = typedMessages.find((m) => m.direction === "out");
+    const cartSnapshotMeta = readCartSnapshotMeta(typedChatContext?.cart_snapshot);
 
     let geminiHistory: Content[] = [];
     if (typedMessages.length > 0) {
@@ -1389,6 +1393,13 @@ export async function processAiMessage(params: OrchestratorParams) {
         addressConfirmed,
         referenceConfirmed,
     });
+    const immediateDelayedCouponFollowUp = shouldHandleDelayedCouponDeferral({
+        latestInboundText: normalizedIncomingText,
+        latestOutboundText: typeof latestOutboundMessage?.text === "string"
+            ? latestOutboundMessage.text
+            : "",
+        hasCartItems: cartSnapshotMeta.hasItems,
+    });
 
     const toolInvocationFingerprints = new Set<string>();
     const turnEvidence = {
@@ -1426,6 +1437,84 @@ export async function processAiMessage(params: OrchestratorParams) {
             });
             markTextSent(turnMetrics);
             await persistOutgoingMessage(supabase, params, immediatePostLocationFollowUp);
+        }
+
+        const turnSummary = buildAiTurnSummary(turnMetrics, {
+            maxIterationsReached: false,
+        });
+        const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+        logAiEvent("process_completed", {
+            chatId: params.chatId,
+            metricsPersisted,
+            ...turnSummary,
+        });
+        return;
+    }
+
+    if (immediateDelayedCouponFollowUp) {
+        const stageMoveRaw = await executeAiTool(
+            "move_kanban_stage",
+            { stage_name: "Agendamento" },
+            ctx
+        );
+
+        let stageMoveResult: Record<string, unknown> | null = null;
+        try {
+            stageMoveResult = JSON.parse(stageMoveRaw) as Record<string, unknown>;
+        } catch {
+            stageMoveResult = null;
+        }
+
+        logAiEvent("tool_completed", {
+            chatId: params.chatId,
+            toolName: "move_kanban_stage",
+            blocked: false,
+            reason: null,
+            ok: stageMoveResult?.ok === true,
+            skipped: stageMoveResult?.skipped === true,
+            error: typeof stageMoveResult?.error === "string"
+                ? stageMoveResult.error
+                : null,
+            autoTriggeredBy: "delayed_coupon_confirmation",
+        });
+        markToolCompleted(turnMetrics, {
+            toolName: "move_kanban_stage",
+            blocked: false,
+            skipped: stageMoveResult?.skipped === true,
+            ok: stageMoveResult?.ok === true,
+        });
+
+        const deferredCouponFollowUpText =
+            "Fechou. Qual dia fica melhor para voce usar seu cupom? Se quiser, me fala o dia e um horario aproximado.";
+        const sendResult = await sendTextMessage(
+            params.waChatId,
+            deferredCouponFollowUpText,
+            instanceToken
+        );
+
+        if (!wasOutboundDeliveryAccepted(sendResult)) {
+            console.error("[AI LOOP] Immediate delayed-coupon follow-up failed", {
+                chatId: params.chatId,
+                result: sendResult,
+            });
+            logAiEvent("outbound_text_failed", {
+                chatId: params.chatId,
+                endpoint: sendResult.endpoint || "/send/text",
+                status: sendResult.status || null,
+                error: sendResult.error || null,
+                autoTriggeredBy: "delayed_coupon_confirmation",
+            });
+            markTextFailed(turnMetrics);
+        } else {
+            logAiEvent("outbound_text_sent", {
+                chatId: params.chatId,
+                endpoint: sendResult.endpoint || "/send/text",
+                status: sendResult.status || null,
+                textLength: deferredCouponFollowUpText.length,
+                autoTriggeredBy: "delayed_coupon_confirmation",
+            });
+            markTextSent(turnMetrics);
+            await persistOutgoingMessage(supabase, params, deferredCouponFollowUpText);
         }
 
         const turnSummary = buildAiTurnSummary(turnMetrics, {
@@ -1896,6 +1985,92 @@ export async function processAiMessage(params: OrchestratorParams) {
                         iteration,
                         reason: commercialClaimRisk.reason,
                     });
+                }
+
+                const structuredReplyIntent = detectStructuredReplyIntent({
+                    text: safeOutboundText,
+                    hasCartItems: cartSnapshotMeta.hasItems,
+                    locationConfirmed,
+                    addressConfirmed,
+                    referenceConfirmed,
+                    hasFreightCalculation: turnEvidence.hasFreightCalculation,
+                    hasPaymentMethod: cartSnapshotMeta.hasPaymentMethod,
+                });
+
+                if (structuredReplyIntent) {
+                    const autoToolName =
+                        structuredReplyIntent.kind === "request_location"
+                            ? "request_user_location"
+                            : "send_uaz_buttons";
+                    const autoToolArgs =
+                        structuredReplyIntent.kind === "request_location"
+                            ? {}
+                            : {
+                                text: "Como prefere pagar?",
+                                choices: ["PIX", "Dinheiro", "Cartao"],
+                                footerText: "Escolha uma opcao",
+                            };
+                    const autoToolRaw = await executeAiTool(autoToolName, autoToolArgs, ctx);
+
+                    try {
+                        const autoToolResult = asRecord(JSON.parse(autoToolRaw));
+                        const autoPayload = asRecord(autoToolResult?.uazapi_payload);
+                        if (autoPayload) {
+                            const duplicatePayload = await wasOutgoingPayloadAlreadySent(
+                                supabase,
+                                params.chatId,
+                                autoPayload,
+                                ctx.trigger_message_created_at
+                            );
+
+                            if (!duplicatePayload) {
+                                const payloadSendResult = await sendRichPayload(autoPayload, instanceToken);
+                                if (wasOutboundDeliveryAccepted(payloadSendResult)) {
+                                    logAiEvent("outbound_payload_sent", {
+                                        chatId: params.chatId,
+                                        iteration,
+                                        toolName: autoToolName,
+                                        endpoint: payloadSendResult.endpoint || null,
+                                        status: payloadSendResult.status || null,
+                                        delivered: true,
+                                        autoTriggeredBy: structuredReplyIntent.kind,
+                                    });
+                                    markPayloadSent(turnMetrics);
+                                    await persistOutgoingMessage(
+                                        supabase,
+                                        params,
+                                        typeof autoPayload.text === "string"
+                                            ? autoPayload.text
+                                            : `[${autoToolName}]`,
+                                        autoPayload
+                                    );
+                                    loopActive = false;
+                                    break;
+                                }
+
+                                logAiEvent("outbound_payload_failed", {
+                                    chatId: params.chatId,
+                                    iteration,
+                                    toolName: autoToolName,
+                                    endpoint: payloadSendResult.endpoint || null,
+                                    status: payloadSendResult.status || null,
+                                    error: payloadSendResult.error || null,
+                                    autoTriggeredBy: structuredReplyIntent.kind,
+                                });
+                                markPayloadFailed(turnMetrics);
+                            } else {
+                                logAiEvent("structured_reply_payload_skipped", {
+                                    chatId: params.chatId,
+                                    iteration,
+                                    toolName: autoToolName,
+                                    reason: "DUPLICATE_PAYLOAD_IN_CURRENT_TURN",
+                                    autoTriggeredBy: structuredReplyIntent.kind,
+                                });
+                            }
+                        }
+                    } catch {
+                        // keep the text fallback below if the synthetic tool step fails
+                    }
                 }
 
                 const sendResult = await sendTextMessage(params.waChatId, safeOutboundText, instanceToken);

@@ -200,6 +200,30 @@ export async function POST(req: Request) {
   }
 
   const restaurantId = restaurant.id;
+  const resolvePreferredStage = async (preferredStageName?: string | null) => {
+    if (preferredStageName) {
+      const { data: matchedStage } = await supabaseAdmin
+        .from("kanban_stages")
+        .select("id, name")
+        .eq("restaurant_id", restaurantId)
+        .eq("name", preferredStageName)
+        .maybeSingle();
+
+      if (matchedStage) {
+        return matchedStage;
+      }
+    }
+
+    const { data: firstStage } = await supabaseAdmin
+      .from("kanban_stages")
+      .select("id, name")
+      .eq("restaurant_id", restaurantId)
+      .order("position", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    return firstStage;
+  };
   const event = readString(body?.event, body?.type, body?.data?.event) || "";
   const eventLower = event.toLowerCase();
 
@@ -450,7 +474,7 @@ export async function POST(req: Request) {
   let chatId: string;
   const { data: existingChat, error: chatSelectError } = await supabaseAdmin
       .from("chats")
-      .select("id, last_message")
+      .select("id, last_message, stage_id, kanban_status")
       .eq("restaurant_id", restaurantId)
       .eq("wa_chat_id", waChatId)
       .maybeSingle();
@@ -461,6 +485,16 @@ export async function POST(req: Request) {
 
   if (existingChat?.id) {
     chatId = existingChat.id;
+    let stagePatch: Record<string, unknown> = {};
+    if (!existingChat.stage_id) {
+      const resolvedStage = await resolvePreferredStage(existingChat.kanban_status);
+      if (resolvedStage) {
+        stagePatch = {
+          stage_id: resolvedStage.id,
+          kanban_status: resolvedStage.name,
+        };
+      }
+    }
     const { error: chatUpdateError } = await supabaseAdmin
       .from("chats")
       .update({
@@ -468,6 +502,7 @@ export async function POST(req: Request) {
         last_message: chatInboundSummaryText ?? existingChat.last_message ?? "[Mensagem recebida]",
         unread_count: 1,
         updated_at: new Date().toISOString(),
+        ...stagePatch,
       })
       .eq("id", chatId)
       .eq("restaurant_id", restaurantId);
@@ -476,12 +511,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: chatUpdateError.message }, { status: 500 });
     }
   } else {
+    const initialStage = await resolvePreferredStage();
     const { data: newChat, error: chatInsertError } = await supabaseAdmin
       .from("chats")
       .insert({
         restaurant_id: restaurantId,
         wa_chat_id: waChatId,
         contact_id: contactId,
+        stage_id: initialStage?.id ?? null,
+        kanban_status: initialStage?.name ?? "Novo",
         last_message: chatInboundSummaryText ?? "[Mensagem recebida]",
         unread_count: 1,
         updated_at: new Date().toISOString(),

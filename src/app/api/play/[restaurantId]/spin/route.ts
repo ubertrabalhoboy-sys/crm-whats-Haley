@@ -115,6 +115,7 @@ export async function POST(
                 contact_id: contactId,
                 origem_lead: "Roleta",
                 cupom_ganho: prize.label,
+                stage_id: firstStage?.id ?? null,
                 kanban_status: kanbanStatus,
                 last_message: prizeMessage,
                 unread_count: 1,

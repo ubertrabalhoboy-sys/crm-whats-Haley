@@ -35,6 +35,19 @@ function shouldIgnoreDeleteFailure(status: number, errorText: string | null) {
   );
 }
 
+function isMaxInstancesError(errorText: unknown) {
+  if (typeof errorText !== "string") {
+    return false;
+  }
+
+  const normalized = errorText.trim().toLowerCase();
+  return (
+    normalized.includes("maximum number of instances reached") ||
+    normalized.includes("max instances") ||
+    normalized.includes("limite de instancias")
+  );
+}
+
 export async function POST(req: Request) {
   const reqUrl = new URL(req.url);
   const forceParam = (reqUrl.searchParams.get("force") || "").toLowerCase();
@@ -141,25 +154,6 @@ export async function POST(req: Request) {
       }
     }
 
-    const resetPayload: Record<string, unknown> = {
-      uaz_instance_id: null,
-      uaz_instance_token: null,
-      uaz_status: "disconnected",
-      uaz_phone: null,
-    };
-
-    if (hasExpiresColumn) {
-      resetPayload.uaz_expires_at = null;
-    }
-
-    const { error: resetError } = await supabase
-      .from("restaurants")
-      .update(resetPayload)
-      .eq("id", restaurant.id);
-
-    if (resetError) {
-      return NextResponse.json({ ok: false, error: resetError.message }, { status: 500 });
-    }
   }
 
   const payload = {
@@ -191,6 +185,19 @@ export async function POST(req: Request) {
       upstreamStatus: upstream.status,
       error: upstreamData?.error || null,
     });
+
+    if (forceRecreate && restaurant.uaz_instance_token && isMaxInstancesError(upstreamData?.error)) {
+      return NextResponse.json(
+        {
+          ok: true,
+          status: restaurant.uaz_status ?? null,
+          phone: restaurant.uaz_phone ?? null,
+          reusedExistingInstance: true,
+        },
+        { status: 200 }
+      );
+    }
+
     return NextResponse.json(
       { ok: false, error: upstreamData?.error || "UAZAPI_INSTANCE_INIT_FAILED" },
       { status: upstream.status || 502 }

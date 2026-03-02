@@ -1591,6 +1591,9 @@ export async function processAiMessage(params: OrchestratorParams) {
                     reason: toolBlockReason,
                     ok: parsedToolResultRecord?.ok === true,
                     skipped: parsedToolResultRecord?.skipped === true,
+                    error: typeof parsedToolResultRecord?.error === "string"
+                        ? parsedToolResultRecord.error
+                        : null,
                     hasUazPayload: Boolean(asRecord(parsedToolResultRecord?.uazapi_payload)),
                     requiresPixPayment: parsedToolResultRecord?.requires_pix_payment === true,
                 });

@@ -270,16 +270,22 @@ export async function executeAiTool(
 
 async function handleGetStoreInfo(ctx: ToolContext) {
     const db = createAdminClient();
+    const storeSelectOptions = [
+        "name, store_address, operating_hours, business_rules, description, logo_url, pix_key",
+        "name, store_address, operating_hours, description, logo_url, pix_key",
+        "name, store_address, operating_hours, logo_url, pix_key",
+    ];
+
     let storeQuery = await db
         .from("restaurants")
-        .select("name, store_address, operating_hours, business_rules, description, logo_url, pix_key")
+        .select(storeSelectOptions[0])
         .eq("id", ctx.restaurant_id)
         .single();
 
-    if (storeQuery.error?.message?.includes("business_rules")) {
+    for (let index = 1; storeQuery.error && index < storeSelectOptions.length; index += 1) {
         storeQuery = await db
             .from("restaurants")
-            .select("name, store_address, operating_hours, description, logo_url, pix_key")
+            .select(storeSelectOptions[index])
             .eq("id", ctx.restaurant_id)
             .single();
     }
@@ -287,17 +293,23 @@ async function handleGetStoreInfo(ctx: ToolContext) {
     const { data, error } = storeQuery;
     if (error) return { ok: false, error: error.message };
 
+    const storeData = (data ?? {}) as unknown as Record<string, unknown>;
+
     return {
         ok: true,
         store_info: {
-            ...data,
+            ...storeData,
             business_rules:
-                typeof (data as Record<string, unknown>)?.business_rules !== "undefined"
-                    ? (data as Record<string, unknown>).business_rules
+                typeof storeData.business_rules !== "undefined"
+                    ? storeData.business_rules
                     : null,
-            address: data.store_address,
-            business_hours: data.operating_hours,
-            is_open_now: computeIsOpenNow(data.operating_hours),
+            description:
+                typeof storeData.description === "string"
+                    ? storeData.description
+                    : null,
+            address: typeof storeData.store_address === "string" ? storeData.store_address : null,
+            business_hours: storeData.operating_hours ?? null,
+            is_open_now: computeIsOpenNow(storeData.operating_hours),
         },
     };
 }

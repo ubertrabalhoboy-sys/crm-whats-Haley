@@ -11,6 +11,11 @@ function parseJsonSafe(text: string) {
   }
 }
 
+function normalizeDeleteError(value: unknown) {
+  if (typeof value !== "string") return null;
+  return value.trim().toLowerCase();
+}
+
 export async function POST(req: Request) {
   const reqUrl = new URL(req.url);
   const forceParam = (reqUrl.searchParams.get("force") || "").toLowerCase();
@@ -84,12 +89,47 @@ export async function POST(req: Request) {
   }
 
   if (forceRecreate) {
+    const existingToken = restaurant.uaz_instance_token;
+
+    if (existingToken) {
+      const deleteUpstream = await fetch(
+        `${baseUrl}/instance?token=${encodeURIComponent(existingToken)}`,
+        {
+          method: "DELETE",
+          headers: {
+            admintoken: adminToken,
+            apikey: process.env.UAZAPI_GLOBAL_API_KEY || "",
+            token: existingToken,
+          },
+          cache: "no-store",
+        }
+      );
+
+      const deleteRaw = await deleteUpstream.text();
+      const deleteData = parseJsonSafe(deleteRaw);
+      const errorText = normalizeDeleteError(deleteData?.error);
+      const alreadyMissing =
+        deleteUpstream.status === 404 ||
+        Boolean(
+          errorText &&
+            (errorText.includes("not found") || errorText.includes("nao encontrada"))
+        );
+
+      if (!deleteUpstream.ok && !alreadyMissing) {
+        return NextResponse.json(
+          { ok: false, error: deleteData?.error || "UAZAPI_INSTANCE_DELETE_FAILED" },
+          { status: deleteUpstream.status || 502 }
+        );
+      }
+    }
+
     const resetPayload: Record<string, unknown> = {
       uaz_instance_id: null,
       uaz_instance_token: null,
       uaz_status: "disconnected",
       uaz_phone: null,
     };
+
     if (hasExpiresColumn) {
       resetPayload.uaz_expires_at = null;
     }
@@ -102,8 +142,7 @@ export async function POST(req: Request) {
     if (resetError) {
       return NextResponse.json({ ok: false, error: resetError.message }, { status: 500 });
     }
-
- }
+  }
 
   const payload = {
     name: `r-${restaurantId}-${Date.now()}`,
@@ -128,6 +167,12 @@ export async function POST(req: Request) {
   const upstreamData = parseJsonSafe(upstreamRaw);
 
   if (!upstream.ok) {
+    console.warn("[whatsapp/instance/ensure] Uazapi instance init failed", {
+      restaurantId,
+      forceRecreate,
+      upstreamStatus: upstream.status,
+      error: upstreamData?.error || null,
+    });
     return NextResponse.json(
       { ok: false, error: upstreamData?.error || "UAZAPI_INSTANCE_INIT_FAILED" },
       { status: upstream.status || 502 }
@@ -176,5 +221,5 @@ export async function POST(req: Request) {
   if (updateError) {
     return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
   }
- return NextResponse.json({ ok: true, status, phone: null }, { status: 200 });
+  return NextResponse.json({ ok: true, status, phone: null }, { status: 200 });
 }

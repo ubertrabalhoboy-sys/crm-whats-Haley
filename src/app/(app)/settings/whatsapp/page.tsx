@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Copy, QrCode, Smartphone, SmartphoneNfc, Unplug, Zap, RefreshCcw } from "lucide-react";
 
 type ConnectResponse = {
@@ -123,7 +123,7 @@ export default function WhatsAppSettingsPage() {
       } else {
         setError("Falha ao configurar webhook: " + (data.error || "Desconhecido"));
       }
-    } catch (err) {
+    } catch {
       setError("Erro de rede ao configurar webhook.");
     } finally {
       setLoadingWebhook(false);
@@ -136,7 +136,7 @@ export default function WhatsAppSettingsPage() {
     else setLoadingPairing(true);
     setLoadingEnsure(true);
 
-    // 1. Force ensure instance first
+    // 1. Force recreate instance first (free-tier sessions expire and need a fresh instance)
     const ensureRes = await fetch("/api/whatsapp/instance/ensure?force=1", { method: "POST" });
     const ensureJson = await ensureRes.json();
 
@@ -178,15 +178,13 @@ export default function WhatsAppSettingsPage() {
 
     setError(null);
     try {
-      // A quick hack since we don't have a direct disconnect route, normally removing the instance or logging out works.
-      // Creating a new instance with force=1 essentially logs out the old session.
-      await fetch("/api/whatsapp/instance/ensure?force=1", { method: "POST" });
+      await fetch("/api/whatsapp/instance/delete", { method: "POST" });
       setStatusText("disconnected");
       setConnected(false);
       setQrcode(null);
       setPaircode(null);
       setWebhookConfigured(false);
-    } catch (err) {
+    } catch {
       setError("Erro ao tentar desconectar.");
     }
   }
@@ -201,7 +199,7 @@ export default function WhatsAppSettingsPage() {
       refreshStatus().catch(() => null);
     }, 2000);
     return () => clearInterval(timer);
-  }, [isConnecting]);
+  }, [isConnecting, paircode, qrcode]);
 
   const qrImageSrc =
     qrcode && (qrcode.startsWith("data:image") || /^[A-Za-z0-9+/=\r\n]+$/.test(qrcode))
@@ -357,7 +355,7 @@ export default function WhatsAppSettingsPage() {
                   {paircode ? "Aguardando Vínculo" : "Escaneie o QR Code"}
                 </h2>
                 <p className="text-sm text-slate-500 mb-8 max-w-xs">
-                  Abra o WhatsApp no celular, vá em "Aparelhos Conectados" e siga as instruções para o pareamento.
+                  Abra o WhatsApp no celular, vá em &quot;Aparelhos Conectados&quot; e siga as instruções para o pareamento.
                 </p>
 
                 {qrcode && qrImageSrc && (

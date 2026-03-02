@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import {
+    buildFollowupReminderText,
+    buildScheduledFollowupPayload,
     buildCarouselPriceText,
     buildCartSnapshotData,
     calculateCouponDiscount,
+    inferFollowupNextStep,
     resolveAppliedDiscount,
 } from "../src/lib/ai/toolRules.ts";
 
@@ -77,5 +80,66 @@ assert.deepEqual(snapshot, {
     source: "submit_final_order",
     updated_at: "2026-03-02T00:00:00.000Z",
 });
+
+assert.equal(inferFollowupNextStep(null), "principal");
+assert.equal(
+    inferFollowupNextStep({
+        items: [{ product_id: "1", quantity: 1, category: "principal" }],
+    }),
+    "adicional"
+);
+assert.equal(
+    inferFollowupNextStep({
+        items: [
+            { product_id: "1", quantity: 1, category: "principal" },
+            { product_id: "2", quantity: 1, category: "adicional" },
+        ],
+    }),
+    "bebida"
+);
+assert.equal(
+    buildFollowupReminderText({
+        intent: "abandoned_cart",
+        cartSnapshot: {
+            items: [{ product_id: "1", quantity: 1, category: "principal" }],
+        },
+        kanbanStatus: "Montando Pedido",
+        cupomGanho: "GANHE10",
+        explicitText: null,
+    }),
+    "Opa, estou retomando seu pedido e seu carrinho continua salvo. Posso continuar de onde paramos?"
+);
+
+assert.deepEqual(
+    buildScheduledFollowupPayload({
+        existingPayload: {},
+        intent: "delayed_coupon",
+        cartSnapshot: {
+            items: [
+                { product_id: "1", quantity: 1, category: "principal" },
+                { product_id: "2", quantity: 1, category: "adicional" },
+            ],
+        },
+        kanbanStatus: "Agendamento",
+        cupomGanho: "GANHE10",
+        generatedAt: "2026-03-02T01:00:00.000Z",
+    }),
+    {
+        text: "Opa, a loja ja esta aberta e seu pedido continua salvo. Posso continuar seu pedido e te mostrar as bebidas agora?",
+        custom_text: null,
+        resume_context: {
+            cart_snapshot: {
+                items: [
+                    { product_id: "1", quantity: 1, category: "principal" },
+                    { product_id: "2", quantity: 1, category: "adicional" },
+                ],
+            },
+            kanban_status: "Agendamento",
+            cupom_ganho: "GANHE10",
+            next_step: "bebida",
+            generated_at: "2026-03-02T01:00:00.000Z",
+        },
+    }
+);
 
 console.log("AI tool rules smoke tests passed");

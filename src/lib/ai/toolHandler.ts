@@ -3,11 +3,13 @@
 import {
     buildCarouselPriceText,
     buildCartSnapshotData,
+    buildScheduledFollowupPayload,
     calculateCouponDiscount,
     resolveAppliedDiscount,
 } from "./toolRules";
 import {
     getActiveChatCouponCode,
+    getChatFollowupState,
     persistChatCartSnapshot,
 } from "./toolHandlerData";
 
@@ -816,15 +818,40 @@ async function handleRequestUserLocation(ctx: ToolContext) {
 
 async function handleScheduleFollowup(args: Record<string, unknown>, ctx: ToolContext) {
     const db = createAdminClient();
-    const runAt = new Date(Date.now() + (Number(args.minutes_delay) || 30) * 60 * 1000).toISOString();
+    const runAt = new Date(
+        Date.now() + (Number(args.minutes_delay) || 30) * 60 * 1000
+    ).toISOString();
+    const intent =
+        typeof args.intent === "string" && args.intent.trim().length > 0
+            ? args.intent.trim()
+            : "follow_up";
+    const followupState = await getChatFollowupState(db, ctx.chat_id);
+    const scheduledPayload = buildScheduledFollowupPayload({
+        existingPayload: args.payload,
+        intent,
+        cartSnapshot: followupState?.cart_snapshot ?? null,
+        kanbanStatus:
+            typeof followupState?.kanban_status === "string"
+                ? followupState.kanban_status
+                : null,
+        cupomGanho:
+            typeof followupState?.cupom_ganho === "string"
+                ? followupState.cupom_ganho
+                : null,
+        generatedAt: new Date().toISOString(),
+    });
+    const persistedFollowupPayload = {
+        ...scheduledPayload,
+        chat_id: ctx.chat_id || null,
+    };
     const { data, error } = await db
         .from("scheduled_messages")
         .insert({
             restaurant_id: ctx.restaurant_id,
             wa_chat_id: ctx.wa_chat_id || "",
             run_at: runAt,
-            intent: (args.intent as string) || "follow_up",
-            payload: args.payload || {},
+            intent,
+            payload: persistedFollowupPayload,
             status: "pending",
         })
         .select()
@@ -835,7 +862,12 @@ async function handleScheduleFollowup(args: Record<string, unknown>, ctx: ToolCo
         chatId: ctx.chat_id || null,
         scheduledId: data.id,
         runAt,
-        intent: (args.intent as string) || "follow_up",
+        intent,
+        nextStep:
+            typeof (persistedFollowupPayload as { resume_context?: { next_step?: string } }).resume_context
+                ?.next_step === "string"
+                ? (persistedFollowupPayload as { resume_context?: { next_step?: string } }).resume_context?.next_step
+                : null,
     });
     return { ok: true, scheduled_id: data.id };
 }

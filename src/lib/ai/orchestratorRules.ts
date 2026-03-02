@@ -23,6 +23,16 @@ type StructuredReplyContext = {
     referenceConfirmed: boolean;
     hasFreightCalculation: boolean;
     hasPaymentMethod: boolean;
+    hasPrincipal?: boolean;
+    hasAdditional?: boolean;
+    hasDrink?: boolean;
+    hasOrder?: boolean;
+};
+
+type RouletteChoiceContext = {
+    latestInboundText: string;
+    latestOutboundText: string;
+    hasCartItems: boolean;
 };
 
 function normalizeLooseText(text: string) {
@@ -165,6 +175,103 @@ export function detectStructuredReplyIntent(details: StructuredReplyContext) {
 
     if (asksForPaymentChoice) {
         return { kind: "payment_buttons" as const };
+    }
+
+    const mentionsPrincipal =
+        /(principal|lanche|burger|hamburg|sanduiche|sanduiche)/.test(normalized);
+    const mentionsAdditional =
+        /(adicional|acompanh|extra|complemento|batata|anel de cebola)/.test(
+            normalized
+        );
+    const mentionsDrink =
+        /(bebida|refrigerante|suco|agua|cha|guarana|coca)/.test(normalized);
+    const mentionedCategories = [
+        mentionsPrincipal ? "principal" : null,
+        mentionsAdditional ? "adicional" : null,
+        mentionsDrink ? "bebida" : null,
+    ].filter((value): value is "principal" | "adicional" | "bebida" => Boolean(value));
+    const genericCatalogPrompt =
+        /(confira nossas opcoes|vou te mostrar|vou te mandar|da uma olhada|olha as opcoes)/.test(
+            normalized
+        );
+
+    let categoryIntent: "principal" | "adicional" | "bebida" | null =
+        mentionedCategories.length === 1 ? mentionedCategories[0] : null;
+
+    if (
+        !categoryIntent &&
+        genericCatalogPrompt &&
+        !details.hasOrder &&
+        !details.hasFreightCalculation &&
+        !details.hasPaymentMethod
+    ) {
+        if (!details.hasPrincipal) {
+            categoryIntent = "principal";
+        } else if (!details.hasAdditional) {
+            categoryIntent = "adicional";
+        } else if (!details.hasDrink) {
+            categoryIntent = "bebida";
+        }
+    }
+
+    if (categoryIntent === "principal" && !details.hasPrincipal) {
+        return { kind: "category_catalog" as const, category: "principal" as const };
+    }
+
+    if (
+        categoryIntent === "adicional" &&
+        details.hasPrincipal &&
+        !details.hasAdditional
+    ) {
+        return { kind: "category_catalog" as const, category: "adicional" as const };
+    }
+
+    if (
+        categoryIntent === "bebida" &&
+        details.hasPrincipal &&
+        !details.hasDrink
+    ) {
+        return { kind: "category_catalog" as const, category: "bebida" as const };
+    }
+
+    return null;
+}
+
+export function isRoulettePrizeTrigger(text: string) {
+    const normalized = normalizeLooseText(text);
+    return normalized.includes("roleta:");
+}
+
+export function detectRouletteChoiceIntent(details: RouletteChoiceContext) {
+    if (details.hasCartItems) {
+        return null;
+    }
+
+    const latestInboundNormalized = normalizeLooseText(details.latestInboundText);
+    const latestOutboundNormalized = normalizeLooseText(details.latestOutboundText);
+
+    if (!latestInboundNormalized || !latestOutboundNormalized) {
+        return null;
+    }
+
+    const isChoicePrompt =
+        latestOutboundNormalized.includes("usar agora") &&
+        latestOutboundNormalized.includes("outro dia");
+
+    if (!isChoicePrompt) {
+        return null;
+    }
+
+    if (
+        latestInboundNormalized.includes("outro dia") ||
+        latestInboundNormalized.includes("mais tarde") ||
+        latestInboundNormalized.includes("depois")
+    ) {
+        return "use_later" as const;
+    }
+
+    if (latestInboundNormalized.includes("agora")) {
+        return "use_now" as const;
     }
 
     return null;

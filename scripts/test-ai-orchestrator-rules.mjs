@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import {
+    detectRouletteChoiceIntent,
     detectStructuredReplyIntent,
     detectUnverifiedCommercialClaim,
+    isRoulettePrizeTrigger,
     normalizeOutboundText,
     shouldHandleDelayedCouponDeferral,
     stripThoughtBlocks,
@@ -18,7 +20,7 @@ assert.equal(
 );
 
 const normalizedWithPlaceholders = normalizeOutboundText(
-    "Olá, eu sou da {nome_restaurante}. Status {kanban_status}. Cupom: {cupom_ganho}",
+    "Ola, eu sou da {nome_restaurante}. Status {kanban_status}. Cupom: {cupom_ganho}",
     {
         restaurantName: "FoodSpin",
         kanbanStatus: "Em atendimento",
@@ -27,7 +29,7 @@ const normalizedWithPlaceholders = normalizeOutboundText(
 );
 assert.deepEqual(normalizedWithPlaceholders, {
     ok: true,
-    text: "Olá, eu sou da FoodSpin. Status Em atendimento. Cupom: GANHE10",
+    text: "Ola, eu sou da FoodSpin. Status Em atendimento. Cupom: GANHE10",
 });
 
 assert.deepEqual(
@@ -154,6 +156,63 @@ assert.equal(
         hasPaymentMethod: false,
     }),
     null
+);
+
+assert.deepEqual(
+    detectStructuredReplyIntent({
+        text: "Que tal um adicional pra acompanhar? Temos umas opcoes bem boas.",
+        hasCartItems: true,
+        locationConfirmed: false,
+        addressConfirmed: false,
+        referenceConfirmed: false,
+        hasFreightCalculation: false,
+        hasPaymentMethod: false,
+        hasPrincipal: true,
+        hasAdditional: false,
+        hasDrink: false,
+        hasOrder: false,
+    }),
+    { kind: "category_catalog", category: "adicional" }
+);
+
+assert.deepEqual(
+    detectStructuredReplyIntent({
+        text: "Confira nossas opcoes:",
+        hasCartItems: true,
+        locationConfirmed: false,
+        addressConfirmed: false,
+        referenceConfirmed: false,
+        hasFreightCalculation: false,
+        hasPaymentMethod: false,
+        hasPrincipal: true,
+        hasAdditional: true,
+        hasDrink: false,
+        hasOrder: false,
+    }),
+    { kind: "category_catalog", category: "bebida" }
+);
+
+assert.equal(
+    isRoulettePrizeTrigger("🎰 Roleta: 20%OFF"),
+    true
+);
+
+assert.equal(
+    detectRouletteChoiceIntent({
+        latestInboundText: "Agora ja 18h",
+        latestOutboundText: "Parabens! Quer usar agora ou outro dia?",
+        hasCartItems: false,
+    }),
+    "use_now"
+);
+
+assert.equal(
+    detectRouletteChoiceIntent({
+        latestInboundText: "Mais tarde depois que a loja abrir",
+        latestOutboundText: "Parabens! Quer usar agora ou outro dia?",
+        hasCartItems: false,
+    }),
+    "use_later"
 );
 
 console.log("AI orchestrator rules smoke tests passed");

@@ -5,6 +5,12 @@ type ChatCouponRow = {
     cupom_ganho?: string | null;
 } | null;
 
+type ChatFollowupRow = {
+    cart_snapshot?: unknown;
+    kanban_status?: string | null;
+    cupom_ganho?: string | null;
+} | null;
+
 type QueryError = {
     message?: string | null;
 } | null | undefined;
@@ -12,7 +18,7 @@ type QueryError = {
 type ChatsTableClient = {
     select(columns: string): {
         eq(column: string, value: unknown): {
-            maybeSingle(): PromiseLike<{ data: ChatCouponRow; error?: QueryError }>;
+            maybeSingle(): PromiseLike<{ data: Record<string, unknown> | null; error?: QueryError }>;
         };
     };
     update(values: Record<string, unknown>): {
@@ -40,7 +46,27 @@ export async function getActiveChatCouponCode(
         .eq("id", chatId)
         .maybeSingle();
 
-    return typeof chatData?.cupom_ganho === "string" ? chatData.cupom_ganho.trim() : "";
+    const typedChatData = chatData as ChatCouponRow;
+    return typeof typedChatData?.cupom_ganho === "string"
+        ? typedChatData.cupom_ganho.trim()
+        : "";
+}
+
+export async function getChatFollowupState(
+    db: ChatsDbClient,
+    chatId: string | undefined
+) {
+    if (!chatId) {
+        return null;
+    }
+
+    const chatsTable = db.from("chats") as ChatsTableClient;
+    const { data: chatData } = await chatsTable
+        .select("cart_snapshot, kanban_status, cupom_ganho")
+        .eq("id", chatId)
+        .maybeSingle();
+
+    return (chatData as ChatFollowupRow) || null;
 }
 
 export async function persistChatCartSnapshot(

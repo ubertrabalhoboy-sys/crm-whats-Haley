@@ -13,8 +13,10 @@ import {
     readCartSnapshotMeta,
 } from "./heuristics";
 import {
+    detectRouletteChoiceIntent,
     detectStructuredReplyIntent,
     detectUnverifiedCommercialClaim,
+    isRoulettePrizeTrigger,
     normalizeOutboundText,
     shouldHandleDelayedCouponDeferral,
     stripThoughtBlocks,
@@ -1393,6 +1395,15 @@ export async function processAiMessage(params: OrchestratorParams) {
         addressConfirmed,
         referenceConfirmed,
     });
+    const immediateRoulettePrizePrompt =
+        isRoulettePrizeTrigger(normalizedIncomingText) && !cartSnapshotMeta.hasItems;
+    const immediateRouletteChoice = detectRouletteChoiceIntent({
+        latestInboundText: normalizedIncomingText,
+        latestOutboundText: typeof latestOutboundMessage?.text === "string"
+            ? latestOutboundMessage.text
+            : "",
+        hasCartItems: cartSnapshotMeta.hasItems,
+    });
     const immediateDelayedCouponFollowUp = shouldHandleDelayedCouponDeferral({
         latestInboundText: normalizedIncomingText,
         latestOutboundText: typeof latestOutboundMessage?.text === "string"
@@ -1437,6 +1448,349 @@ export async function processAiMessage(params: OrchestratorParams) {
             });
             markTextSent(turnMetrics);
             await persistOutgoingMessage(supabase, params, immediatePostLocationFollowUp);
+        }
+
+        const turnSummary = buildAiTurnSummary(turnMetrics, {
+            maxIterationsReached: false,
+        });
+        const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+        logAiEvent("process_completed", {
+            chatId: params.chatId,
+            metricsPersisted,
+            ...turnSummary,
+        });
+        return;
+    }
+
+    if (immediateRoulettePrizePrompt) {
+        const promptText =
+            "Parabens pelo seu premio! Quer usar agora ou prefere usar outro dia?";
+        const choiceToolRaw = await executeAiTool(
+            "send_uaz_buttons",
+            {
+                text: promptText,
+                choices: ["Usar agora", "Usar outro dia"],
+                footerText: "Escolha uma opcao",
+            },
+            ctx
+        );
+
+        try {
+            const choiceToolResult = asRecord(JSON.parse(choiceToolRaw));
+            const choicePayload = asRecord(choiceToolResult?.uazapi_payload);
+            if (choicePayload) {
+                const payloadSendResult = await sendRichPayload(choicePayload, instanceToken);
+                if (wasOutboundDeliveryAccepted(payloadSendResult)) {
+                    logAiEvent("outbound_payload_sent", {
+                        chatId: params.chatId,
+                        endpoint: payloadSendResult.endpoint || null,
+                        status: payloadSendResult.status || null,
+                        delivered: true,
+                        autoTriggeredBy: "roulette_prize_prompt",
+                    });
+                    markPayloadSent(turnMetrics);
+                    await persistOutgoingMessage(
+                        supabase,
+                        params,
+                        typeof choicePayload.text === "string" ? choicePayload.text : promptText,
+                        choicePayload
+                    );
+                } else {
+                    logAiEvent("outbound_payload_failed", {
+                        chatId: params.chatId,
+                        endpoint: payloadSendResult.endpoint || null,
+                        status: payloadSendResult.status || null,
+                        error: payloadSendResult.error || null,
+                        autoTriggeredBy: "roulette_prize_prompt",
+                    });
+                    markPayloadFailed(turnMetrics);
+
+                    const fallbackTextResult = await sendTextMessage(
+                        params.waChatId,
+                        promptText,
+                        instanceToken
+                    );
+                    if (wasOutboundDeliveryAccepted(fallbackTextResult)) {
+                        logAiEvent("outbound_text_sent", {
+                            chatId: params.chatId,
+                            endpoint: fallbackTextResult.endpoint || "/send/text",
+                            status: fallbackTextResult.status || null,
+                            textLength: promptText.length,
+                            autoTriggeredBy: "roulette_prize_prompt_fallback",
+                        });
+                        markTextSent(turnMetrics);
+                        await persistOutgoingMessage(supabase, params, promptText);
+                    } else {
+                        markTextFailed(turnMetrics);
+                    }
+                }
+
+                const turnSummary = buildAiTurnSummary(turnMetrics, {
+                    maxIterationsReached: false,
+                });
+                const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+                logAiEvent("process_completed", {
+                    chatId: params.chatId,
+                    metricsPersisted,
+                    ...turnSummary,
+                });
+                return;
+            }
+        } catch {
+            // fallback below
+        }
+
+        const fallbackTextResult = await sendTextMessage(
+            params.waChatId,
+            promptText,
+            instanceToken
+        );
+        if (wasOutboundDeliveryAccepted(fallbackTextResult)) {
+            logAiEvent("outbound_text_sent", {
+                chatId: params.chatId,
+                endpoint: fallbackTextResult.endpoint || "/send/text",
+                status: fallbackTextResult.status || null,
+                textLength: promptText.length,
+                autoTriggeredBy: "roulette_prize_prompt_fallback",
+            });
+            markTextSent(turnMetrics);
+            await persistOutgoingMessage(supabase, params, promptText);
+        } else {
+            markTextFailed(turnMetrics);
+        }
+
+        const turnSummary = buildAiTurnSummary(turnMetrics, {
+            maxIterationsReached: false,
+        });
+        const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+        logAiEvent("process_completed", {
+            chatId: params.chatId,
+            metricsPersisted,
+            ...turnSummary,
+        });
+        return;
+    }
+
+    if (immediateRouletteChoice === "use_later") {
+        const stageMoveRaw = await executeAiTool(
+            "move_kanban_stage",
+            { stage_name: "Agendamento" },
+            ctx
+        );
+        try {
+            const stageMoveResult = asRecord(JSON.parse(stageMoveRaw));
+            markToolCompleted(turnMetrics, {
+                toolName: "move_kanban_stage",
+                blocked: false,
+                skipped: stageMoveResult?.skipped === true,
+                ok: stageMoveResult?.ok === true,
+            });
+        } catch {
+            // ignore metric parse issue
+        }
+
+        const followUpText =
+            "Fechou. Qual dia e horario ficam melhores para voce usar seu cupom?";
+        const sendResult = await sendTextMessage(
+            params.waChatId,
+            followUpText,
+            instanceToken
+        );
+
+        if (wasOutboundDeliveryAccepted(sendResult)) {
+            logAiEvent("outbound_text_sent", {
+                chatId: params.chatId,
+                endpoint: sendResult.endpoint || "/send/text",
+                status: sendResult.status || null,
+                textLength: followUpText.length,
+                autoTriggeredBy: "roulette_use_later",
+            });
+            markTextSent(turnMetrics);
+            await persistOutgoingMessage(supabase, params, followUpText);
+        } else {
+            markTextFailed(turnMetrics);
+        }
+
+        const turnSummary = buildAiTurnSummary(turnMetrics, {
+            maxIterationsReached: false,
+        });
+        const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+        logAiEvent("process_completed", {
+            chatId: params.chatId,
+            metricsPersisted,
+            ...turnSummary,
+        });
+        return;
+    }
+
+    if (immediateRouletteChoice === "use_now") {
+        const storeInfoRaw = await executeAiTool("get_store_info", {}, ctx);
+        const storeInfoResult = asRecord(JSON.parse(storeInfoRaw));
+        const storeInfo = asRecord(storeInfoResult?.store_info);
+        const isOpenNow = storeInfo?.is_open_now === true;
+        markToolCompleted(turnMetrics, {
+            toolName: "get_store_info",
+            blocked: false,
+            skipped: false,
+            ok: storeInfoResult?.ok === true,
+        });
+
+        if (!isOpenNow) {
+            const closedText =
+                "Ainda nao estamos abertos agora. Mas seu premio esta garantido. Quer agendar para mais tarde ou outro dia?";
+            const sendResult = await sendTextMessage(
+                params.waChatId,
+                closedText,
+                instanceToken
+            );
+            if (wasOutboundDeliveryAccepted(sendResult)) {
+                logAiEvent("outbound_text_sent", {
+                    chatId: params.chatId,
+                    endpoint: sendResult.endpoint || "/send/text",
+                    status: sendResult.status || null,
+                    textLength: closedText.length,
+                    autoTriggeredBy: "roulette_use_now_closed",
+                });
+                markTextSent(turnMetrics);
+                await persistOutgoingMessage(supabase, params, closedText);
+            } else {
+                markTextFailed(turnMetrics);
+            }
+
+            const turnSummary = buildAiTurnSummary(turnMetrics, {
+                maxIterationsReached: false,
+            });
+            const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+            logAiEvent("process_completed", {
+                chatId: params.chatId,
+                metricsPersisted,
+                ...turnSummary,
+            });
+            return;
+        }
+
+        const stageMoveRaw = await executeAiTool(
+            "move_kanban_stage",
+            { stage_name: "Montando Pedido" },
+            ctx
+        );
+        try {
+            const stageMoveResult = asRecord(JSON.parse(stageMoveRaw));
+            markToolCompleted(turnMetrics, {
+                toolName: "move_kanban_stage",
+                blocked: false,
+                skipped: stageMoveResult?.skipped === true,
+                ok: stageMoveResult?.ok === true,
+            });
+        } catch {
+            // ignore metric parse issue
+        }
+
+        const searchRaw = await executeAiTool(
+            "search_product_catalog",
+            { category: "principal" },
+            ctx
+        );
+        const searchResult = asRecord(JSON.parse(searchRaw));
+        const searchedProducts = asProductList(searchResult?.products);
+        markToolCompleted(turnMetrics, {
+            toolName: "search_product_catalog",
+            blocked: false,
+            skipped: false,
+            ok: searchResult?.ok === true,
+        });
+
+        if (searchedProducts.length > 0) {
+            const carouselRaw = await executeAiTool(
+                "send_uaz_carousel",
+                {
+                    products: searchedProducts,
+                    text: "Agora estamos abertos. Confira nossos principais:",
+                },
+                ctx
+            );
+            try {
+                const carouselResult = asRecord(JSON.parse(carouselRaw));
+                const carouselPayload = asRecord(carouselResult?.uazapi_payload);
+                markToolCompleted(turnMetrics, {
+                    toolName: "send_uaz_carousel",
+                    blocked: false,
+                    skipped: false,
+                    ok: carouselResult?.ok === true,
+                });
+
+                if (carouselPayload) {
+                    const payloadSendResult = await sendRichPayload(
+                        carouselPayload,
+                        instanceToken
+                    );
+                    if (wasOutboundDeliveryAccepted(payloadSendResult)) {
+                        logAiEvent("outbound_payload_sent", {
+                            chatId: params.chatId,
+                            endpoint: payloadSendResult.endpoint || null,
+                            status: payloadSendResult.status || null,
+                            delivered: true,
+                            autoTriggeredBy: "roulette_use_now_open",
+                        });
+                        markPayloadSent(turnMetrics);
+                        await persistOutgoingMessage(
+                            supabase,
+                            params,
+                            typeof carouselPayload.text === "string"
+                                ? carouselPayload.text
+                                : "Agora estamos abertos. Confira nossos principais:",
+                            carouselPayload
+                        );
+                    } else {
+                        logAiEvent("outbound_payload_failed", {
+                            chatId: params.chatId,
+                            endpoint: payloadSendResult.endpoint || null,
+                            status: payloadSendResult.status || null,
+                            error: payloadSendResult.error || null,
+                            autoTriggeredBy: "roulette_use_now_open",
+                        });
+                        markPayloadFailed(turnMetrics);
+                        const fallbackText = "Agora estamos abertos. Vou te mostrar nossos principais aqui.";
+                        const fallbackTextResult = await sendTextMessage(
+                            params.waChatId,
+                            fallbackText,
+                            instanceToken
+                        );
+                        if (wasOutboundDeliveryAccepted(fallbackTextResult)) {
+                            markTextSent(turnMetrics);
+                            await persistOutgoingMessage(supabase, params, fallbackText);
+                        } else {
+                            markTextFailed(turnMetrics);
+                        }
+                    }
+
+                    const turnSummary = buildAiTurnSummary(turnMetrics, {
+                        maxIterationsReached: false,
+                    });
+                    const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+                    logAiEvent("process_completed", {
+                        chatId: params.chatId,
+                        metricsPersisted,
+                        ...turnSummary,
+                    });
+                    return;
+                }
+            } catch {
+                // fallback below
+            }
+        }
+
+        const fallbackText = "Agora estamos abertos. Me fala se voce quer ver principais, adicionais ou bebidas e eu te mostro.";
+        const fallbackTextResult = await sendTextMessage(
+            params.waChatId,
+            fallbackText,
+            instanceToken
+        );
+        if (wasOutboundDeliveryAccepted(fallbackTextResult)) {
+            markTextSent(turnMetrics);
+            await persistOutgoingMessage(supabase, params, fallbackText);
+        } else {
+            markTextFailed(turnMetrics);
         }
 
         const turnSummary = buildAiTurnSummary(turnMetrics, {
@@ -1782,6 +2136,24 @@ export async function processAiMessage(params: OrchestratorParams) {
 
                 const parsedUazPayload = asRecord(parsedToolResultRecord?.uazapi_payload);
                 if (parsedUazPayload) {
+                    if (
+                        await wasOutgoingPayloadAlreadySent(
+                            supabase,
+                            params.chatId,
+                            parsedUazPayload,
+                            ctx.trigger_message_created_at
+                        )
+                    ) {
+                        logAiEvent("outbound_payload_skipped", {
+                            chatId: params.chatId,
+                            iteration,
+                            toolName,
+                            reason: "DUPLICATE_PAYLOAD_IN_CURRENT_TURN",
+                        });
+                        loopActive = false;
+                        break;
+                    }
+
                     const typedPixPayload = toolName === "get_pix_payment"
                         ? asPixPayload(parsedUazPayload)
                         : null;
@@ -1825,6 +2197,48 @@ export async function processAiMessage(params: OrchestratorParams) {
                             error: sendResult.error || null,
                         });
                         markPayloadFailed(turnMetrics);
+
+                        const payloadFallbackText =
+                            typeof parsedUazPayload.text === "string" &&
+                            parsedUazPayload.text.trim().length > 0
+                                ? parsedUazPayload.text.trim()
+                                : null;
+
+                        if (payloadFallbackText) {
+                            const fallbackTextResult = await sendTextMessage(
+                                params.waChatId,
+                                payloadFallbackText,
+                                instanceToken
+                            );
+
+                            if (wasOutboundDeliveryAccepted(fallbackTextResult)) {
+                                logAiEvent("outbound_text_sent", {
+                                    chatId: params.chatId,
+                                    iteration,
+                                    endpoint: fallbackTextResult.endpoint || "/send/text",
+                                    status: fallbackTextResult.status || null,
+                                    textLength: payloadFallbackText.length,
+                                    autoTriggeredBy: `${toolName}_payload_fallback`,
+                                });
+                                markTextSent(turnMetrics);
+                                await persistOutgoingMessage(
+                                    supabase,
+                                    params,
+                                    payloadFallbackText
+                                );
+                            } else {
+                                logAiEvent("outbound_text_failed", {
+                                    chatId: params.chatId,
+                                    iteration,
+                                    endpoint: fallbackTextResult.endpoint || "/send/text",
+                                    status: fallbackTextResult.status || null,
+                                    error: fallbackTextResult.error || null,
+                                    autoTriggeredBy: `${toolName}_payload_fallback`,
+                                });
+                                markTextFailed(turnMetrics);
+                            }
+                        }
+
                         loopActive = false;
                         break;
                     }
@@ -1995,9 +2409,101 @@ export async function processAiMessage(params: OrchestratorParams) {
                     referenceConfirmed,
                     hasFreightCalculation: turnEvidence.hasFreightCalculation,
                     hasPaymentMethod: cartSnapshotMeta.hasPaymentMethod,
+                    hasPrincipal: cartSnapshotMeta.hasPrincipal,
+                    hasAdditional: cartSnapshotMeta.hasAdditional,
+                    hasDrink: cartSnapshotMeta.hasDrink,
+                    hasOrder: cartSnapshotMeta.hasOrder,
                 });
 
-                if (structuredReplyIntent) {
+                if (structuredReplyIntent?.kind === "category_catalog") {
+                    const categorySearchRaw = await executeAiTool(
+                        "search_product_catalog",
+                        { category: structuredReplyIntent.category },
+                        ctx
+                    );
+
+                    try {
+                        const categorySearchResult = asRecord(JSON.parse(categorySearchRaw));
+                        const categoryProducts = asProductList(categorySearchResult?.products);
+
+                        if (categoryProducts.length > 0) {
+                            const autoCarouselRaw = await executeAiTool(
+                                "send_uaz_carousel",
+                                {
+                                    products: categoryProducts,
+                                    text: safeOutboundText,
+                                },
+                                ctx
+                            );
+                            const autoCarouselResult = asRecord(JSON.parse(autoCarouselRaw));
+                            const autoCarouselPayload = asRecord(
+                                autoCarouselResult?.uazapi_payload
+                            );
+
+                            if (autoCarouselPayload) {
+                                const duplicatePayload = await wasOutgoingPayloadAlreadySent(
+                                    supabase,
+                                    params.chatId,
+                                    autoCarouselPayload,
+                                    ctx.trigger_message_created_at
+                                );
+
+                                if (!duplicatePayload) {
+                                    const payloadSendResult = await sendRichPayload(
+                                        autoCarouselPayload,
+                                        instanceToken
+                                    );
+                                    if (wasOutboundDeliveryAccepted(payloadSendResult)) {
+                                        logAiEvent("outbound_payload_sent", {
+                                            chatId: params.chatId,
+                                            iteration,
+                                            toolName: "send_uaz_carousel",
+                                            endpoint: payloadSendResult.endpoint || null,
+                                            status: payloadSendResult.status || null,
+                                            delivered: true,
+                                            autoTriggeredBy: structuredReplyIntent.kind,
+                                            category: structuredReplyIntent.category,
+                                        });
+                                        markPayloadSent(turnMetrics);
+                                        await persistOutgoingMessage(
+                                            supabase,
+                                            params,
+                                            typeof autoCarouselPayload.text === "string"
+                                                ? autoCarouselPayload.text
+                                                : safeOutboundText,
+                                            autoCarouselPayload
+                                        );
+                                        loopActive = false;
+                                        break;
+                                    }
+
+                                    logAiEvent("outbound_payload_failed", {
+                                        chatId: params.chatId,
+                                        iteration,
+                                        toolName: "send_uaz_carousel",
+                                        endpoint: payloadSendResult.endpoint || null,
+                                        status: payloadSendResult.status || null,
+                                        error: payloadSendResult.error || null,
+                                        autoTriggeredBy: structuredReplyIntent.kind,
+                                        category: structuredReplyIntent.category,
+                                    });
+                                    markPayloadFailed(turnMetrics);
+                                } else {
+                                    logAiEvent("structured_reply_payload_skipped", {
+                                        chatId: params.chatId,
+                                        iteration,
+                                        toolName: "send_uaz_carousel",
+                                        reason: "DUPLICATE_PAYLOAD_IN_CURRENT_TURN",
+                                        autoTriggeredBy: structuredReplyIntent.kind,
+                                        category: structuredReplyIntent.category,
+                                    });
+                                }
+                            }
+                        }
+                    } catch {
+                        // keep the text fallback below if the synthetic catalog step fails
+                    }
+                } else if (structuredReplyIntent) {
                     const autoToolName =
                         structuredReplyIntent.kind === "request_location"
                             ? "request_user_location"

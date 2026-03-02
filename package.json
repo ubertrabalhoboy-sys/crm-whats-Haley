@@ -10,10 +10,11 @@
     "test:ai": "node --experimental-strip-types scripts/test-ai-heuristics.mjs",
     "test:ai:tools": "node --experimental-strip-types scripts/test-ai-tool-rules.mjs",
     "test:ai:flow": "node --experimental-strip-types scripts/test-ai-flow.mjs",
+    "test:ai:transcripts": "node --experimental-strip-types scripts/test-ai-transcripts.mjs",
     "test:ai:orchestrator": "node --experimental-strip-types scripts/test-ai-orchestrator-rules.mjs",
     "test:ai:mocks": "node --experimental-strip-types scripts/test-ai-integration-mocks.mjs",
     "test:ai:metrics": "node --experimental-strip-types scripts/test-ai-metrics.mjs",
-    "test:ai:all": "npm run test:ai && npm run test:ai:tools && npm run test:ai:flow && npm run test:ai:orchestrator && npm run test:ai:mocks && npm run test:ai:metrics"
+    "test:ai:all": "npm run test:ai && npm run test:ai:tools && npm run test:ai:flow && npm run test:ai:transcripts && npm run test:ai:orchestrator && npm run test:ai:mocks && npm run test:ai:metrics"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

@@ -1,4 +1,29 @@
-import { FunctionDeclaration, SchemaType } from "@google/generative-ai";
+import {
+    FunctionDeclaration,
+    FunctionDeclarationSchema,
+    Schema,
+    SchemaType,
+} from "@google/generative-ai";
+
+type JsonSchemaNode = {
+    type?: string | string[];
+    description?: string;
+    enum?: string[];
+    properties?: Record<string, JsonSchemaNode>;
+    items?: JsonSchemaNode;
+    required?: string[];
+    minItems?: number;
+    maxItems?: number;
+    format?: string;
+};
+
+type OpenAIToolDefinition = {
+    function: {
+        name: string;
+        description: string;
+        parameters?: JsonSchemaNode;
+    };
+};
 
 /**
  * Maps an OpenAPI/JSON Schema type to Google Generative AI SchemaType.
@@ -23,11 +48,11 @@ function mapType(typeStr: string | string[]): SchemaType {
 /**
  * Recursively maps an OpenAPI JSON parameter schema to the Gemini Schema structure.
  */
-function mapSchema(schema: any): any {
+function mapSchema(schema: JsonSchemaNode | undefined): Schema | undefined {
     if (!schema) return undefined;
 
-    const res: any = {
-        type: mapType(schema.type),
+    const res: Record<string, unknown> = {
+        type: mapType(schema.type || "string"),
         description: schema.description,
     };
 
@@ -36,33 +61,69 @@ function mapSchema(schema: any): any {
         res.nullable = true;
     }
 
-    if (schema.enum) {
+    if (schema.enum?.length) {
+        res.format = "enum";
         res.enum = schema.enum;
     }
 
     if (schema.properties) {
-        res.properties = {};
+        const properties: Record<string, Schema> = {};
         for (const key in schema.properties) {
-            res.properties[key] = mapSchema(schema.properties[key]);
+            const mappedProperty = mapSchema(schema.properties[key]);
+            if (mappedProperty) {
+                properties[key] = mappedProperty;
+            }
         }
+        res.properties = properties;
     }
 
     if (schema.items) {
         res.items = mapSchema(schema.items);
     }
 
+    if (typeof schema.minItems === "number") {
+        res.minItems = schema.minItems;
+    }
+
+    if (typeof schema.maxItems === "number") {
+        res.maxItems = schema.maxItems;
+    }
+
+    if (!schema.enum && schema.format === "date-time") {
+        res.format = "date-time";
+    } else if (!schema.enum && schema.type === "integer" && (schema.format === "int32" || schema.format === "int64")) {
+        res.format = schema.format;
+    } else if (!schema.enum && schema.type === "number" && (schema.format === "float" || schema.format === "double")) {
+        res.format = schema.format;
+    }
+
     if (schema.required && Array.isArray(schema.required)) {
         res.required = schema.required;
     }
 
-    return res;
+    return res as unknown as Schema;
+}
+
+function mapFunctionParameters(schema: JsonSchemaNode): FunctionDeclarationSchema {
+    const mappedSchema = mapSchema(schema);
+    const properties =
+        mappedSchema && "properties" in mappedSchema && mappedSchema.properties
+            ? mappedSchema.properties
+            : {};
+
+    return {
+        type: SchemaType.OBJECT,
+        description: schema.description,
+        properties,
+        required: Array.isArray(schema.required) ? schema.required : undefined,
+    };
 }
 
 /**
  * Converts an array of OpenAI-formatted tool definitions from tools.json
  * into Gemini FunctionDeclarations.
  */
-export function mapOpenAIToolsToGemini(openaiTools: any[]): FunctionDeclaration[] {
+export function mapOpenAIToolsToGemini(openaiTools: OpenAIToolDefinition[]): FunctionDeclaration[] {
     return openaiTools.map(t => {
         const fn = t.function;
 
@@ -72,7 +133,7 @@ export function mapOpenAIToolsToGemini(openaiTools: any[]): FunctionDeclaration[
         };
 
         if (fn.parameters && Object.keys(fn.parameters).length > 0) {
-            result.parameters = mapSchema(fn.parameters);
+            result.parameters = mapFunctionParameters(fn.parameters);
         }
 
         return result;

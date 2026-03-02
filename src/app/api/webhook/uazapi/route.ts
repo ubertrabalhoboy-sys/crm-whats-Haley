@@ -496,6 +496,25 @@ export async function POST(req: Request) {
       incomingText: text,
     }).catch(err => console.error("[AI LOOP] Background failure:", err));
   }
+
+  const locationLat = body?.BODY?.message?.content?.degreesLatitude;
+  const locationLng = body?.BODY?.message?.content?.degreesLongitude;
+  const isLocationMessage =
+    body?.BODY?.message?.messageType === "LocationMessage" &&
+    typeof locationLat === "number" &&
+    Number.isFinite(locationLat) &&
+    typeof locationLng === "number" &&
+    Number.isFinite(locationLng);
+
+  if (isLocationMessage) {
+    processAiMessage({
+      restaurantId,
+      chatId,
+      waChatId,
+      instanceName: instanceName || undefined,
+      incomingText: `CLIENT_ACTION:location_shared lat=${locationLat} lng=${locationLng}`,
+    }).catch(err => console.error("[AI LOOP] Location share failure:", err));
+  }
   // ───────────────────────────────
 
   try {
@@ -619,6 +638,24 @@ export async function POST(req: Request) {
     }
 
     if (buttonClicked) {
+      const aiIncomingText =
+        readString(
+          buttonClicked.buttonId,
+          b?.message?.buttonOrListid,
+          b?.message?.content?.selectedButtonID,
+          b?.message?.content?.Response?.SelectedDisplayText
+        ) ?? null;
+
+      if (aiIncomingText) {
+        processAiMessage({
+          restaurantId,
+          chatId,
+          waChatId,
+          instanceName: instanceName || undefined,
+          incomingText: aiIncomingText,
+        }).catch(err => console.error("[AI LOOP] Button click failure:", err));
+      }
+
       const fiqonWebhookUrl = process.env.FIQON_WEBHOOK_URL;
       if (!fiqonWebhookUrl) {
         console.warn("[fiqon-forward] missing_env");

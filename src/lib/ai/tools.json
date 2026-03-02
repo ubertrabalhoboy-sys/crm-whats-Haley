@@ -1,239 +1,239 @@
-[
-    {
-        "type": "function",
-        "function": {
-            "name": "get_store_info",
-            "description": "Retorna endereço, horários de funcionamento e se o restaurante está aberto agora (is_open_now). Use no início do atendimento ou quando o cliente perguntar se está aberto ou o endereço para retirada.",
-            "parameters": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {}
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_product_catalog",
-            "description": "Busca produtos no banco (tabela produtos_promo). Sempre use 'category' para filtrar (principal/bebida/adicional) e evitar retorno gigante. 'query' é opcional.",
-            "parameters": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "category": {
-                        "type": "string",
-                        "enum": ["principal", "bebida", "adicional"],
-                        "description": "Categoria obrigatória para filtrar o catálogo."
-                    },
-                    "query": {
-                        "type": "string",
-                        "description": "Opcional. Termo de busca (ex: 'coca-cola', 'bacon')."
-                    }
-                },
-                "required": ["category"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "calculate_cart_total",
-            "description": "Calcula subtotal, desconto, frete dinâmico via Google Maps e total. NUNCA calcule na mão. 'customer_address' deve ser o endereço do cliente.",
-            "parameters": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "items": {
-                        "type": "array",
-                        "minItems": 1,
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "properties": {
-                                "product_id": { "type": "string" },
-                                "quantity": { "type": "integer", "minimum": 1 }
-                            },
-                            "required": ["product_id", "quantity"]
-                        }
-                    },
-                    "cupom_code": {
-                        "type": ["string", "null"],
-                        "description": "Opcional. Código do cupom (se existir)."
-                    },
-                    "customer_address": {
-                        "type": "string",
-                        "description": "Endereço textual do cliente (ex: 'Rua X, 123'). Usado para cálculo da distância."
-                    }
-                },
-                "required": ["items", "customer_address"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "submit_final_order",
-            "description": "Registra o pedido na cozinha (insere direto em 'orders'). Só chame quando tiver: items, payment_method, address_number e gps_location (string). Se payment_method='dinheiro', informe change_for (troco).",
-            "parameters": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "chat_id": { "type": "string", "description": "Opcional. Se omitido, o handler usa ctx.chat_id." },
-                    "items": {
-                        "type": "array",
-                        "minItems": 1,
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "properties": {
-                                "product_id": { "type": "string" },
-                                "quantity": { "type": "integer", "minimum": 1 }
-                            },
-                            "required": ["product_id", "quantity"]
-                        }
-                    },
-                    "subtotal": { "type": "number", "minimum": 0 },
-                    "discount": { "type": "number", "minimum": 0 },
-                    "delivery_fee": { "type": "number", "minimum": 0 },
-                    "total": { "type": "number", "minimum": 0 },
-                    "payment_method": {
-                        "type": "string",
-                        "enum": ["pix", "dinheiro", "cartao"]
-                    },
-                    "change_for": {
-                        "type": ["number", "null"],
-                        "minimum": 0,
-                        "description": "Troco para quanto. Obrigatório quando payment_method='dinheiro'. Use null se não for dinheiro."
-                    },
-                    "address_number": { "type": "string", "description": "Número da residência." },
-                    "address_reference": { "type": ["string", "null"], "description": "Ponto de referência (opcional)." },
-                    "gps_location": { "type": "string", "description": "String GPS/endereço derivado." }
-                },
-                "required": ["items", "subtotal", "total", "payment_method", "address_number", "gps_location"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_pix_payment",
-            "description": "Gera cobrança PIX nativa da Uazapi. Use quando payment_method='pix'.",
-            "parameters": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "chat_id": { "type": "string", "description": "Opcional." },
-                    "amount": { "type": "number", "minimum": 0, "description": "Valor total do pedido." }
-                },
-                "required": ["amount"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "schedule_proactive_followup",
-            "description": "Agenda follow-up (insere em scheduled_messages). Use para abandono, cupom futuro, pós-venda, remarketing.",
-            "parameters": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "minutes_delay": { "type": "integer", "minimum": 1, "description": "Minutos para disparar." },
-                    "intent": {
-                        "type": "string",
-                        "enum": ["abandoned_cart", "delayed_coupon", "follow_up", "remarketing"],
-                        "description": "Tipo de follow-up."
-                    },
-                    "payload": {
-                        "type": "object",
-                        "additionalProperties": true,
-                        "description": "Dados livres para salvar (ex: cupom, preferências, texto sugerido)."
-                    }
-                },
-                "required": ["minutes_delay", "intent"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "send_uaz_carousel",
-            "description": "Retorna JSON de carrossel no formato Uazapi. Use para exibir produtos. Mostra preço normal vs preço promo.",
-            "parameters": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "text": { "type": "string", "description": "Texto acima do carrossel." },
-                    "products": {
-                        "type": "array",
-                        "minItems": 1,
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "properties": {
-                                "title": { "type": "string" },
-                                "description": { "type": "string" },
-                                "image_url": { "type": "string", "format": "uri" },
-                                "price": { "type": "number", "minimum": 0 },
-                                "promo_price": { "type": ["number", "null"] },
-                                "product_id": { "type": "string" }
-                            },
-                            "required": ["title", "description", "image_url", "price", "product_id"]
-                        }
-                    }
-                },
-                "required": ["text", "products"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "send_uaz_buttons",
-            "description": "Retorna JSON de botões nativos (Type: button) no formato Uazapi. Ideal para 'Usar Agora / Usar Depois' ou 'Forma de Pagamento'.",
-            "parameters": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "text": { "type": "string", "description": "Pergunta ou texto principal." },
-                    "choices": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Array de strings com as opções (ex: ['PIX', 'Dinheiro'])."
-                    },
-                    "footerText": { "type": "string", "description": "Rodapé da mensagem." }
-                },
-                "required": ["text", "choices", "footerText"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "request_user_location",
-            "description": "Retorna payload Uazapi pedindo localização (GPS) com botão nativo.",
-            "parameters": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {},
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "move_kanban_stage",
-            "description": "Move o lead no Kanban atualizando stage_id do chat. Usa stage_name (nome exato do estágio no banco).",
-            "parameters": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "chat_id": { "type": "string", "description": "Opcional." },
-                    "stage_name": { "type": "string", "description": "Nome exato do stage." }
-                },
-                "required": ["stage_name"]
-            }
-        }
+﻿[
+  {
+    "type": "function",
+    "function": {
+      "name": "get_store_info",
+      "description": "Retorna endereco, horarios de funcionamento e se o restaurante esta aberto agora (is_open_now). Use no inicio do atendimento ou quando o cliente perguntar se esta aberto ou o endereco para retirada.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
     }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "search_product_catalog",
+      "description": "Busca produtos no banco de dados. REGRA DE OURO: Voce e ESTRITAMENTE PROIBIDO de criar itens da sua cabeca. E OBRIGATORIO chamar esta ferramenta ANTES de exibir qualquer carrossel. Siga a ordem estrita de vendas: 1 oferecer Principal, 2 oferecer Adicional, 3 oferecer Bebida (um passo de cada vez). Sempre use 'category' para filtrar.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": ["principal", "bebida", "adicional"],
+            "description": "Categoria obrigatoria para filtrar o catalogo na ordem correta."
+          },
+          "query": {
+            "type": "string",
+            "description": "Opcional. Termo de busca (ex: coca-cola, bacon)."
+          }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "calculate_cart_total",
+      "description": "Calcula subtotal, desconto, frete dinamico via Google Maps e total. NUNCA calcule na mao. REGRA OBRIGATORIA: so chame esta ferramenta DEPOIS que o cliente compartilhar a localizacao nativa pelo botao e DEPOIS que o ponto de referencia estiver confirmado. Nao avance para frete sem localizacao nativa + referencia.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "product_id": { "type": "string" },
+                "quantity": { "type": "integer", "minimum": 1 }
+              },
+              "required": ["product_id", "quantity"]
+            }
+          },
+          "cupom_code": {
+            "type": ["string", "null"],
+            "description": "Opcional. Codigo do cupom (se existir)."
+          },
+          "customer_address": {
+            "type": "string",
+            "description": "Endereco textual consolidado do cliente (ex: Rua X, 123). Use somente apos a localizacao nativa ser compartilhada e o ponto de referencia estar confirmado."
+          }
+        },
+        "required": ["items"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "submit_final_order",
+      "description": "Registra o pedido na cozinha. So chame quando tiver todos os dados necessarios. REGRA OBRIGATORIA: somente finalize depois de principal/adicional/bebida estarem concluídos (aceitos ou recusados), depois da localizacao nativa estar confirmada, e depois do ponto de referencia estar confirmado. Se payment_method='dinheiro', informe change_for. ATENCAO: Apos chamar esta ferramenta, NAO tente enviar mensagens adicionais de finalizacao se a forma for PIX, deixe a ferramenta de PIX atuar.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "chat_id": { "type": "string", "description": "Opcional. Se omitido, o handler usa ctx.chat_id." },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "product_id": { "type": "string" },
+                "quantity": { "type": "integer", "minimum": 1 }
+              },
+              "required": ["product_id", "quantity"]
+            }
+          },
+          "subtotal": { "type": "number", "minimum": 0 },
+          "discount": { "type": "number", "minimum": 0 },
+          "delivery_fee": { "type": "number", "minimum": 0 },
+          "total": { "type": "number", "minimum": 0 },
+          "payment_method": {
+            "type": "string",
+            "enum": ["pix", "dinheiro", "cartao"]
+          },
+          "change_for": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "description": "Troco para quanto. Obrigatorio quando payment_method='dinheiro'. Use null se nao for dinheiro."
+          },
+          "address_number": { "type": "string", "description": "Numero da residencia." },
+          "address_reference": { "type": "string", "description": "Ponto de referencia obrigatorio. Pode ser informado antes ou depois da localizacao nativa, mas deve existir antes da finalizacao." },
+          "gps_location": { "type": "string", "description": "Localizacao nativa confirmada do cliente (ou endereco consolidado derivado dela). Obrigatorio antes da finalizacao." }
+        },
+        "required": ["items", "payment_method", "address_number", "address_reference", "gps_location"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_pix_payment",
+      "description": "Gera cobranca PIX nativa da Uazapi. Use estritamente quando payment_method='pix'. REGRA OBRIGATORIA: so use depois da localizacao nativa estar confirmada, do ponto de referencia estar confirmado e do total/frete ja terem sido calculados. Assim que esta funcao retornar o payload, ele sera enviado automaticamente.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "chat_id": { "type": "string", "description": "Opcional." },
+          "amount": { "type": "number", "minimum": 0, "description": "Valor total do pedido calculado previamente." }
+        },
+        "required": ["amount"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "schedule_proactive_followup",
+      "description": "Agenda follow-up. Use para abandono de carrinho, enviar cupom futuro ou pos-venda.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "minutes_delay": { "type": "integer", "minimum": 1, "description": "Minutos para disparar." },
+          "intent": {
+            "type": "string",
+            "enum": ["abandoned_cart", "delayed_coupon", "follow_up", "remarketing"],
+            "description": "Tipo de follow-up."
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Dados livres para salvar (ex: cupom, preferencias, texto sugerido)."
+          }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "send_uaz_carousel",
+      "description": "Envia o carrossel. ESTRITAMENTE PROIBIDO INVENTAR PRODUTOS. Voce SO PODE usar os produtos e dados exatos (incluindo o product_id) retornados pela ferramenta 'search_product_catalog'. Se tentar criar um produto, o sistema falhara.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": { "type": "string", "description": "Texto acima do carrossel." },
+          "products": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "title": { "type": "string" },
+                "description": { "type": "string" },
+                "image_url": { "type": "string", "format": "uri" },
+                "price": { "type": "number", "minimum": 0 },
+                "promo_price": { "type": ["number", "null"] },
+                "product_id": { "type": "string", "description": "ID exato do produto vindo do banco. Crucial para o botao Adicionar funcionar." }
+              },
+              "required": ["product_id"]
+            }
+          }
+        },
+        "required": ["products"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "send_uaz_buttons",
+      "description": "Retorna JSON de botoes nativos. Ideal para escolhas rapidas como Forma de Pagamento ou Retirada/Entrega.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": { "type": "string", "description": "Pergunta ou texto principal." },
+          "choices": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Array de strings com as opcoes (ex: PIX, Dinheiro)."
+          },
+          "footerText": { "type": "string", "description": "Rodape da mensagem." }
+        },
+        "required": ["choices"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "request_user_location",
+      "description": "Pede a localizacao nativa do cliente pelo botao oficial. REGRA OBRIGATORIA: para entrega, esta ferramenta deve ser usada mesmo que o cliente ja tenha digitado o endereco em texto. O endereco escrito ajuda, mas NAO substitui a localizacao nativa. Depois que o cliente compartilhar a localizacao, ainda e obrigatorio confirmar o ponto de referencia.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "move_kanban_stage",
+      "description": "Move o lead no Kanban atualizando o stage do chat. Usa stage_name (nome exato do estagio no banco).",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "chat_id": { "type": "string", "description": "Opcional." },
+          "stage_name": { "type": "string", "description": "Nome exato do stage." }
+        },
+        "required": ["stage_name"]
+      }
+    }
+  }
 ]

@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:ai": "node --experimental-strip-types scripts/test-ai-heuristics.mjs",
+    "test:ai:tools": "node --experimental-strip-types scripts/test-ai-tool-rules.mjs",
+    "test:ai:flow": "node --experimental-strip-types scripts/test-ai-flow.mjs",
+    "test:ai:orchestrator": "node --experimental-strip-types scripts/test-ai-orchestrator-rules.mjs",
+    "test:ai:all": "npm run test:ai && npm run test:ai:tools && npm run test:ai:flow && npm run test:ai:orchestrator"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

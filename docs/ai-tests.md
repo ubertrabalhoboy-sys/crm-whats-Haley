@@ -34,6 +34,7 @@ npm run test:ai
 npm run test:ai:tools
 npm run test:ai:flow
 npm run test:ai:orchestrator
+npm run test:ai:metrics
 ```
 
 ## O que cada teste cobre
@@ -86,6 +87,17 @@ Cobre:
 - deteccao de valor de frete sem evidencia
 - deteccao de valor PIX sem evidencia
 
+### `npm run test:ai:metrics`
+
+Arquivo: [scripts/test-ai-metrics.mjs](c:/Users/USER/Desktop/meu-servidor-whatsapp/crm-whats/scripts/test-ai-metrics.mjs)
+
+Cobre:
+
+- resumo final de metricas do turno
+- classificacao de resultado (`payload`, `text`, `blocked`, `failed`)
+- contagem de guardrails e falhas
+- consolidacao de uso de tools no turno
+
 ## Arquivos principais da base de IA
 
 - [src/lib/ai/orchestrator.ts](c:/Users/USER/Desktop/meu-servidor-whatsapp/crm-whats/src/lib/ai/orchestrator.ts)
@@ -93,6 +105,7 @@ Cobre:
 - [src/lib/ai/heuristics.ts](c:/Users/USER/Desktop/meu-servidor-whatsapp/crm-whats/src/lib/ai/heuristics.ts)
 - [src/lib/ai/toolRules.ts](c:/Users/USER/Desktop/meu-servidor-whatsapp/crm-whats/src/lib/ai/toolRules.ts)
 - [src/lib/ai/orchestratorRules.ts](c:/Users/USER/Desktop/meu-servidor-whatsapp/crm-whats/src/lib/ai/orchestratorRules.ts)
+- [src/lib/ai/aiMetrics.ts](c:/Users/USER/Desktop/meu-servidor-whatsapp/crm-whats/src/lib/ai/aiMetrics.ts)
 
 ## Observacoes
 

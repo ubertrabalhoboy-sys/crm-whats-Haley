@@ -17,6 +17,25 @@ import {
     normalizeOutboundText,
     stripThoughtBlocks,
 } from "./orchestratorRules";
+import {
+    buildAiTurnMetricInsert,
+    buildAiTurnSummary,
+    createAiTurnMetrics,
+    markIterationStarted,
+    markOutboundTextBlocked,
+    markOutboundTextSanitized,
+    markPayloadFailed,
+    markPayloadSent,
+    markPixPayloadSkipped,
+    markProcessFailure,
+    markTextFailed,
+    markTextSent,
+    markToolCompleted,
+} from "./aiMetrics";
+import {
+    resolveUazapiRequest,
+    validateOutgoingPayload,
+} from "./uazapiRules";
 import openaiTools from "./tools.json";
 
 type OpenAIToolDefinition = {
@@ -949,63 +968,8 @@ async function sendTextMessage(number: string, text: string, instanceToken: stri
     }
 }
 
-function isNonEmptyString(value: unknown): value is string {
-    return typeof value === "string" && value.trim().length > 0;
-}
-
 function wasOutboundDeliveryAccepted(result: OutboundSendResult | null | undefined) {
     return Boolean(result?.delivered);
-}
-
-function validateOutgoingPayload(endpoint: string, payload: Record<string, unknown>) {
-    if (!isNonEmptyString(payload.number)) {
-        return { ok: false, error: "INVALID_UAZ_PAYLOAD_NUMBER" };
-    }
-
-    if (endpoint === "/send/request-payment") {
-        if (typeof payload.amount !== "number" || !Number.isFinite(payload.amount) || payload.amount <= 0) {
-            return { ok: false, error: "INVALID_UAZ_PAYLOAD_AMOUNT" };
-        }
-        if (!isNonEmptyString(payload.pixKey) || !isNonEmptyString(payload.pixType)) {
-            return { ok: false, error: "INVALID_UAZ_PAYLOAD_PIX" };
-        }
-    }
-
-    if (endpoint === "/send/pix-button") {
-        if (!isNonEmptyString(payload.pixKey) || !isNonEmptyString(payload.pixType)) {
-            return { ok: false, error: "INVALID_UAZ_PAYLOAD_PIX" };
-        }
-    }
-
-    if (endpoint === "/send/location-button") {
-        if (!isNonEmptyString(payload.text)) {
-            return { ok: false, error: "INVALID_UAZ_PAYLOAD_TEXT" };
-        }
-    }
-
-    if (endpoint === "/send/carousel") {
-        if (!Array.isArray(payload.carousel) || payload.carousel.length === 0) {
-            return { ok: false, error: "INVALID_UAZ_PAYLOAD_CAROUSEL" };
-        }
-    }
-
-    if (endpoint === "/send/buttons") {
-        const hasChoices = Array.isArray(payload.choices) && payload.choices.length > 0;
-        const hasButtonsMessage = Array.isArray(payload.buttonsMessage) && payload.buttonsMessage.length > 0;
-        if (!hasChoices && !hasButtonsMessage) {
-            return { ok: false, error: "INVALID_UAZ_PAYLOAD_BUTTONS" };
-        }
-    }
-
-    if (endpoint === "/send/list") {
-        const hasList = Array.isArray(payload.list) && payload.list.length > 0;
-        const hasListMessage = Array.isArray(payload.listMessage) && payload.listMessage.length > 0;
-        if (!hasList && !hasListMessage) {
-            return { ok: false, error: "INVALID_UAZ_PAYLOAD_LIST" };
-        }
-    }
-
-    return { ok: true };
 }
 
 async function sendRichPayload(uazapiPayload: Record<string, unknown>, instanceToken: string) {
@@ -1018,21 +982,10 @@ async function sendRichPayload(uazapiPayload: Record<string, unknown>, instanceT
         } satisfies OutboundSendResult;
     }
 
-    const payload = { ...uazapiPayload };
+    const request = resolveUazapiRequest(uazapiPayload);
+    const { endpoint, payload } = request;
 
-    let endpoint = "/send/text";
-
-    if (payload.locationButton) {
-        endpoint = "/send/location-button";
-        delete payload.locationButton;
-    } else if (payload.carousel) endpoint = "/send/carousel";
-    else if (payload.pixKey && payload.amount) endpoint = "/send/request-payment";
-    else if (payload.pixKey) endpoint = "/send/pix-button";
-    else if (payload.type === "button" || payload.buttonsMessage || payload.choices) endpoint = "/send/buttons";
-    else if (payload.listMessage || payload.list) endpoint = "/send/list";
-    else if (payload.templateMessage || payload.template) endpoint = "/send/template";
-
-    const payloadValidation = validateOutgoingPayload(endpoint, payload as Record<string, unknown>);
+    const payloadValidation = validateOutgoingPayload(endpoint, payload);
     if (!payloadValidation.ok) {
         console.error("[UAZAPI_PAYLOAD] Invalid payload", { endpoint, error: payloadValidation.error });
         return {
@@ -1086,6 +1039,29 @@ async function persistOutgoingMessage(
         text,
         payload: payload ?? null,
     });
+}
+
+async function persistAiTurnMetrics(
+    supabase: ReturnType<typeof getSupabaseAdmin>,
+    params: OrchestratorParams,
+    summary: ReturnType<typeof buildAiTurnSummary>
+) {
+    const metricRow = buildAiTurnMetricInsert(
+        {
+            restaurantId: params.restaurantId,
+            chatId: params.chatId,
+            waChatId: params.waChatId,
+        },
+        summary
+    );
+
+    const { error } = await supabase.from("ai_turn_metrics").insert(metricRow);
+    if (error) {
+        console.error("[AI OBS] Failed to persist ai_turn_metrics:", error.message);
+        return false;
+    }
+
+    return true;
 }
 
 export async function processAiMessage(params: OrchestratorParams) {
@@ -1253,6 +1229,7 @@ export async function processAiMessage(params: OrchestratorParams) {
     let loopActive = true;
     let iteration = 0;
     const MAX_ITERATIONS = 5;
+    const turnMetrics = createAiTurnMetrics();
 
     const toolInvocationFingerprints = new Set<string>();
     const turnEvidence = {
@@ -1274,6 +1251,7 @@ export async function processAiMessage(params: OrchestratorParams) {
         while (loopActive && iteration < MAX_ITERATIONS) {
             iteration++;
             console.log(`[AI LOOP] Thinking... Iteration ${iteration}`);
+            markIterationStarted(turnMetrics);
             logAiEvent("iteration_started", {
                 chatId: params.chatId,
                 iteration,
@@ -1413,6 +1391,12 @@ export async function processAiMessage(params: OrchestratorParams) {
                     hasUazPayload: Boolean(asRecord(parsedToolResultRecord?.uazapi_payload)),
                     requiresPixPayment: parsedToolResultRecord?.requires_pix_payment === true,
                 });
+                markToolCompleted(turnMetrics, {
+                    toolName,
+                    blocked: Boolean(toolBlockReason),
+                    skipped: parsedToolResultRecord?.skipped === true,
+                    ok: parsedToolResultRecord?.ok === true,
+                });
 
                 if (
                     toolName === "submit_final_order" &&
@@ -1449,6 +1433,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                                     reason: "DUPLICATE_PAYLOAD_IN_CURRENT_TURN",
                                     sourceTool: toolName,
                                 });
+                                markPixPayloadSkipped(turnMetrics);
                                 loopActive = false;
                                 break;
                             }
@@ -1468,6 +1453,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                                     status: pixSendResult.status || null,
                                     delivered: true,
                                 });
+                                markPayloadSent(turnMetrics);
                                 await persistOutgoingMessage(
                                     supabase,
                                     params,
@@ -1490,6 +1476,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                                 status: pixSendResult.status || null,
                                 error: pixSendResult.error || null,
                             });
+                            markPayloadFailed(turnMetrics);
                             loopActive = false;
                             break;
                         }
@@ -1522,6 +1509,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                             toolName,
                             reason: "DUPLICATE_PAYLOAD_IN_CURRENT_TURN",
                         });
+                        markPixPayloadSkipped(turnMetrics);
                         loopActive = false;
                         break;
                     }
@@ -1541,6 +1529,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                             status: sendResult.status || null,
                             error: sendResult.error || null,
                         });
+                        markPayloadFailed(turnMetrics);
                         loopActive = false;
                         break;
                     }
@@ -1556,6 +1545,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                         status: sendResult.status || null,
                         delivered: true,
                     });
+                    markPayloadSent(turnMetrics);
                     await persistOutgoingMessage(supabase, params, persistedText, parsedUazPayload);
                     loopActive = false;
                     break;
@@ -1589,6 +1579,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                     cupomGanho,
                 });
                 if (!outboundText.ok) {
+                    markOutboundTextBlocked(turnMetrics);
                     logAiEvent("outbound_text_blocked", {
                         chatId: params.chatId,
                         iteration,
@@ -1606,6 +1597,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                     ? commercialClaimRisk.safeFallbackText
                     : outboundText.text;
                 if (commercialClaimRisk.risky) {
+                    markOutboundTextSanitized(turnMetrics);
                     logAiEvent("outbound_text_sanitized", {
                         chatId: params.chatId,
                         iteration,
@@ -1626,6 +1618,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                         status: sendResult.status || null,
                         error: sendResult.error || null,
                     });
+                    markTextFailed(turnMetrics);
                     loopActive = false;
                     break;
                 }
@@ -1637,6 +1630,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                     status: sendResult.status || null,
                     textLength: safeOutboundText.length,
                 });
+                markTextSent(turnMetrics);
                 await persistOutgoingMessage(supabase, params, safeOutboundText);
                 loopActive = false;
                 break;
@@ -1652,9 +1646,20 @@ export async function processAiMessage(params: OrchestratorParams) {
         }
     } catch (error: unknown) {
         console.error("[AI LOOP] Fatal error:", getErrorMessage(error));
+        markProcessFailure(turnMetrics, getErrorMessage(error));
         logAiEvent("process_failed", {
             chatId: params.chatId,
             error: getErrorMessage(error),
+        });
+    } finally {
+        const turnSummary = buildAiTurnSummary(turnMetrics, {
+            maxIterationsReached: loopActive && iteration >= MAX_ITERATIONS,
+        });
+        const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+        logAiEvent("process_completed", {
+            chatId: params.chatId,
+            metricsPersisted,
+            ...turnSummary,
         });
      }
 }

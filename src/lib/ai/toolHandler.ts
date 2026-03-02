@@ -6,6 +6,10 @@ import {
     calculateCouponDiscount,
     resolveAppliedDiscount,
 } from "./toolRules";
+import {
+    getActiveChatCouponCode,
+    persistChatCartSnapshot,
+} from "./toolHandlerData";
 
 export type ToolContext = {
     restaurant_id: string;
@@ -155,53 +159,26 @@ function isDuplicateOrderMatch(
     );
 }
 
-async function getActiveChatCouponCode(
-    db: SupabaseClient,
-    chatId: string | undefined
-) {
-    if (!chatId) {
-        return "";
-    }
-
-    const { data: chatData } = await db
-        .from("chats")
-        .select("cupom_ganho")
-        .eq("id", chatId)
-        .maybeSingle();
-
-    return typeof chatData?.cupom_ganho === "string" ? chatData.cupom_ganho.trim() : "";
-}
-
 async function persistCartSnapshot(
     db: SupabaseClient,
     ctx: ToolContext,
     snapshot: CartSnapshot
 ) {
-    if (!ctx.chat_id) {
+    const result = await persistChatCartSnapshot(db, ctx, snapshot);
+    if (!result.ok && !result.skipped) {
+        console.error("[AI_TOOL_HANDLER] Failed to persist cart snapshot:", result.reason);
         return;
     }
 
-    const { error } = await db
-        .from("chats")
-        .update({
-            cart_snapshot: snapshot,
-            updated_at: snapshot.updated_at,
-        })
-        .eq("id", ctx.chat_id)
-        .eq("restaurant_id", ctx.restaurant_id);
-
-    if (error) {
-        console.error("[AI_TOOL_HANDLER] Failed to persist cart snapshot:", error.message);
-        return;
-    }
-
-    logToolEvent("cart_snapshot_updated", {
+    if (result.ok) {
+        logToolEvent("cart_snapshot_updated", {
         restaurantId: ctx.restaurant_id,
         chatId: ctx.chat_id,
         source: snapshot.source,
         total: snapshot.total,
         itemsCount: snapshot.items.length,
     });
+    }
 }
 
 function computeIsOpenNow(operatingHours: unknown) {

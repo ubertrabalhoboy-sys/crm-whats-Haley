@@ -93,10 +93,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Check local storage or system preference on mount
     const storedTheme = localStorage.getItem("theme");
-    if (storedTheme === "dark" || (!storedTheme && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
-      setIsDark(true);
+    const shouldUseDark =
+      storedTheme === "dark" ||
+      (!storedTheme && window.matchMedia("(prefers-color-scheme: dark)").matches);
+
+    if (shouldUseDark) {
       document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
     }
+
+    queueMicrotask(() => {
+      setIsDark(shouldUseDark);
+    });
   }, []);
 
   const toggleDarkMode = () => {
@@ -128,6 +137,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { id: "Relatórios", href: "/reports", icon: <BarChart3 size={20} /> },
     { id: "Config Loja", href: "/settings/store", icon: <Settings size={20} /> },
     { id: "WhatsApp", href: "/settings/whatsapp", icon: <Smartphone size={20} /> },
+    { id: "Central IA", href: "/settings/ai", icon: <Bell size={20} /> },
   ];
 
   // Título do header baseado na rota atual (mantém visual do "activeTab")

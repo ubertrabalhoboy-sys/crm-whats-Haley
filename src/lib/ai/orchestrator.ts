@@ -74,6 +74,7 @@ const MODEL_CACHE_LIMIT = 32;
 const MODEL_CACHE = new Map<string, ReturnType<GoogleGenerativeAI["getGenerativeModel"]>>();
 const GEMINI_REQUEST_TIMEOUT_MS = 20000;
 const UAZAPI_REQUEST_TIMEOUT_MS = 10000;
+const UAZAPI_CAROUSEL_TIMEOUT_MS = 20000;
 const ENABLED_MODE_RECENT_CONTEXT_LIMIT = 8;
 
 type PrefixCacheMode = "off" | "shadow" | "enabled";
@@ -1144,6 +1145,8 @@ async function sendRichPayload(uazapiPayload: Record<string, unknown>, instanceT
     }
 
     try {
+        const requestTimeoutMs =
+            endpoint === "/send/carousel" ? UAZAPI_CAROUSEL_TIMEOUT_MS : UAZAPI_REQUEST_TIMEOUT_MS;
         const res = await fetchWithTimeout(
             `${normalizeBaseUrl(base)}${endpoint}`,
             {
@@ -1151,7 +1154,7 @@ async function sendRichPayload(uazapiPayload: Record<string, unknown>, instanceT
                 headers: { "Content-Type": "application/json", token: instanceToken },
                 body: JSON.stringify(payload),
             },
-            UAZAPI_REQUEST_TIMEOUT_MS
+            requestTimeoutMs
         );
 
         const raw = await res.text();
@@ -1380,6 +1383,7 @@ export async function processAiMessage(params: OrchestratorParams) {
     let iteration = 0;
     const MAX_ITERATIONS = 5;
     const turnMetrics = createAiTurnMetrics();
+    let emptyResponseRetried = false;
     const immediatePostLocationFollowUp = buildPostLocationFollowUpMessage({
         incomingHasLocation,
         addressConfirmed,
@@ -1825,8 +1829,11 @@ export async function processAiMessage(params: OrchestratorParams) {
                                     error: sendResult.error || null,
                                     autoTriggeredBy: "search_product_catalog",
                                 });
-                                loopActive = false;
-                                break;
+                                logAiEvent("auto_carousel_fallback_to_model", {
+                                    chatId: params.chatId,
+                                    iteration,
+                                    reason: "DELIVERY_FAILED",
+                                });
                             }
                         } catch {
                             // if the synthetic carousel step fails, continue with the normal model loop
@@ -1917,6 +1924,53 @@ export async function processAiMessage(params: OrchestratorParams) {
                 await persistOutgoingMessage(supabase, params, safeOutboundText);
                 loopActive = false;
                 break;
+            }
+
+            if (!emptyResponseRetried) {
+                emptyResponseRetried = true;
+                console.warn("[AI LOOP] Empty response, retrying once.");
+                logAiEvent("empty_response_retry", {
+                    chatId: params.chatId,
+                    iteration,
+                });
+                conversationContext.push({
+                    role: "user",
+                    parts: [{
+                        text: "Responda ao cliente agora com a proxima acao objetiva, sem ficar em silencio.",
+                    }],
+                });
+                continue;
+            }
+
+            const emptyResponseFallbackText =
+                "Opa, estou confirmando aqui. Me responde com um ok que eu sigo com a proxima etapa.";
+            const emptyFallbackSendResult = await sendTextMessage(
+                params.waChatId,
+                emptyResponseFallbackText,
+                instanceToken
+            );
+
+            if (wasOutboundDeliveryAccepted(emptyFallbackSendResult)) {
+                logAiEvent("outbound_text_sent", {
+                    chatId: params.chatId,
+                    iteration,
+                    endpoint: emptyFallbackSendResult.endpoint || "/send/text",
+                    status: emptyFallbackSendResult.status || null,
+                    textLength: emptyResponseFallbackText.length,
+                    autoTriggeredBy: "empty_response_fallback",
+                });
+                markTextSent(turnMetrics);
+                await persistOutgoingMessage(supabase, params, emptyResponseFallbackText);
+            } else {
+                logAiEvent("outbound_text_failed", {
+                    chatId: params.chatId,
+                    iteration,
+                    endpoint: emptyFallbackSendResult.endpoint || "/send/text",
+                    status: emptyFallbackSendResult.status || null,
+                    error: emptyFallbackSendResult.error || null,
+                    autoTriggeredBy: "empty_response_fallback",
+                });
+                markTextFailed(turnMetrics);
             }
 
             console.warn("[AI LOOP] Empty response, stopping.");

@@ -133,26 +133,6 @@ export function determineRecommendedCommercialObjective(
         return "coletar_dados_finais_e_avancar_fechamento";
     }
 
-    if (details.cartSnapshotMeta.hasItems && !details.cartSnapshotMeta.hasPaymentMethod) {
-        if (!details.cartSnapshotMeta.hasPrincipal) {
-            return "oferecer_produto_principal";
-        }
-
-        if (!details.cartSnapshotMeta.hasAdditional && !details.salesSignals.customerRejectedOffer) {
-            return "oferecer_adicional";
-        }
-
-        if (!details.cartSnapshotMeta.hasDrink) {
-            return "oferecer_bebida";
-        }
-
-        return "confirmar_pagamento";
-    }
-
-    if (details.cartSnapshotMeta.hasItems && details.cartSnapshotMeta.hasPaymentMethod) {
-        return "fechar_pedido";
-    }
-
     if (details.commercialPhase === "pagamento") {
         return "confirmar_pagamento";
     }
@@ -161,12 +141,43 @@ export function determineRecommendedCommercialObjective(
         return "fechar_pedido";
     }
 
-    if (!details.salesSignals.offeredAdditional) {
-        return "oferecer_adicional";
+    if (!details.cartSnapshotMeta.hasItems) {
+        if (details.commercialPhase === "oferta_com_cupom") {
+            return "oferecer_produto_com_cupom";
+        }
+
+        return "oferecer_produto_principal";
     }
 
-    if (!details.salesSignals.offeredDrink) {
-        return "oferecer_bebida";
+    if (details.cartSnapshotMeta.hasItems && !details.cartSnapshotMeta.hasPaymentMethod) {
+        if (!details.cartSnapshotMeta.hasPrincipal) {
+            return "oferecer_produto_principal";
+        }
+
+        if (
+            !details.cartSnapshotMeta.hasAdditional &&
+            !details.salesSignals.customerRejectedOffer &&
+            !details.salesSignals.offeredAdditional
+        ) {
+            return "oferecer_adicional";
+        }
+
+        if (!details.cartSnapshotMeta.hasDrink) {
+            if (
+                details.salesSignals.customerRejectedOffer &&
+                details.salesSignals.offeredDrink
+            ) {
+                return "confirmar_pagamento";
+            }
+
+            return "oferecer_bebida";
+        }
+
+        return "confirmar_pagamento";
+    }
+
+    if (details.cartSnapshotMeta.hasItems && details.cartSnapshotMeta.hasPaymentMethod) {
+        return "fechar_pedido";
     }
 
     if (details.salesSignals.customerRejectedOffer) {
@@ -179,6 +190,14 @@ export function determineRecommendedCommercialObjective(
 
     if (details.commercialPhase === "oferta_produtos") {
         return "oferecer_produto_principal";
+    }
+
+    if (!details.salesSignals.offeredAdditional) {
+        return "oferecer_produto_principal";
+    }
+
+    if (!details.salesSignals.offeredDrink) {
+        return "oferecer_bebida";
     }
 
     return "conduzir_atendimento_e_identificar_melhor_proxima_oferta";

@@ -579,6 +579,30 @@ function inferCommercialPhase(details: {
     return "atendimento_ativo";
 }
 
+function buildPostLocationFollowUpMessage(details: {
+    incomingHasLocation: boolean;
+    addressConfirmed: boolean;
+    referenceConfirmed: boolean;
+}) {
+    if (!details.incomingHasLocation) {
+        return null;
+    }
+
+    if (!details.addressConfirmed && !details.referenceConfirmed) {
+        return "Perfeito. Agora me manda o numero da casa e um ponto de referencia para eu seguir.";
+    }
+
+    if (!details.addressConfirmed) {
+        return "Perfeito. Agora me manda o numero da casa para eu seguir.";
+    }
+
+    if (!details.referenceConfirmed) {
+        return "Perfeito. Agora me manda um ponto de referencia para eu seguir.";
+    }
+
+    return null;
+}
+
 function extractSalesSignals(conversationContext: Content[]) {
     const recentContext = conversationContext.slice(-6);
     const assistantTexts = recentContext
@@ -1356,12 +1380,61 @@ export async function processAiMessage(params: OrchestratorParams) {
     let iteration = 0;
     const MAX_ITERATIONS = 5;
     const turnMetrics = createAiTurnMetrics();
+    const immediatePostLocationFollowUp = buildPostLocationFollowUpMessage({
+        incomingHasLocation,
+        addressConfirmed,
+        referenceConfirmed,
+    });
 
     const toolInvocationFingerprints = new Set<string>();
     const turnEvidence = {
         hasFreightCalculation: false,
         hasPixQuote: false,
     };
+
+    if (immediatePostLocationFollowUp) {
+        const sendResult = await sendTextMessage(
+            params.waChatId,
+            immediatePostLocationFollowUp,
+            instanceToken
+        );
+
+        if (!wasOutboundDeliveryAccepted(sendResult)) {
+            console.error("[AI LOOP] Immediate post-location follow-up failed", {
+                chatId: params.chatId,
+                result: sendResult,
+            });
+            logAiEvent("outbound_text_failed", {
+                chatId: params.chatId,
+                endpoint: sendResult.endpoint || "/send/text",
+                status: sendResult.status || null,
+                error: sendResult.error || null,
+                autoTriggeredBy: "location_shared",
+            });
+            markTextFailed(turnMetrics);
+        } else {
+            logAiEvent("outbound_text_sent", {
+                chatId: params.chatId,
+                endpoint: sendResult.endpoint || "/send/text",
+                status: sendResult.status || null,
+                textLength: immediatePostLocationFollowUp.length,
+                autoTriggeredBy: "location_shared",
+            });
+            markTextSent(turnMetrics);
+            await persistOutgoingMessage(supabase, params, immediatePostLocationFollowUp);
+        }
+
+        const turnSummary = buildAiTurnSummary(turnMetrics, {
+            maxIterationsReached: false,
+        });
+        const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+        logAiEvent("process_completed", {
+            chatId: params.chatId,
+            metricsPersisted,
+            ...turnSummary,
+        });
+        return;
+    }
 
     try {
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -1679,7 +1752,14 @@ export async function processAiMessage(params: OrchestratorParams) {
 
                 if (toolName === "search_product_catalog" && parsedToolResultRecord?.ok === true) {
                     const searchedProducts = asProductList(parsedToolResultRecord.products);
-                    if (searchedProducts.length > 0) {
+                    if (searchedProducts.length === 1) {
+                        logAiEvent("auto_carousel_skipped", {
+                            chatId: params.chatId,
+                            iteration,
+                            reason: "SINGLE_PRODUCT_RESULT",
+                            autoTriggeredBy: "search_product_catalog",
+                        });
+                    } else if (searchedProducts.length > 1) {
                         const carouselToolRaw = await executeAiTool(
                             "send_uaz_carousel",
                             { products: searchedProducts },

@@ -29,6 +29,14 @@ function makeContext(overrides = {}) {
 const emptyCart = readCartSnapshotMeta(null);
 assert.equal(emptyCart.status, "sem_itens");
 assert.equal(emptyCart.hasItems, false);
+assert.equal(
+    determineRecommendedCommercialObjective(
+        makeContext({
+            cartSnapshotMeta: emptyCart,
+        })
+    ),
+    "oferecer_produto_principal"
+);
 
 const principalCart = readCartSnapshotMeta({
     items: [{ product_id: "1", quantity: 1, category: "principal" }],
@@ -68,6 +76,31 @@ assert.equal(
         })
     ),
     "oferecer_bebida"
+);
+
+assert.equal(
+    determineRecommendedCommercialObjective(
+        makeContext({
+            cartSnapshotMeta: principalCart,
+            salesSignals: makeSignals({
+                offeredAdditional: true,
+            }),
+        })
+    ),
+    "oferecer_bebida"
+);
+
+assert.equal(
+    determineRecommendedCommercialObjective(
+        makeContext({
+            cartSnapshotMeta: principalAndAdditionalCart,
+            salesSignals: makeSignals({
+                offeredDrink: true,
+                customerRejectedOffer: true,
+            }),
+        })
+    ),
+    "confirmar_pagamento"
 );
 
 const fullCart = readCartSnapshotMeta({

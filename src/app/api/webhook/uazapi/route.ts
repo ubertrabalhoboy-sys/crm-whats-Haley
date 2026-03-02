@@ -55,6 +55,7 @@ export async function POST(req: Request) {
   if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
     return NextResponse.json({ ok: false, error: "invalid_payload" }, { status: 400 });
   }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const body = parsedBody as Record<string, any>;
 
   const readString = (...values: unknown[]) => {
@@ -68,6 +69,17 @@ export async function POST(req: Request) {
     if (typeof value === "boolean") return value;
     if (typeof value === "string") return ["true", "1", "yes"].includes(value.toLowerCase());
     return false;
+  };
+
+  const readNumber = (...values: unknown[]) => {
+    for (const value of values) {
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      if (typeof value === "string" && value.trim()) {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+    }
+    return null;
   };
 
   const instanceId = readString(
@@ -173,7 +185,7 @@ export async function POST(req: Request) {
       if (webhookEventError) {
         console.warn("[webhook/uazapi] webhook_events insert skipped", webhookEventError.message);
       }
-    } catch (e) {
+    } catch {
       console.warn("[webhook/uazapi] webhook_events table not available");
     }
 
@@ -332,6 +344,47 @@ export async function POST(req: Request) {
       body?.message?.extendedTextMessage?.text
     ) ?? null;
 
+  const locationLat = readNumber(
+    body?.BODY?.message?.content?.degreesLatitude,
+    body?.BODY?.message?.content?.location?.degreesLatitude,
+    body?.message?.content?.degreesLatitude,
+    body?.message?.content?.location?.degreesLatitude,
+    body?.message?.locationMessage?.degreesLatitude,
+    body?.data?.message?.content?.degreesLatitude,
+    body?.data?.message?.content?.location?.degreesLatitude,
+    body?.data?.message?.locationMessage?.degreesLatitude,
+    body?.data?.message?.message?.locationMessage?.degreesLatitude
+  );
+  const locationLng = readNumber(
+    body?.BODY?.message?.content?.degreesLongitude,
+    body?.BODY?.message?.content?.location?.degreesLongitude,
+    body?.message?.content?.degreesLongitude,
+    body?.message?.content?.location?.degreesLongitude,
+    body?.message?.locationMessage?.degreesLongitude,
+    body?.data?.message?.content?.degreesLongitude,
+    body?.data?.message?.content?.location?.degreesLongitude,
+    body?.data?.message?.locationMessage?.degreesLongitude,
+    body?.data?.message?.message?.locationMessage?.degreesLongitude
+  );
+  const locationMessageType = readString(
+    body?.BODY?.message?.messageType,
+    body?.message?.messageType,
+    body?.data?.message?.messageType,
+    body?.message?.type,
+    body?.data?.message?.type
+  );
+  const isLocationMessage =
+    locationLat !== null &&
+    locationLng !== null &&
+    (
+      locationMessageType === "LocationMessage" ||
+      locationMessageType === "location" ||
+      locationMessageType === "locationMessage" ||
+      locationMessageType === null
+    );
+
+  const chatInboundSummaryText = text ?? (isLocationMessage ? "[Localizacao compartilhada]" : null);
+
   if (!waChatId || !phone) {
     return NextResponse.json({ ok: true, ignored: true, reason: "missing_fields" }, { status: 200 });
   }
@@ -396,11 +449,11 @@ export async function POST(req: Request) {
 
   let chatId: string;
   const { data: existingChat, error: chatSelectError } = await supabaseAdmin
-    .from("chats")
-    .select("id")
-    .eq("restaurant_id", restaurantId)
-    .eq("wa_chat_id", waChatId)
-    .maybeSingle();
+      .from("chats")
+      .select("id, last_message")
+      .eq("restaurant_id", restaurantId)
+      .eq("wa_chat_id", waChatId)
+      .maybeSingle();
 
   if (chatSelectError) {
     return NextResponse.json({ ok: false, error: chatSelectError.message }, { status: 500 });
@@ -412,7 +465,7 @@ export async function POST(req: Request) {
       .from("chats")
       .update({
         contact_id: contactId,
-        last_message: text,
+        last_message: chatInboundSummaryText ?? existingChat.last_message ?? "[Mensagem recebida]",
         unread_count: 1,
         updated_at: new Date().toISOString(),
       })
@@ -429,7 +482,7 @@ export async function POST(req: Request) {
         restaurant_id: restaurantId,
         wa_chat_id: waChatId,
         contact_id: contactId,
-        last_message: text,
+        last_message: chatInboundSummaryText ?? "[Mensagem recebida]",
         unread_count: 1,
         updated_at: new Date().toISOString(),
       })
@@ -472,10 +525,11 @@ export async function POST(req: Request) {
 
   if (messageInsertError) {
     console.error(`[webhook] Failed to insert message for chat ${chatId}:`, messageInsertError);
+    const typedInsertError = messageInsertError as { code?: string; message?: string | null };
     const isDuplicateKey =
-      (messageInsertError as any)?.code === "23505" ||
-      String((messageInsertError as any)?.message || "").toLowerCase().includes("duplicate key") ||
-      String((messageInsertError as any)?.message || "").includes("messages_wa_message_id_uq");
+      typedInsertError.code === "23505" ||
+      String(typedInsertError.message || "").toLowerCase().includes("duplicate key") ||
+      String(typedInsertError.message || "").includes("messages_wa_message_id_uq");
     if (isDuplicateKey) {
       return NextResponse.json({ ok: true, deduped: true }, { status: 200 });
     }
@@ -496,15 +550,6 @@ export async function POST(req: Request) {
       incomingText: text,
     }).catch(err => console.error("[AI LOOP] Background failure:", err));
   }
-
-  const locationLat = body?.BODY?.message?.content?.degreesLatitude;
-  const locationLng = body?.BODY?.message?.content?.degreesLongitude;
-  const isLocationMessage =
-    body?.BODY?.message?.messageType === "LocationMessage" &&
-    typeof locationLat === "number" &&
-    Number.isFinite(locationLat) &&
-    typeof locationLng === "number" &&
-    Number.isFinite(locationLng);
 
   if (isLocationMessage) {
     processAiMessage({

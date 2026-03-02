@@ -251,6 +251,57 @@ function getPrefixCacheMode(): PrefixCacheMode {
     return "off";
 }
 
+function sanitizeStoredSystemPrompt(rawPrompt: string) {
+    const promptBlockMatch = rawPrompt.match(/\$prompt\$([\s\S]*?)\$prompt\$/i);
+    if (promptBlockMatch?.[1]) {
+        const extractedPrompt = promptBlockMatch[1].trim();
+        if (extractedPrompt) {
+            return {
+                prompt: extractedPrompt,
+                sanitized: true,
+                reason: "SQL_WRAPPER_DETECTED",
+            } as const;
+        }
+    }
+
+    return {
+        prompt: rawPrompt,
+        sanitized: false,
+        reason: null,
+    } as const;
+}
+
+function asProductList(
+    value: unknown
+): Array<{
+    product_id: string;
+    title?: string;
+    description?: string;
+    image_url?: string;
+    price?: number;
+    promo_price?: number | null;
+}> {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+
+    return value
+        .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+        .map((item) => ({
+            product_id: typeof item.product_id === "string" ? item.product_id : "",
+            title: typeof item.title === "string" ? item.title : undefined,
+            description: typeof item.description === "string" ? item.description : undefined,
+            image_url: typeof item.image_url === "string" ? item.image_url : undefined,
+            price: Number.isFinite(Number(item.price)) ? Number(item.price) : undefined,
+            promo_price: Number.isFinite(Number(item.promo_price))
+                ? Number(item.promo_price)
+                : item.promo_price === null
+                    ? null
+                    : undefined,
+        }))
+        .filter((item) => item.product_id);
+}
+
 function buildPromptExecutionPlan(
     rawPrompt: string,
     restaurantName: string,
@@ -1163,7 +1214,9 @@ export async function processAiMessage(params: OrchestratorParams) {
     }
 
     const fallbackPrompt = "Voce e o Gerente de Conversao Premium do restaurante {nome_restaurante}. Responda de forma curta, amigavel e auxilie o cliente com o seu pedido.";
-    const rawPrompt = restData?.system_prompt || fallbackPrompt;
+    const storedPrompt = restData?.system_prompt || fallbackPrompt;
+    const promptSanitization = sanitizeStoredSystemPrompt(storedPrompt);
+    const rawPrompt = promptSanitization.prompt || fallbackPrompt;
     const kanbanStatus =
         readKanbanStageName(typedChatContext?.kanban_stages) ||
         typedChatContext?.kanban_status ||
@@ -1201,6 +1254,8 @@ export async function processAiMessage(params: OrchestratorParams) {
         kanbanStatus,
         prefixCacheMode,
         triggerMessageCreatedAt: latestInboundMessage?.created_at || null,
+        promptSanitized: promptSanitization.sanitized,
+        promptSanitizationReason: promptSanitization.reason,
     });
 
     if (prefixCacheMode === "shadow") {
@@ -1549,6 +1604,62 @@ export async function processAiMessage(params: OrchestratorParams) {
                     await persistOutgoingMessage(supabase, params, persistedText, parsedUazPayload);
                     loopActive = false;
                     break;
+                }
+
+                if (toolName === "search_product_catalog" && parsedToolResultRecord?.ok === true) {
+                    const searchedProducts = asProductList(parsedToolResultRecord.products);
+                    if (searchedProducts.length > 0) {
+                        const carouselToolRaw = await executeAiTool(
+                            "send_uaz_carousel",
+                            { products: searchedProducts },
+                            ctx
+                        );
+
+                        try {
+                            const carouselToolResult = asRecord(JSON.parse(carouselToolRaw));
+                            const carouselPayload = asRecord(carouselToolResult?.uazapi_payload);
+                            if (carouselPayload) {
+                                const sendResult = await sendRichPayload(carouselPayload, instanceToken);
+                                if (wasOutboundDeliveryAccepted(sendResult)) {
+                                    markPayloadSent(turnMetrics);
+                                    logAiEvent("outbound_payload_sent", {
+                                        chatId: params.chatId,
+                                        iteration,
+                                        toolName: "send_uaz_carousel",
+                                        endpoint: sendResult.endpoint || null,
+                                        status: sendResult.status || null,
+                                        delivered: true,
+                                        autoTriggeredBy: "search_product_catalog",
+                                    });
+                                    await persistOutgoingMessage(
+                                        supabase,
+                                        params,
+                                        typeof carouselPayload.text === "string"
+                                            ? carouselPayload.text
+                                            : "[send_uaz_carousel]",
+                                        carouselPayload
+                                    );
+                                    loopActive = false;
+                                    break;
+                                }
+
+                                markPayloadFailed(turnMetrics);
+                                logAiEvent("outbound_payload_failed", {
+                                    chatId: params.chatId,
+                                    iteration,
+                                    toolName: "send_uaz_carousel",
+                                    endpoint: sendResult.endpoint || null,
+                                    status: sendResult.status || null,
+                                    error: sendResult.error || null,
+                                    autoTriggeredBy: "search_product_catalog",
+                                });
+                                loopActive = false;
+                                break;
+                            }
+                        } catch {
+                            // if the synthetic carousel step fails, continue with the normal model loop
+                        }
+                    }
                 }
 
                 const modelFunctionCallPart: FunctionCallPart = {

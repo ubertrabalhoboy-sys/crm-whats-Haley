@@ -182,6 +182,18 @@ export function shouldHandleDelayedCouponDeferral(
 
 export function detectStructuredReplyIntent(details: StructuredReplyContext) {
     const normalized = normalizeLooseText(details.text);
+    const asksForCategoryChoice =
+        !details.hasCartItems &&
+        /(cardapio|catalogo|categoria|quer ver primeiro|qual categoria)/.test(
+            normalized
+        ) &&
+        /principal/.test(normalized) &&
+        /adicional/.test(normalized) &&
+        /bebida/.test(normalized);
+
+    if (asksForCategoryChoice) {
+        return { kind: "category_catalog" as const, category: "principal" as const };
+    }
 
     const asksForLocation =
         details.hasCartItems &&
@@ -214,18 +226,20 @@ export function detectStructuredReplyIntent(details: StructuredReplyContext) {
         );
     const mentionsDrink =
         /(bebida|refrigerante|suco|agua|cha|guarana|coca)/.test(normalized);
-    const mentionedCategories = [
-        mentionsPrincipal ? "principal" : null,
-        mentionsAdditional ? "adicional" : null,
-        mentionsDrink ? "bebida" : null,
-    ].filter((value): value is "principal" | "adicional" | "bebida" => Boolean(value));
     const genericCatalogPrompt =
         /(confira nossas opcoes|vou te mostrar|vou te mandar|da uma olhada|olha as opcoes)/.test(
             normalized
         );
 
-    let categoryIntent: "principal" | "adicional" | "bebida" | null =
-        mentionedCategories.length === 1 ? mentionedCategories[0] : null;
+    let categoryIntent: "principal" | "adicional" | "bebida" | null = null;
+
+    if (mentionsDrink && details.hasPrincipal && !details.hasDrink) {
+        categoryIntent = "bebida";
+    } else if (mentionsAdditional && details.hasPrincipal && !details.hasAdditional) {
+        categoryIntent = "adicional";
+    } else if (mentionsPrincipal && !details.hasPrincipal) {
+        categoryIntent = "principal";
+    }
 
     if (
         !categoryIntent &&

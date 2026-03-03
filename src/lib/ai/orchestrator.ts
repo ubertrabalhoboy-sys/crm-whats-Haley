@@ -2442,14 +2442,7 @@ export async function processAiMessage(params: OrchestratorParams) {
 
                 if (toolName === "search_product_catalog" && parsedToolResultRecord?.ok === true) {
                     const searchedProducts = asProductList(parsedToolResultRecord.products);
-                    if (searchedProducts.length === 1) {
-                        logAiEvent("auto_carousel_skipped", {
-                            chatId: params.chatId,
-                            iteration,
-                            reason: "SINGLE_PRODUCT_RESULT",
-                            autoTriggeredBy: "search_product_catalog",
-                        });
-                    } else if (searchedProducts.length > 1) {
+                    if (searchedProducts.length > 0) {
                         const carouselToolRaw = await executeAiTool(
                             "send_uaz_carousel",
                             { products: searchedProducts },

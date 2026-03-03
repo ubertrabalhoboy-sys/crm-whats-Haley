@@ -174,6 +174,23 @@ assert.equal(
 
 assert.deepEqual(
     detectStructuredReplyIntent({
+        text: "Opa, vou ver aqui. Qual categoria do cardapio voce quer ver primeiro? Principal, adicional ou bebida?",
+        hasCartItems: false,
+        locationConfirmed: false,
+        addressConfirmed: false,
+        referenceConfirmed: false,
+        hasFreightCalculation: false,
+        hasPaymentMethod: false,
+        hasPrincipal: false,
+        hasAdditional: false,
+        hasDrink: false,
+        hasOrder: false,
+    }),
+    { kind: "category_catalog", category: "principal" }
+);
+
+assert.deepEqual(
+    detectStructuredReplyIntent({
         text: "Que tal um adicional pra acompanhar? Temos umas opcoes bem boas.",
         hasCartItems: true,
         locationConfirmed: false,
@@ -192,6 +209,23 @@ assert.deepEqual(
 assert.deepEqual(
     detectStructuredReplyIntent({
         text: "Confira nossas opcoes:",
+        hasCartItems: true,
+        locationConfirmed: false,
+        addressConfirmed: false,
+        referenceConfirmed: false,
+        hasFreightCalculation: false,
+        hasPaymentMethod: false,
+        hasPrincipal: true,
+        hasAdditional: true,
+        hasDrink: false,
+        hasOrder: false,
+    }),
+    { kind: "category_catalog", category: "bebida" }
+);
+
+assert.deepEqual(
+    detectStructuredReplyIntent({
+        text: "Pra fechar, que tal uma bebida pra acompanhar? Temos varias opcoes de refrigerantes e sucos.",
         hasCartItems: true,
         locationConfirmed: false,
         addressConfirmed: false,

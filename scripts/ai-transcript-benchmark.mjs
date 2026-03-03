@@ -17,7 +17,7 @@ import {
     shouldHandleDelayedCouponDeferral,
 } from "../src/lib/ai/orchestratorRules.ts";
 
-export const AI_TRANSCRIPT_DATASET_VERSION = "2026-03-02.v1";
+export const AI_TRANSCRIPT_DATASET_VERSION = "2026-03-02.v2";
 
 function makeSignals(overrides = {}) {
     return {
@@ -62,6 +62,33 @@ export const transcriptScenarios = [
                     hasCartItems: false,
                 }),
                 true
+            );
+        },
+    },
+    {
+        id: "pedido_de_cardapio_inicial_puxa_principal_sem_esperar",
+        source: "real_chat_case",
+        validates: ["usa_midia_certa", "segue_ordem_comercial", "nao_pula_etapa"],
+        steps: [
+            { role: "user", text: "Pode mandar o cardapio pra eu ver" },
+            { role: "assistant", text: "Opa, vou ver aqui. Qual categoria do cardapio voce quer ver primeiro? Principal, adicional ou bebida?" },
+        ],
+        run() {
+            assert.deepEqual(
+                detectStructuredReplyIntent({
+                    text: this.steps[1].text,
+                    hasCartItems: false,
+                    locationConfirmed: false,
+                    addressConfirmed: false,
+                    referenceConfirmed: false,
+                    hasFreightCalculation: false,
+                    hasPaymentMethod: false,
+                    hasPrincipal: false,
+                    hasAdditional: false,
+                    hasDrink: false,
+                    hasOrder: false,
+                }),
+                { kind: "category_catalog", category: "principal" }
             );
         },
     },
@@ -163,6 +190,32 @@ export const transcriptScenarios = [
                     hasPaymentMethod: false,
                 }),
                 { kind: "payment_buttons" }
+            );
+        },
+    },
+    {
+        id: "oferta_de_bebida_dispara_catalogo_correspondente",
+        source: "real_chat_case",
+        validates: ["usa_midia_certa", "segue_ordem_comercial"],
+        steps: [
+            { role: "assistant", text: "Pra fechar, que tal uma bebida pra acompanhar? Temos varias opcoes de refrigerantes e sucos." },
+        ],
+        run() {
+            assert.deepEqual(
+                detectStructuredReplyIntent({
+                    text: this.steps[0].text,
+                    hasCartItems: true,
+                    locationConfirmed: false,
+                    addressConfirmed: false,
+                    referenceConfirmed: false,
+                    hasFreightCalculation: false,
+                    hasPaymentMethod: false,
+                    hasPrincipal: true,
+                    hasAdditional: true,
+                    hasDrink: false,
+                    hasOrder: false,
+                }),
+                { kind: "category_catalog", category: "bebida" }
             );
         },
     },

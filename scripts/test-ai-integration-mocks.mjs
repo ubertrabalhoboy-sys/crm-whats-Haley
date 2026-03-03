@@ -5,6 +5,7 @@ import {
 } from "../src/lib/ai/toolHandlerData.ts";
 import { buildCartSnapshotData } from "../src/lib/ai/toolRules.ts";
 import {
+    buildButtonFallbackRequests,
     resolveUazapiRequest,
     validateOutgoingPayload,
 } from "../src/lib/ai/uazapiRules.ts";
@@ -137,6 +138,23 @@ assert.equal(invalidButtonsRequest.endpoint, "/send/buttons");
 assert.deepEqual(
     validateOutgoingPayload(invalidButtonsRequest.endpoint, invalidButtonsRequest.payload),
     { ok: false, error: "INVALID_UAZ_PAYLOAD_BUTTONS" }
+);
+
+const buttonFallbackRequests = buildButtonFallbackRequests({
+    number: "5511999999999",
+    type: "button",
+    text: "Escolha",
+    choices: ["PIX", "Dinheiro"],
+    footerText: "Selecione abaixo",
+});
+assert.equal(buttonFallbackRequests.length, 2);
+assert.equal(buttonFallbackRequests[0].endpoint, "/send/button");
+assert.equal(buttonFallbackRequests[1].endpoint, "/send/button");
+assert.ok(Array.isArray(buttonFallbackRequests[1].payload.buttonsMessage));
+assert.equal("choices" in buttonFallbackRequests[1].payload, false);
+assert.deepEqual(
+    validateOutgoingPayload(buttonFallbackRequests[1].endpoint, buttonFallbackRequests[1].payload),
+    { ok: true }
 );
 
 console.log("AI integration mocks smoke tests passed");

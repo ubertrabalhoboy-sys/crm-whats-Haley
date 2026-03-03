@@ -39,6 +39,7 @@ import {
     markToolCompleted,
 } from "./aiMetrics";
 import {
+    buildButtonFallbackRequests,
     resolveUazapiRequest,
     validateOutgoingPayload,
 } from "./uazapiRules";
@@ -82,7 +83,8 @@ const MODEL_CACHE_LIMIT = 32;
 const MODEL_CACHE = new Map<string, ReturnType<GoogleGenerativeAI["getGenerativeModel"]>>();
 const GEMINI_REQUEST_TIMEOUT_MS = 20000;
 const UAZAPI_REQUEST_TIMEOUT_MS = 10000;
-const UAZAPI_CAROUSEL_TIMEOUT_MS = 20000;
+const UAZAPI_CAROUSEL_TIMEOUT_MS = 30000;
+const UAZAPI_CAROUSEL_RETRY_TIMEOUT_MS = 45000;
 const ENABLED_MODE_RECENT_CONTEXT_LIMIT = 8;
 
 type PrefixCacheMode = "off" | "shadow" | "enabled";
@@ -724,8 +726,20 @@ function buildCartTotalSummaryText(result: Record<string, unknown>) {
     return [
         `Perfeito! Subtotal: ${formatCurrency(subtotal)}.`,
         `Desconto: ${formatCurrency(discount)}. Frete: ${formatCurrency(deliveryFee)}.`,
-        `Total com entrega: ${formatCurrency(total)}. Como prefere pagar?`,
+        `Total com entrega: ${formatCurrency(total)}.`,
     ].join(" ");
+}
+
+async function isStoreOpenForCheckout(ctx: ToolContext) {
+    try {
+        const storeInfoRaw = await executeAiTool("get_store_info", {}, ctx);
+        const storeInfoResult = asRecord(JSON.parse(storeInfoRaw));
+        const storeInfo = asRecord(storeInfoResult?.store_info);
+
+        return storeInfo?.is_open_now === true;
+    } catch {
+        return true;
+    }
 }
 
 function extractSalesSignals(conversationContext: Content[]) {
@@ -1105,8 +1119,35 @@ function looksLikeAddress(text: string) {
     }
 
     const trimmed = normalized.trim();
+    const quantityLikePattern =
+        /^\d{1,3}\s+(?:dele|dela|deles|delas|disso|desse|deste|dessa|x)\b/i;
+
+    if (quantityLikePattern.test(trimmed)) {
+        return false;
+    }
 
     if (/^\d{1,5}[a-z]?$/i.test(trimmed)) {
+        return true;
+    }
+
+    const addressDetailHints = [
+        "casa",
+        "apto",
+        "apartamento",
+        "bloco",
+        "esquina",
+        "portao",
+        "fundos",
+        "residencial",
+        "condominio",
+        "lote",
+        "quadra",
+    ];
+    const startsWithHouseNumberAndDetails =
+        /^\d{1,5}[a-z]?(?:\s+[a-z0-9-]+){1,}$/i.test(trimmed) &&
+        addressDetailHints.some((hint) => trimmed.includes(hint));
+
+    if (startsWithHouseNumberAndDetails) {
         return true;
     }
 
@@ -1205,6 +1246,35 @@ async function normalizeIncomingText(
         }
     }
 
+    const productSelectionMatch = raw.match(
+        /^(?:add|buy|comprar|escolher|selecionar)\s+(.+)$/i
+    );
+
+    if (productSelectionMatch) {
+        const selectedProductText = productSelectionMatch[1].trim();
+        if (selectedProductText) {
+            const { data: selectedProduct } = await supabase
+                .from("produtos_promo")
+                .select("id, nome, category")
+                .eq("restaurant_id", params.restaurantId)
+                .ilike("nome", `%${selectedProductText}%`)
+                .limit(1)
+                .maybeSingle();
+
+            if (selectedProduct?.id) {
+                const productName =
+                    typeof selectedProduct.nome === "string"
+                        ? selectedProduct.nome
+                        : selectedProductText;
+                const productCategory =
+                    typeof selectedProduct.category === "string"
+                        ? selectedProduct.category
+                        : "principal";
+                return `CLIENT_ACTION:add_to_cart product_id=${selectedProduct.id} product_name="${productName}" category=${productCategory}`;
+            }
+        }
+    }
+
     return raw;
 }
 
@@ -1278,35 +1348,75 @@ async function sendRichPayload(uazapiPayload: Record<string, unknown>, instanceT
         } satisfies OutboundSendResult;
     }
 
-    try {
-        const requestTimeoutMs =
-            endpoint === "/send/carousel" ? UAZAPI_CAROUSEL_TIMEOUT_MS : UAZAPI_REQUEST_TIMEOUT_MS;
-        const res = await fetchWithTimeout(
-            `${normalizeBaseUrl(base)}${endpoint}`,
-            {
-                method: "POST",
-                headers: { "Content-Type": "application/json", token: instanceToken },
-                body: JSON.stringify(payload),
-            },
-            requestTimeoutMs
-        );
+    const sendRequest = async (
+        targetEndpoint: string,
+        targetPayload: Record<string, unknown>,
+        timeoutMs: number
+    ): Promise<OutboundSendResult> => {
+        try {
+            const res = await fetchWithTimeout(
+                `${normalizeBaseUrl(base)}${targetEndpoint}`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", token: instanceToken },
+                    body: JSON.stringify(targetPayload),
+                },
+                timeoutMs
+            );
 
-        const raw = await res.text();
-        return {
-            ok: res.ok,
-            delivered: res.ok,
-            status: res.status,
-            body: parseApiResponseBody(raw),
-            endpoint,
-        } satisfies OutboundSendResult;
-    } catch (error: unknown) {
-        return {
-            ok: false,
-            delivered: false,
-            error: getErrorMessage(error) || "UAZAPI_RICH_SEND_FAILED",
-            endpoint,
-        } satisfies OutboundSendResult;
+            const raw = await res.text();
+            return {
+                ok: res.ok,
+                delivered: res.ok,
+                status: res.status,
+                body: parseApiResponseBody(raw),
+                endpoint: targetEndpoint,
+            } satisfies OutboundSendResult;
+        } catch (error: unknown) {
+            return {
+                ok: false,
+                delivered: false,
+                error: getErrorMessage(error) || "UAZAPI_RICH_SEND_FAILED",
+                endpoint: targetEndpoint,
+            } satisfies OutboundSendResult;
+        }
+    };
+
+    const primaryTimeoutMs =
+        endpoint === "/send/carousel" ? UAZAPI_CAROUSEL_TIMEOUT_MS : UAZAPI_REQUEST_TIMEOUT_MS;
+    let result = await sendRequest(endpoint, payload, primaryTimeoutMs);
+
+    const errorMessage = String(result.error || "").toLowerCase();
+    const isAbortFailure = errorMessage.includes("aborterror") || errorMessage.includes("aborted");
+
+    if (endpoint === "/send/carousel" && !result.delivered && isAbortFailure) {
+        result = await sendRequest(endpoint, payload, UAZAPI_CAROUSEL_RETRY_TIMEOUT_MS);
     }
+
+    if (endpoint === "/send/buttons" && result.status === 405) {
+        for (const fallbackRequest of buildButtonFallbackRequests(payload)) {
+            const fallbackValidation = validateOutgoingPayload(
+                fallbackRequest.endpoint,
+                fallbackRequest.payload
+            );
+            if (!fallbackValidation.ok) {
+                continue;
+            }
+
+            const fallbackResult = await sendRequest(
+                fallbackRequest.endpoint,
+                fallbackRequest.payload,
+                UAZAPI_REQUEST_TIMEOUT_MS
+            );
+
+            if (fallbackResult.delivered || fallbackResult.status !== 405) {
+                result = fallbackResult;
+                break;
+            }
+        }
+    }
+
+    return result;
 }
 
 async function persistOutgoingMessage(
@@ -1680,6 +1790,77 @@ export async function processAiMessage(params: OrchestratorParams) {
                         autoTriggeredBy: "operational_ready_calculation",
                     });
                     markTextFailed(turnMetrics);
+                }
+
+                const storeOpenForCheckout = await isStoreOpenForCheckout(ctx);
+                if (!storeOpenForCheckout) {
+                    const closedStageMoveRaw = await executeAiTool(
+                        "move_kanban_stage",
+                        { stage_name: "Atendimento Humano" },
+                        ctx
+                    );
+
+                    try {
+                        const closedStageMoveResult = asRecord(
+                            JSON.parse(closedStageMoveRaw)
+                        );
+                        markToolCompleted(turnMetrics, {
+                            toolName: "move_kanban_stage",
+                            blocked: false,
+                            skipped: closedStageMoveResult?.skipped === true,
+                            ok: closedStageMoveResult?.ok === true,
+                        });
+                    } catch {
+                        // ignore metric parse issue
+                    }
+
+                    const closedStoreText =
+                        "A loja esta fechada no momento. Vou encaminhar seu atendimento para nossa equipe continuar com voce na reabertura.";
+                    const closedStoreSendResult = await sendTextMessage(
+                        params.waChatId,
+                        closedStoreText,
+                        instanceToken
+                    );
+
+                    if (wasOutboundDeliveryAccepted(closedStoreSendResult)) {
+                        logAiEvent("outbound_text_sent", {
+                            chatId: params.chatId,
+                            endpoint: closedStoreSendResult.endpoint || "/send/text",
+                            status: closedStoreSendResult.status || null,
+                            textLength: closedStoreText.length,
+                            autoTriggeredBy: "store_closed_before_checkout",
+                        });
+                        markTextSent(turnMetrics);
+                        await persistOutgoingMessage(
+                            supabase,
+                            params,
+                            closedStoreText
+                        );
+                    } else {
+                        logAiEvent("outbound_text_failed", {
+                            chatId: params.chatId,
+                            endpoint: closedStoreSendResult.endpoint || "/send/text",
+                            status: closedStoreSendResult.status || null,
+                            error: closedStoreSendResult.error || null,
+                            autoTriggeredBy: "store_closed_before_checkout",
+                        });
+                        markTextFailed(turnMetrics);
+                    }
+
+                    const turnSummary = buildAiTurnSummary(turnMetrics, {
+                        maxIterationsReached: false,
+                    });
+                    const metricsPersisted = await persistAiTurnMetrics(
+                        supabase,
+                        params,
+                        turnSummary
+                    );
+                    logAiEvent("process_completed", {
+                        chatId: params.chatId,
+                        metricsPersisted,
+                        ...turnSummary,
+                    });
+                    return;
                 }
 
                 const paymentToolRaw = await executeAiTool(
@@ -2171,7 +2352,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                 "send_uaz_carousel",
                 {
                     products: searchedProducts,
-                    text: "Agora estamos abertos. Confira nossos principais:",
+                    text: "Confira nossos principais:",
                 },
                 ctx
             );
@@ -2204,7 +2385,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                             params,
                             typeof carouselPayload.text === "string"
                                 ? carouselPayload.text
-                                : "Agora estamos abertos. Confira nossos principais:",
+                                : "Confira nossos principais:",
                             carouselPayload
                         );
                     } else {

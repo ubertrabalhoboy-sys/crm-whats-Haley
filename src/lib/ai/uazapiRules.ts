@@ -4,6 +4,7 @@ export type UazapiEndpoint =
     | "/send/carousel"
     | "/send/request-payment"
     | "/send/pix-button"
+    | "/send/button"
     | "/send/buttons"
     | "/send/list"
     | "/send/template";
@@ -38,6 +39,58 @@ export function resolveUazapiRequest(payloadInput: Record<string, unknown>) {
         endpoint,
         payload,
     };
+}
+
+function normalizeButtonChoices(choices: unknown[]) {
+    return choices
+        .map((choice, index) => {
+            if (!isNonEmptyString(choice)) {
+                return null;
+            }
+
+            return {
+                buttonId: `btn_${index + 1}`,
+                buttonText: {
+                    displayText: choice.trim(),
+                },
+                type: 1,
+            };
+        })
+        .filter((choice): choice is NonNullable<typeof choice> => Boolean(choice));
+}
+
+export function buildButtonFallbackRequests(payloadInput: Record<string, unknown>) {
+    const payload = { ...payloadInput };
+    const candidates: Array<{ endpoint: UazapiEndpoint; payload: Record<string, unknown> }> = [
+        {
+            endpoint: "/send/button",
+            payload,
+        },
+    ];
+
+    if (Array.isArray(payload.choices) && payload.choices.length > 0) {
+        const buttonsMessage = normalizeButtonChoices(payload.choices);
+        if (buttonsMessage.length > 0) {
+            const compactPayload: Record<string, unknown> = {
+                ...payload,
+                buttonsMessage,
+            };
+
+            delete compactPayload.choices;
+            delete compactPayload.type;
+
+            if (isNonEmptyString(compactPayload.footerText)) {
+                compactPayload.footer = compactPayload.footerText;
+            }
+
+            candidates.push({
+                endpoint: "/send/button",
+                payload: compactPayload,
+            });
+        }
+    }
+
+    return candidates;
 }
 
 export function validateOutgoingPayload(
@@ -76,6 +129,14 @@ export function validateOutgoingPayload(
     }
 
     if (endpoint === "/send/buttons") {
+        const hasChoices = Array.isArray(payload.choices) && payload.choices.length > 0;
+        const hasButtonsMessage = Array.isArray(payload.buttonsMessage) && payload.buttonsMessage.length > 0;
+        if (!hasChoices && !hasButtonsMessage) {
+            return { ok: false, error: "INVALID_UAZ_PAYLOAD_BUTTONS" } as const;
+        }
+    }
+
+    if (endpoint === "/send/button") {
         const hasChoices = Array.isArray(payload.choices) && payload.choices.length > 0;
         const hasButtonsMessage = Array.isArray(payload.buttonsMessage) && payload.buttonsMessage.length > 0;
         if (!hasChoices && !hasButtonsMessage) {

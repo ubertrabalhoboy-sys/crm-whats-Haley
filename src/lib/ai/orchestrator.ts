@@ -18,6 +18,7 @@ import {
     detectUnverifiedCommercialClaim,
     isRoulettePrizeTrigger,
     normalizeOutboundText,
+    parseAddToCartClientAction,
     shouldHandleDelayedCouponDeferral,
     stripThoughtBlocks,
 } from "./orchestratorRules";
@@ -40,6 +41,8 @@ import {
     resolveUazapiRequest,
     validateOutgoingPayload,
 } from "./uazapiRules";
+import { persistChatCartSnapshot } from "./toolHandlerData";
+import { appendItemToCartSnapshot } from "./toolRules";
 import openaiTools from "./tools.json";
 
 type OpenAIToolDefinition = {
@@ -376,6 +379,42 @@ function asProductList(
                     : undefined,
         }))
         .filter((item) => item.product_id);
+}
+
+type ParsedAddToCartAction = ReturnType<typeof parseAddToCartClientAction>;
+
+async function persistCartSelectionFromAction(
+    supabase: ReturnType<typeof getSupabaseAdmin>,
+    params: OrchestratorParams,
+    currentSnapshot: unknown,
+    action: NonNullable<ParsedAddToCartAction>
+) {
+    const nextSnapshot = appendItemToCartSnapshot({
+        snapshot: asRecord(currentSnapshot) as Record<string, unknown> | null,
+        item: {
+            product_id: action.productId,
+            quantity: 1,
+            category: action.category,
+        },
+        updatedAt: new Date().toISOString(),
+    });
+
+    await persistChatCartSnapshot(
+        {
+            from(table: "chats") {
+                return supabase.from(table);
+            },
+        },
+        {
+            restaurant_id: params.restaurantId,
+            chat_id: params.chatId,
+            wa_chat_id: params.waChatId,
+            base_url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+        },
+        nextSnapshot
+    );
+
+    return nextSnapshot;
 }
 
 function buildPromptExecutionPlan(
@@ -1411,6 +1450,7 @@ export async function processAiMessage(params: OrchestratorParams) {
             : "",
         hasCartItems: cartSnapshotMeta.hasItems,
     });
+    const immediateAddToCartAction = parseAddToCartClientAction(normalizedIncomingText);
 
     const toolInvocationFingerprints = new Set<string>();
     const turnEvidence = {
@@ -1463,8 +1503,9 @@ export async function processAiMessage(params: OrchestratorParams) {
     }
 
     if (immediateRoulettePrizePrompt) {
-        const promptText =
-            "Parabens pelo seu premio! Quer usar agora ou prefere usar outro dia?";
+        const promptText = cupomGanho && cupomGanho.toLowerCase() !== "nenhum"
+            ? `Parabens! Voce ganhou ${cupomGanho}. Quer usar agora ou prefere usar outro dia?`
+            : "Parabens pelo seu premio! Quer usar agora ou prefere usar outro dia?";
         const choiceToolRaw = await executeAiTool(
             "send_uaz_buttons",
             {
@@ -1555,6 +1596,145 @@ export async function processAiMessage(params: OrchestratorParams) {
             });
             markTextSent(turnMetrics);
             await persistOutgoingMessage(supabase, params, promptText);
+        } else {
+            markTextFailed(turnMetrics);
+        }
+
+        const turnSummary = buildAiTurnSummary(turnMetrics, {
+            maxIterationsReached: false,
+        });
+        const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+        logAiEvent("process_completed", {
+            chatId: params.chatId,
+            metricsPersisted,
+            ...turnSummary,
+        });
+        return;
+    }
+
+    if (immediateAddToCartAction) {
+        const updatedSnapshot = await persistCartSelectionFromAction(
+            supabase,
+            params,
+            typedChatContext?.cart_snapshot ?? null,
+            immediateAddToCartAction
+        );
+        const updatedSnapshotMeta = readCartSnapshotMeta(updatedSnapshot);
+
+        let nextCategory: "adicional" | "bebida" | null = null;
+        let followupText = `Perfeito! Adicionei ${immediateAddToCartAction.productName} ao seu pedido.`;
+
+        if (
+            immediateAddToCartAction.category === "principal" &&
+            !updatedSnapshotMeta.hasAdditional
+        ) {
+            nextCategory = "adicional";
+            followupText = `Perfeito! Adicionei ${immediateAddToCartAction.productName} ao seu pedido.\nPra acompanhar, ja te mostro nossos adicionais.`;
+        } else if (
+            (immediateAddToCartAction.category === "principal" ||
+                immediateAddToCartAction.category === "adicional") &&
+            !updatedSnapshotMeta.hasDrink
+        ) {
+            nextCategory = "bebida";
+            followupText = `Fechou! Adicionei ${immediateAddToCartAction.productName}.\nPra completar, ja te mostro as bebidas.`;
+        } else {
+            followupText = `Fechou! Adicionei ${immediateAddToCartAction.productName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`;
+        }
+
+        if (nextCategory) {
+            const searchRaw = await executeAiTool(
+                "search_product_catalog",
+                { category: nextCategory },
+                ctx
+            );
+            const searchResult = asRecord(JSON.parse(searchRaw));
+            const categoryProducts = asProductList(searchResult?.products);
+            markToolCompleted(turnMetrics, {
+                toolName: "search_product_catalog",
+                blocked: false,
+                skipped: false,
+                ok: searchResult?.ok === true,
+            });
+
+            if (categoryProducts.length > 0) {
+                const carouselRaw = await executeAiTool(
+                    "send_uaz_carousel",
+                    {
+                        products: categoryProducts,
+                        text: followupText,
+                    },
+                    ctx
+                );
+                const carouselResult = asRecord(JSON.parse(carouselRaw));
+                const carouselPayload = asRecord(carouselResult?.uazapi_payload);
+                markToolCompleted(turnMetrics, {
+                    toolName: "send_uaz_carousel",
+                    blocked: false,
+                    skipped: false,
+                    ok: carouselResult?.ok === true,
+                });
+
+                if (
+                    carouselPayload &&
+                    !(
+                        await wasOutgoingPayloadAlreadySent(
+                            supabase,
+                            params.chatId,
+                            carouselPayload,
+                            ctx.trigger_message_created_at
+                        )
+                    )
+                ) {
+                    const payloadSendResult = await sendRichPayload(
+                        carouselPayload,
+                        instanceToken
+                    );
+                    if (wasOutboundDeliveryAccepted(payloadSendResult)) {
+                        logAiEvent("outbound_payload_sent", {
+                            chatId: params.chatId,
+                            endpoint: payloadSendResult.endpoint || null,
+                            status: payloadSendResult.status || null,
+                            delivered: true,
+                            autoTriggeredBy: "add_to_cart_progression",
+                            category: nextCategory,
+                        });
+                        markPayloadSent(turnMetrics);
+                        await persistOutgoingMessage(
+                            supabase,
+                            params,
+                            typeof carouselPayload.text === "string"
+                                ? carouselPayload.text
+                                : followupText,
+                            carouselPayload
+                        );
+                        const turnSummary = buildAiTurnSummary(turnMetrics, {
+                            maxIterationsReached: false,
+                        });
+                        const metricsPersisted = await persistAiTurnMetrics(
+                            supabase,
+                            params,
+                            turnSummary
+                        );
+                        logAiEvent("process_completed", {
+                            chatId: params.chatId,
+                            metricsPersisted,
+                            ...turnSummary,
+                        });
+                        return;
+                    }
+                    markPayloadFailed(turnMetrics);
+                }
+            }
+        }
+
+        const addFallbackResult = await sendTextMessage(
+            params.waChatId,
+            followupText,
+            instanceToken
+        );
+        if (wasOutboundDeliveryAccepted(addFallbackResult)) {
+            markTextSent(turnMetrics);
+            await persistOutgoingMessage(supabase, params, followupText);
         } else {
             markTextFailed(turnMetrics);
         }

@@ -185,15 +185,17 @@ async function persistCartSnapshot(
 
 function computeIsOpenNow(operatingHours: unknown) {
     const now = new Date();
-    const formatted = new Intl.DateTimeFormat("en-US", {
+    const formatter = new Intl.DateTimeFormat("en-US", {
         timeZone: "America/Sao_Paulo",
         weekday: "long",
         hour: "2-digit",
         minute: "2-digit",
         hour12: false,
-    }).format(now);
-
-    const [weekdayStr, timeStr] = formatted.split(", ");
+    });
+    const parts = formatter.formatToParts(now);
+    const weekdayStr = parts.find((part) => part.type === "weekday")?.value || "";
+    const hourStr = parts.find((part) => part.type === "hour")?.value || "00";
+    const minuteStr = parts.find((part) => part.type === "minute")?.value || "00";
     const daysMap: Record<string, string> = {
         Monday: "segunda",
         Tuesday: "terca",
@@ -205,14 +207,25 @@ function computeIsOpenNow(operatingHours: unknown) {
     };
 
     const currentDayKey = daysMap[weekdayStr];
-    const hours = (operatingHours as OperatingHoursMap) || {};
+    const parsedHours =
+        typeof operatingHours === "string"
+            ? (() => {
+                try {
+                    return JSON.parse(operatingHours) as OperatingHoursMap;
+                } catch {
+                    return {};
+                }
+            })()
+            : ((operatingHours as OperatingHoursMap) || {});
+    const hours = parsedHours;
     const todayHours = currentDayKey ? hours[currentDayKey] : undefined;
 
     if (!todayHours || todayHours.isClosed || !todayHours.open || !todayHours.close) {
         return false;
     }
 
-    const [currH, currM] = timeStr.split(":").map(Number);
+    const currH = Number(hourStr);
+    const currM = Number(minuteStr);
     const [openH, openM] = todayHours.open.split(":").map(Number);
     const [closeH, closeM] = todayHours.close.split(":").map(Number);
 

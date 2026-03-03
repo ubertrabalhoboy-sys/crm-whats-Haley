@@ -20,6 +20,8 @@ export type CartSnapshotData = {
     updated_at: string;
 };
 
+type CartSnapshotInput = Partial<CartSnapshotData> | null | undefined;
+
 type FollowupCartSnapshot = {
     items?: Array<{ category?: unknown }>;
     payment_method?: unknown;
@@ -166,6 +168,56 @@ export function buildCartSnapshotData(input: {
         source: input.source,
         updated_at: input.updated_at,
     };
+}
+
+export function appendItemToCartSnapshot(details: {
+    snapshot: CartSnapshotInput;
+    item: ToolCartItem;
+    updatedAt: string;
+}): CartSnapshotData {
+    const currentItems = Array.isArray(details.snapshot?.items)
+        ? details.snapshot.items.filter(
+              (item): item is ToolCartItem =>
+                  typeof item === "object" && item !== null && typeof item.quantity === "number"
+          )
+        : [];
+
+    const nextItems = [...currentItems];
+    const existingIndex = nextItems.findIndex(
+        (item) => item.product_id && item.product_id === details.item.product_id
+    );
+
+    if (existingIndex >= 0) {
+        const existing = nextItems[existingIndex];
+        nextItems[existingIndex] = {
+            ...existing,
+            category: details.item.category || existing.category,
+            quantity: Number(existing.quantity || 0) + Number(details.item.quantity || 1),
+        };
+    } else {
+        nextItems.push({
+            product_id: details.item.product_id,
+            quantity: Number(details.item.quantity || 1),
+            category: details.item.category,
+        });
+    }
+
+    return buildCartSnapshotData({
+        items: nextItems,
+        subtotal: details.snapshot?.subtotal ?? 0,
+        discount: details.snapshot?.discount ?? 0,
+        delivery_fee: details.snapshot?.delivery_fee ?? 0,
+        distance_km: details.snapshot?.distance_km,
+        total: details.snapshot?.total ?? 0,
+        applied_coupon_code: details.snapshot?.applied_coupon_code ?? null,
+        payment_method: details.snapshot?.payment_method ?? null,
+        order_id: details.snapshot?.order_id ?? null,
+        source:
+            details.snapshot?.source === "submit_final_order"
+                ? "submit_final_order"
+                : "calculate_cart_total",
+        updated_at: details.updatedAt,
+    });
 }
 
 export function inferFollowupNextStep(snapshot: unknown): FollowupNextStep {

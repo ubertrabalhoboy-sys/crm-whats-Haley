@@ -11,6 +11,7 @@
     "test:ai:tools": "node --experimental-strip-types scripts/test-ai-tool-rules.mjs",
     "test:ai:flow": "node --experimental-strip-types scripts/test-ai-flow.mjs",
     "test:ai:transcripts": "node --experimental-strip-types scripts/test-ai-transcripts.mjs",
+    "test:ai:transcripts:multi": "node --experimental-strip-types scripts/test-ai-transcripts-multirun.mjs",
     "test:ai:orchestrator": "node --experimental-strip-types scripts/test-ai-orchestrator-rules.mjs",
     "test:ai:mocks": "node --experimental-strip-types scripts/test-ai-integration-mocks.mjs",
     "test:ai:metrics": "node --experimental-strip-types scripts/test-ai-metrics.mjs",

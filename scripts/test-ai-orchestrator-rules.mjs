@@ -5,6 +5,7 @@ import {
     detectUnverifiedCommercialClaim,
     isRoulettePrizeTrigger,
     normalizeOutboundText,
+    parseAddToCartClientAction,
     shouldHandleDelayedCouponDeferral,
     stripThoughtBlocks,
 } from "../src/lib/ai/orchestratorRules.ts";
@@ -134,6 +135,19 @@ assert.deepEqual(
 
 assert.deepEqual(
     detectStructuredReplyIntent({
+        text: "Me manda seu endereco para eu seguir.",
+        hasCartItems: true,
+        locationConfirmed: false,
+        addressConfirmed: false,
+        referenceConfirmed: false,
+        hasFreightCalculation: false,
+        hasPaymentMethod: false,
+    }),
+    { kind: "request_location" }
+);
+
+assert.deepEqual(
+    detectStructuredReplyIntent({
         text: "Como prefere pagar? PIX, Dinheiro ou Cartao?",
         hasCartItems: true,
         locationConfirmed: true,
@@ -213,6 +227,17 @@ assert.equal(
         hasCartItems: false,
     }),
     "use_later"
+);
+
+assert.deepEqual(
+    parseAddToCartClientAction(
+        'CLIENT_ACTION:add_to_cart product_id=11111111-1111-1111-1111-111111111111 product_name="Bacon Monster" category=principal'
+    ),
+    {
+        productId: "11111111-1111-1111-1111-111111111111",
+        productName: "Bacon Monster",
+        category: "principal",
+    }
 );
 
 console.log("AI orchestrator rules smoke tests passed");

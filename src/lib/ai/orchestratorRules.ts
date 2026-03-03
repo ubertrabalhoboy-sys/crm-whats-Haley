@@ -35,6 +35,12 @@ type RouletteChoiceContext = {
     hasCartItems: boolean;
 };
 
+type AddToCartAction = {
+    productId: string;
+    productName: string;
+    category: "principal" | "adicional" | "bebida";
+};
+
 function normalizeLooseText(text: string) {
     return text
         .toLowerCase()
@@ -42,6 +48,29 @@ function normalizeLooseText(text: string) {
         .replace(/[\u0300-\u036f]/g, "")
         .replace(/\s+/g, " ")
         .trim();
+}
+
+export function parseAddToCartClientAction(text: string): AddToCartAction | null {
+    const trimmed = String(text || "").trim();
+    const match = trimmed.match(
+        /^CLIENT_ACTION:add_to_cart\s+product_id=([0-9a-f-]{36})\s+product_name="([^"]+)"\s+category=([a-z_]+)$/i
+    );
+
+    if (!match) {
+        return null;
+    }
+
+    const rawCategory = match[3].toLowerCase();
+    const category =
+        rawCategory === "adicional" || rawCategory === "bebida"
+            ? rawCategory
+            : "principal";
+
+    return {
+        productId: match[1],
+        productName: match[2],
+        category,
+    };
 }
 
 export function stripThoughtBlocks(text: string) {
@@ -157,7 +186,7 @@ export function detectStructuredReplyIntent(details: StructuredReplyContext) {
     const asksForLocation =
         details.hasCartItems &&
         !details.locationConfirmed &&
-        /(localiz|gps|compartilh)/.test(normalized);
+        /(localiz|gps|compartilh|endereco|enderec|rua|onde entregar)/.test(normalized);
 
     if (asksForLocation) {
         return { kind: "request_location" as const };

@@ -33,6 +33,8 @@ npm run test:ai:all
 npm run test:ai
 npm run test:ai:tools
 npm run test:ai:flow
+npm run test:ai:transcripts
+npm run test:ai:transcripts:multi
 npm run test:ai:orchestrator
 npm run test:ai:metrics
 ```
@@ -86,6 +88,36 @@ Cobre:
 - bloqueio de payload tecnico cru
 - deteccao de valor de frete sem evidencia
 - deteccao de valor PIX sem evidencia
+
+### `npm run test:ai:transcripts`
+
+Arquivos:
+- [scripts/test-ai-transcripts.mjs](c:/Users/USER/Desktop/meu-servidor-whatsapp/crm-whats/scripts/test-ai-transcripts.mjs)
+- [scripts/ai-transcript-benchmark.mjs](c:/Users/USER/Desktop/meu-servidor-whatsapp/crm-whats/scripts/ai-transcript-benchmark.mjs)
+
+Cobre:
+
+- benchmark de comportamento por cenarios reais
+- contratos de fluxo (`nao_pula_etapa`, `usa_midia_certa`, `segue_fluxo_roleta`)
+- score por criterio
+- dataset versionado de transcripts (`AI_TRANSCRIPT_DATASET_VERSION`)
+
+### `npm run test:ai:transcripts:multi`
+
+Arquivo: [scripts/test-ai-transcripts-multirun.mjs](c:/Users/USER/Desktop/meu-servidor-whatsapp/crm-whats/scripts/test-ai-transcripts-multirun.mjs)
+
+Cobre:
+
+- reexecucao da mesma bateria de transcripts em `N` rodadas
+- media, minimo, maximo e desvio padrao do benchmark
+- deteccao de instabilidade entre execucoes
+
+Voce pode mudar o numero de rodadas com:
+
+```powershell
+$env:AI_TRANSCRIPT_RUNS="10"
+npm run test:ai:transcripts:multi
+```
 
 ### `npm run test:ai:metrics`
 

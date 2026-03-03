@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+    appendItemToCartSnapshot,
     buildFollowupReminderText,
     buildScheduledFollowupPayload,
     buildCarouselPriceText,
@@ -139,6 +140,37 @@ assert.deepEqual(
             next_step: "bebida",
             generated_at: "2026-03-02T01:00:00.000Z",
         },
+    }
+);
+
+assert.deepEqual(
+    appendItemToCartSnapshot({
+        snapshot: {
+            items: [{ product_id: "1", quantity: 1, category: "principal" }],
+            subtotal: 0,
+            discount: 0,
+            delivery_fee: 0,
+            total: 0,
+            source: "calculate_cart_total",
+        },
+        item: { product_id: "2", quantity: 1, category: "adicional" },
+        updatedAt: "2026-03-02T02:00:00.000Z",
+    }),
+    {
+        items: [
+            { product_id: "1", quantity: 1, category: "principal" },
+            { product_id: "2", quantity: 1, category: "adicional" },
+        ],
+        subtotal: 0,
+        discount: 0,
+        delivery_fee: 0,
+        distance_km: undefined,
+        total: 0,
+        applied_coupon_code: null,
+        payment_method: null,
+        order_id: null,
+        source: "calculate_cart_total",
+        updated_at: "2026-03-02T02:00:00.000Z",
     }
 );
 

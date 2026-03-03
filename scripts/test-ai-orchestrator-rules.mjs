@@ -6,6 +6,7 @@ import {
     isRoulettePrizeTrigger,
     normalizeOutboundText,
     parseAddToCartClientAction,
+    shouldAutoCalculateAfterOperationalInput,
     shouldHandleDelayedCouponDeferral,
     stripThoughtBlocks,
 } from "../src/lib/ai/orchestratorRules.ts";
@@ -261,6 +262,50 @@ assert.equal(
         hasCartItems: false,
     }),
     "use_later"
+);
+
+assert.equal(
+    shouldAutoCalculateAfterOperationalInput({
+        latestOutboundText:
+            "Perfeito. Agora me manda um ponto de referencia para eu seguir.",
+        receivedOperationalInput: true,
+        hasCartItems: true,
+        locationConfirmed: true,
+        addressConfirmed: true,
+        referenceConfirmed: true,
+        hasPaymentMethod: false,
+        hasOrder: false,
+    }),
+    true
+);
+
+assert.equal(
+    shouldAutoCalculateAfterOperationalInput({
+        latestOutboundText:
+            "Perfeito. Agora me manda um ponto de referencia para eu seguir.",
+        receivedOperationalInput: false,
+        hasCartItems: true,
+        locationConfirmed: true,
+        addressConfirmed: true,
+        referenceConfirmed: true,
+        hasPaymentMethod: false,
+        hasOrder: false,
+    }),
+    false
+);
+
+assert.equal(
+    shouldAutoCalculateAfterOperationalInput({
+        latestOutboundText: "Como prefere pagar?",
+        receivedOperationalInput: true,
+        hasCartItems: true,
+        locationConfirmed: true,
+        addressConfirmed: true,
+        referenceConfirmed: true,
+        hasPaymentMethod: false,
+        hasOrder: false,
+    }),
+    false
 );
 
 assert.deepEqual(

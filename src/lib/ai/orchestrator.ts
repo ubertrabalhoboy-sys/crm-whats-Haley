@@ -19,6 +19,7 @@ import {
     isRoulettePrizeTrigger,
     normalizeOutboundText,
     parseAddToCartClientAction,
+    shouldAutoCalculateAfterOperationalInput,
     shouldHandleDelayedCouponDeferral,
     stripThoughtBlocks,
 } from "./orchestratorRules";
@@ -647,6 +648,86 @@ function buildPostLocationFollowUpMessage(details: {
     return null;
 }
 
+function formatCurrency(value: unknown) {
+    const numeric = Number(value);
+    const safeValue = Number.isFinite(numeric) ? numeric : 0;
+    return `R$ ${safeValue.toFixed(2).replace(".", ",")}`;
+}
+
+function extractLatestOperationalText(
+    messages: StoredMessage[],
+    matcher: (text: string) => boolean
+) {
+    for (const message of messages) {
+        const text = typeof message.text === "string" ? message.text.trim() : "";
+        if (!text) {
+            continue;
+        }
+        if (text.toLowerCase().startsWith("client_action:location_shared ")) {
+            continue;
+        }
+        if (matcher(text)) {
+            return text;
+        }
+    }
+
+    return "";
+}
+
+function extractLatestGpsLocation(messages: StoredMessage[]) {
+    for (const message of messages) {
+        const text = typeof message.text === "string" ? message.text.trim() : "";
+        if (text.toLowerCase().startsWith("client_action:location_shared ")) {
+            return text.replace(/^client_action:location_shared\s+/i, "").trim();
+        }
+    }
+
+    return "";
+}
+
+function getCartItemsFromSnapshot(snapshot: unknown) {
+    const record = asRecord(snapshot);
+    const items = Array.isArray(record?.items) ? record.items : [];
+
+    return items
+        .map((item) => {
+            const itemRecord = asRecord(item);
+            const productId =
+                typeof itemRecord?.product_id === "string" ? itemRecord.product_id : "";
+            const quantity = Number(itemRecord?.quantity);
+
+            if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+                return null;
+            }
+
+            return {
+                product_id: productId,
+                quantity,
+            };
+        })
+        .filter(
+            (
+                item
+            ): item is {
+                product_id: string;
+                quantity: number;
+            } => item !== null
+        );
+}
+
+function buildCartTotalSummaryText(result: Record<string, unknown>) {
+    const subtotal = Number(result.subtotal);
+    const discount = Number(result.discount);
+    const deliveryFee = Number(result.delivery_fee);
+    const total = Number(result.total);
+
+    return [
+        `Perfeito! Subtotal: ${formatCurrency(subtotal)}.`,
+        `Desconto: ${formatCurrency(discount)}. Frete: ${formatCurrency(deliveryFee)}.`,
+        `Total com entrega: ${formatCurrency(total)}. Como prefere pagar?`,
+    ].join(" ");
+}
+
 function extractSalesSignals(conversationContext: Content[]) {
     const recentContext = conversationContext.slice(-6);
     const assistantTexts = recentContext
@@ -1023,8 +1104,18 @@ function looksLikeAddress(text: string) {
         return true;
     }
 
-    // Pattern for number followed by street-like word: "123 Rua" or "Rua X 123"
-    return /\d{1,5}[\s,.-]+[a-z]/i.test(normalized);
+    const trimmed = normalized.trim();
+
+    if (/^\d{1,5}[a-z]?$/i.test(trimmed)) {
+        return true;
+    }
+
+    const streetPattern =
+        /\b(?:rua|avenida|av\.?|travessa|tv\.?|alameda|bairro|quadra|lote)\b.*\d{1,5}/i;
+    const reverseStreetPattern =
+        /\d{1,5}.*\b(?:rua|avenida|av\.?|travessa|tv\.?|alameda|bairro|quadra|lote)\b/i;
+
+    return streetPattern.test(trimmed) || reverseStreetPattern.test(trimmed);
 }
 
 /**
@@ -1301,6 +1392,9 @@ export async function processAiMessage(params: OrchestratorParams) {
     const incomingHasReference = !incomingHasLocation && looksLikeReference(normalizedIncomingText);
 
     const incomingMessages = typedMessages.filter((m) => m.direction === "in");
+    const latestAddressText = extractLatestOperationalText(incomingMessages, looksLikeAddress);
+    const latestReferenceText = extractLatestOperationalText(incomingMessages, looksLikeReference);
+    const latestGpsLocation = extractLatestGpsLocation(incomingMessages);
 
     const historyHasLocation = incomingMessages.some((m) =>
         hasNativeLocation(m.payload, m.text)
@@ -1330,6 +1424,8 @@ export async function processAiMessage(params: OrchestratorParams) {
 
     const typedChatContext = (chatContext || null) as ChatContextRecord | null;
     const latestOutboundMessage = typedMessages.find((m) => m.direction === "out");
+    const latestOutboundText =
+        typeof latestOutboundMessage?.text === "string" ? latestOutboundMessage.text : "";
     const cartSnapshotMeta = readCartSnapshotMeta(typedChatContext?.cart_snapshot);
 
     let geminiHistory: Content[] = [];
@@ -1438,19 +1534,26 @@ export async function processAiMessage(params: OrchestratorParams) {
         isRoulettePrizeTrigger(normalizedIncomingText) && !cartSnapshotMeta.hasItems;
     const immediateRouletteChoice = detectRouletteChoiceIntent({
         latestInboundText: normalizedIncomingText,
-        latestOutboundText: typeof latestOutboundMessage?.text === "string"
-            ? latestOutboundMessage.text
-            : "",
+        latestOutboundText,
         hasCartItems: cartSnapshotMeta.hasItems,
     });
     const immediateDelayedCouponFollowUp = shouldHandleDelayedCouponDeferral({
         latestInboundText: normalizedIncomingText,
-        latestOutboundText: typeof latestOutboundMessage?.text === "string"
-            ? latestOutboundMessage.text
-            : "",
+        latestOutboundText,
         hasCartItems: cartSnapshotMeta.hasItems,
     });
     const immediateAddToCartAction = parseAddToCartClientAction(normalizedIncomingText);
+    const immediateOperationalCalculation = shouldAutoCalculateAfterOperationalInput({
+        latestOutboundText,
+        receivedOperationalInput:
+            incomingHasLocation || incomingHasAddress || incomingHasReference,
+        hasCartItems: cartSnapshotMeta.hasItems,
+        locationConfirmed,
+        addressConfirmed,
+        referenceConfirmed,
+        hasPaymentMethod: cartSnapshotMeta.hasPaymentMethod,
+        hasOrder: cartSnapshotMeta.hasOrder,
+    });
 
     const toolInvocationFingerprints = new Set<string>();
     const turnEvidence = {
@@ -1500,6 +1603,189 @@ export async function processAiMessage(params: OrchestratorParams) {
             ...turnSummary,
         });
         return;
+    }
+
+    if (immediateOperationalCalculation) {
+        const cartItemsForCalculation = getCartItemsFromSnapshot(
+            typedChatContext?.cart_snapshot
+        );
+
+        if (cartItemsForCalculation.length > 0) {
+            logAiEvent("auto_freight_calculation_triggered", {
+                chatId: params.chatId,
+                itemsCount: cartItemsForCalculation.length,
+                hasGpsLocation: Boolean(latestGpsLocation),
+                hasAddressText: Boolean(latestAddressText),
+                hasReferenceText: Boolean(latestReferenceText),
+            });
+
+            const calculationArgs: Record<string, unknown> = {
+                items: cartItemsForCalculation,
+            };
+
+            if (latestAddressText) {
+                calculationArgs.customer_address = latestAddressText;
+            }
+
+            if (latestGpsLocation) {
+                calculationArgs.gps_location = latestGpsLocation;
+            }
+
+            const calculationRaw = await executeAiTool(
+                "calculate_cart_total",
+                calculationArgs,
+                ctx
+            );
+
+            let calculationResult: Record<string, unknown> | null = null;
+            try {
+                calculationResult = asRecord(JSON.parse(calculationRaw));
+            } catch {
+                calculationResult = null;
+            }
+
+            markToolCompleted(turnMetrics, {
+                toolName: "calculate_cart_total",
+                blocked: false,
+                skipped: calculationResult?.skipped === true,
+                ok: calculationResult?.ok === true,
+            });
+
+            if (calculationResult?.ok === true) {
+                turnEvidence.hasFreightCalculation = true;
+
+                const summaryText = buildCartTotalSummaryText(calculationResult);
+                const summarySendResult = await sendTextMessage(
+                    params.waChatId,
+                    summaryText,
+                    instanceToken
+                );
+
+                if (wasOutboundDeliveryAccepted(summarySendResult)) {
+                    logAiEvent("outbound_text_sent", {
+                        chatId: params.chatId,
+                        endpoint: summarySendResult.endpoint || "/send/text",
+                        status: summarySendResult.status || null,
+                        textLength: summaryText.length,
+                        autoTriggeredBy: "operational_ready_calculation",
+                    });
+                    markTextSent(turnMetrics);
+                    await persistOutgoingMessage(supabase, params, summaryText);
+                } else {
+                    logAiEvent("outbound_text_failed", {
+                        chatId: params.chatId,
+                        endpoint: summarySendResult.endpoint || "/send/text",
+                        status: summarySendResult.status || null,
+                        error: summarySendResult.error || null,
+                        autoTriggeredBy: "operational_ready_calculation",
+                    });
+                    markTextFailed(turnMetrics);
+                }
+
+                const paymentToolRaw = await executeAiTool(
+                    "send_uaz_buttons",
+                    {
+                        text: "Como prefere pagar?",
+                        choices: ["PIX", "Dinheiro", "Cartao"],
+                        footerText: "Escolha uma opcao",
+                    },
+                    ctx
+                );
+
+                let paymentToolResult: Record<string, unknown> | null = null;
+                try {
+                    paymentToolResult = asRecord(JSON.parse(paymentToolRaw));
+                } catch {
+                    paymentToolResult = null;
+                }
+
+                markToolCompleted(turnMetrics, {
+                    toolName: "send_uaz_buttons",
+                    blocked: false,
+                    skipped: paymentToolResult?.skipped === true,
+                    ok: paymentToolResult?.ok === true,
+                });
+
+                const paymentPayload = asRecord(paymentToolResult?.uazapi_payload);
+                if (paymentPayload) {
+                    const payloadSendResult = await sendRichPayload(
+                        paymentPayload,
+                        instanceToken
+                    );
+
+                    if (wasOutboundDeliveryAccepted(payloadSendResult)) {
+                        logAiEvent("outbound_payload_sent", {
+                            chatId: params.chatId,
+                            endpoint: payloadSendResult.endpoint || null,
+                            status: payloadSendResult.status || null,
+                            delivered: true,
+                            autoTriggeredBy: "operational_ready_payment",
+                        });
+                        markPayloadSent(turnMetrics);
+                        await persistOutgoingMessage(
+                            supabase,
+                            params,
+                            typeof paymentPayload.text === "string"
+                                ? paymentPayload.text
+                                : "Como prefere pagar?",
+                            paymentPayload
+                        );
+                    } else {
+                        logAiEvent("outbound_payload_failed", {
+                            chatId: params.chatId,
+                            endpoint: payloadSendResult.endpoint || null,
+                            status: payloadSendResult.status || null,
+                            error: payloadSendResult.error || null,
+                            autoTriggeredBy: "operational_ready_payment",
+                        });
+                        markPayloadFailed(turnMetrics);
+
+                        const fallbackPaymentText =
+                            typeof paymentPayload.text === "string"
+                                ? paymentPayload.text
+                                : "Como prefere pagar? PIX, Dinheiro ou Cartao.";
+                        const fallbackTextResult = await sendTextMessage(
+                            params.waChatId,
+                            fallbackPaymentText,
+                            instanceToken
+                        );
+
+                        if (wasOutboundDeliveryAccepted(fallbackTextResult)) {
+                            logAiEvent("outbound_text_sent", {
+                                chatId: params.chatId,
+                                endpoint: fallbackTextResult.endpoint || "/send/text",
+                                status: fallbackTextResult.status || null,
+                                textLength: fallbackPaymentText.length,
+                                autoTriggeredBy: "operational_ready_payment_fallback",
+                            });
+                            markTextSent(turnMetrics);
+                            await persistOutgoingMessage(
+                                supabase,
+                                params,
+                                fallbackPaymentText
+                            );
+                        } else {
+                            markTextFailed(turnMetrics);
+                        }
+                    }
+                }
+
+                const turnSummary = buildAiTurnSummary(turnMetrics, {
+                    maxIterationsReached: false,
+                });
+                const metricsPersisted = await persistAiTurnMetrics(
+                    supabase,
+                    params,
+                    turnSummary
+                );
+                logAiEvent("process_completed", {
+                    chatId: params.chatId,
+                    metricsPersisted,
+                    ...turnSummary,
+                });
+                return;
+            }
+        }
     }
 
     if (immediateRoulettePrizePrompt) {

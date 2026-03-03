@@ -35,6 +35,17 @@ type RouletteChoiceContext = {
     hasCartItems: boolean;
 };
 
+type AutoCalculateAfterOperationalInputContext = {
+    latestOutboundText: string;
+    receivedOperationalInput: boolean;
+    hasCartItems: boolean;
+    locationConfirmed: boolean;
+    addressConfirmed: boolean;
+    referenceConfirmed: boolean;
+    hasPaymentMethod: boolean;
+    hasOrder?: boolean;
+};
+
 type AddToCartAction = {
     productId: string;
     productName: string;
@@ -318,4 +329,41 @@ export function detectRouletteChoiceIntent(details: RouletteChoiceContext) {
     }
 
     return null;
+}
+
+export function shouldAutoCalculateAfterOperationalInput(
+    details: AutoCalculateAfterOperationalInputContext
+) {
+    if (
+        !details.receivedOperationalInput ||
+        !details.hasCartItems ||
+        details.hasPaymentMethod ||
+        details.hasOrder
+    ) {
+        return false;
+    }
+
+    if (
+        !details.locationConfirmed ||
+        !details.addressConfirmed ||
+        !details.referenceConfirmed
+    ) {
+        return false;
+    }
+
+    const latestOutboundNormalized = normalizeLooseText(details.latestOutboundText);
+    if (!latestOutboundNormalized) {
+        return false;
+    }
+
+    const askedForOperationalData =
+        /(localizacao|gps|compartilh)/.test(latestOutboundNormalized) ||
+        /(numero da casa|numero do endereco|numero do local)/.test(
+            latestOutboundNormalized
+        ) ||
+        /(ponto de referencia|referencia para eu seguir|me manda um ponto de referencia)/.test(
+            latestOutboundNormalized
+        );
+
+    return askedForOperationalData;
 }

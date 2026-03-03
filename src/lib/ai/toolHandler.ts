@@ -240,6 +240,27 @@ function computeIsOpenNow(operatingHours: unknown) {
     return currentTotalMinutes >= openTotalMinutes && currentTotalMinutes <= closeTotalMinutes;
 }
 
+function normalizeGpsDestination(gpsLocation: unknown) {
+    const raw = typeof gpsLocation === "string" ? gpsLocation.trim() : "";
+    if (!raw) {
+        return "";
+    }
+
+    const latLngAssignmentMatch = raw.match(
+        /lat\s*=\s*(-?\d+(?:\.\d+)?)\s+lng\s*=\s*(-?\d+(?:\.\d+)?)/i
+    );
+    if (latLngAssignmentMatch) {
+        return `${latLngAssignmentMatch[1]},${latLngAssignmentMatch[2]}`;
+    }
+
+    const csvMatch = raw.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if (csvMatch) {
+        return `${csvMatch[1]},${csvMatch[2]}`;
+    }
+
+    return "";
+}
+
 /**
  * Dispatcher principal.
  * Garante que cada ferramenta chamada pelo Gemini chegue ao handler correto.
@@ -416,10 +437,33 @@ async function handleCalculateCartTotal(args: Record<string, unknown>, ctx: Tool
     const freeDeliveryThreshold = Number(rest?.free_delivery_threshold) || 0;
     const customerAddress =
         typeof args.customer_address === "string" ? args.customer_address.trim() : "";
+    const gpsDestination = normalizeGpsDestination(args.gps_location);
 
     if (freeDeliveryThreshold > 0 && subtotalAfterDiscount >= freeDeliveryThreshold) {
         delivery_fee = 0;
         deliverySource = "free_delivery_threshold";
+    } else if (gpsDestination && rest?.store_address && process.env.GOOGLE_MAPS_API_KEY) {
+        try {
+            const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(
+                rest.store_address
+            )}&destinations=${encodeURIComponent(
+                gpsDestination
+            )}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+            const res = await fetchWithTimeout(url, {}, GOOGLE_MAPS_REQUEST_TIMEOUT_MS);
+            const gmData = await res.json();
+            if (gmData.status === "OK" && gmData.rows[0].elements[0].status === "OK") {
+                distance_km = gmData.rows[0].elements[0].distance.value / 1000;
+                delivery_fee = Number(
+                    (distance_km * (pricePerKm || 2)).toFixed(2)
+                );
+                deliverySource = "google_maps_gps";
+            } else {
+                deliverySource = "google_maps_gps_unavailable";
+            }
+        } catch (e) {
+            console.error("[MAPS_GPS_ERROR]", e);
+            deliverySource = "google_maps_gps_error";
+        }
     } else if (customerAddress && rest?.store_address && process.env.GOOGLE_MAPS_API_KEY) {
         try {
             const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(
@@ -442,7 +486,7 @@ async function handleCalculateCartTotal(args: Record<string, unknown>, ctx: Tool
             console.error("[MAPS_ERROR]", e);
             deliverySource = "google_maps_error";
         }
-    } else if (customerAddress && pricePerKm > 0) {
+    } else if ((customerAddress || gpsDestination) && pricePerKm > 0) {
         distance_km = 5;
         delivery_fee = Number((distance_km * pricePerKm).toFixed(2));
         deliverySource = "fallback_fixed_distance";

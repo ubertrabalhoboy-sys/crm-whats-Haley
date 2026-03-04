@@ -9,6 +9,7 @@ import { executeAiTool, ToolContext } from "./toolHandler";
 import { createClient } from "@supabase/supabase-js";
 import { mapOpenAIToolsToGemini } from "./geminiMapper";
 import {
+    deriveExplicitCommercialState,
     determineRecommendedCommercialObjective,
     readCartSnapshotMeta,
 } from "./heuristics";
@@ -1026,6 +1027,14 @@ function buildOperationalChatSummary(details: {
         cartSnapshotMeta,
         salesSignals,
     });
+    const explicitCommercialState = deriveExplicitCommercialState({
+        pendingSteps,
+        commercialPhase,
+        resumptionSignal,
+        dominantCustomerIntent,
+        cartSnapshotMeta,
+        salesSignals,
+    });
     const recommendedCommercialObjective =
         offerRepetition.repeatedOfferKind === "adicional"
             ? "variar_oferta_e_tentar_bebida_ou_avancar"
@@ -1045,6 +1054,7 @@ function buildOperationalChatSummary(details: {
         "[Resumo operacional do chat]",
         `kanban_status=${details.kanbanStatus}`,
         `fase_comercial=${commercialPhase}`,
+        `estado_comercial_explicito=${explicitCommercialState}`,
         `sinal_retomada=${resumptionSignal}`,
         `sinal_intencao_cliente=${dominantCustomerIntent}`,
         `cupom_ganho=${details.cupomGanho}`,
@@ -1428,8 +1438,18 @@ async function sendRichPayload(uazapiPayload: Record<string, unknown>, instanceT
         result = await sendRequest(endpoint, payload, UAZAPI_CAROUSEL_RETRY_TIMEOUT_MS);
     }
 
-    if (endpoint === "/send/buttons" && result.status === 405) {
-        for (const fallbackRequest of buildButtonFallbackRequests(payload)) {
+    const isButtonEndpoint = endpoint === "/send/button";
+    const currentRequestKey = `${endpoint}:${JSON.stringify(payload)}`;
+
+    if (isButtonEndpoint && (result.status === 405 || result.status === 404)) {
+        for (const fallbackRequest of buildButtonFallbackRequests(uazapiPayload)) {
+            const fallbackRequestKey = `${fallbackRequest.endpoint}:${JSON.stringify(
+                fallbackRequest.payload
+            )}`;
+            if (fallbackRequestKey === currentRequestKey) {
+                continue;
+            }
+
             const fallbackValidation = validateOutgoingPayload(
                 fallbackRequest.endpoint,
                 fallbackRequest.payload
@@ -1444,7 +1464,10 @@ async function sendRichPayload(uazapiPayload: Record<string, unknown>, instanceT
                 UAZAPI_REQUEST_TIMEOUT_MS
             );
 
-            if (fallbackResult.delivered || fallbackResult.status !== 405) {
+            if (
+                fallbackResult.delivered ||
+                (fallbackResult.status !== 405 && fallbackResult.status !== 404)
+            ) {
                 result = fallbackResult;
                 break;
             }
@@ -1467,6 +1490,34 @@ async function persistOutgoingMessage(
         text,
         payload: payload ?? null,
     });
+}
+
+async function wasTurnSupersededByNewInbound(
+    supabase: ReturnType<typeof getSupabaseAdmin>,
+    chatId: string,
+    triggerMessageCreatedAt?: string
+) {
+    if (!triggerMessageCreatedAt) {
+        return false;
+    }
+
+    const { data, error } = await supabase
+        .from("messages")
+        .select("id")
+        .eq("chat_id", chatId)
+        .eq("direction", "in")
+        .gt("created_at", triggerMessageCreatedAt)
+        .limit(1);
+
+    if (error) {
+        console.warn("[AI LOOP] Failed to check stale turn state", {
+            chatId,
+            error: error.message,
+        });
+        return false;
+    }
+
+    return Boolean(data && data.length > 0);
 }
 
 async function persistAiTurnMetrics(
@@ -2253,6 +2304,35 @@ export async function processAiMessage(params: OrchestratorParams) {
                         )
                     )
                 ) {
+                    if (
+                        await wasTurnSupersededByNewInbound(
+                            supabase,
+                            params.chatId,
+                            ctx.trigger_message_created_at
+                        )
+                    ) {
+                        logAiEvent("auto_carousel_skipped", {
+                            chatId: params.chatId,
+                            reason: "STALE_TURN_SUPERSEDED",
+                            autoTriggeredBy: "add_to_cart_progression",
+                            category: nextCategory,
+                        });
+                        const turnSummary = buildAiTurnSummary(turnMetrics, {
+                            maxIterationsReached: false,
+                        });
+                        const metricsPersisted = await persistAiTurnMetrics(
+                            supabase,
+                            params,
+                            turnSummary
+                        );
+                        logAiEvent("process_completed", {
+                            chatId: params.chatId,
+                            metricsPersisted,
+                            ...turnSummary,
+                        });
+                        return;
+                    }
+
                     const payloadSendResult = await sendRichPayload(
                         carouselPayload,
                         instanceToken
@@ -2468,6 +2548,49 @@ export async function processAiMessage(params: OrchestratorParams) {
                 });
 
                 if (carouselPayload) {
+                    if (
+                        await wasTurnSupersededByNewInbound(
+                            supabase,
+                            params.chatId,
+                            ctx.trigger_message_created_at
+                        )
+                    ) {
+                        logAiEvent("auto_carousel_skipped", {
+                            chatId: params.chatId,
+                            reason: "STALE_TURN_SUPERSEDED",
+                            autoTriggeredBy: "roulette_use_now_open",
+                        });
+                        const fallbackTextResult = await sendTextMessage(
+                            params.waChatId,
+                            "Agora estamos abertos. Me chama quando quiser que eu te mostro nossos principais.",
+                            instanceToken
+                        );
+                        if (wasOutboundDeliveryAccepted(fallbackTextResult)) {
+                            markTextSent(turnMetrics);
+                            await persistOutgoingMessage(
+                                supabase,
+                                params,
+                                "Agora estamos abertos. Me chama quando quiser que eu te mostro nossos principais."
+                            );
+                        } else {
+                            markTextFailed(turnMetrics);
+                        }
+                        const turnSummary = buildAiTurnSummary(turnMetrics, {
+                            maxIterationsReached: false,
+                        });
+                        const metricsPersisted = await persistAiTurnMetrics(
+                            supabase,
+                            params,
+                            turnSummary
+                        );
+                        logAiEvent("process_completed", {
+                            chatId: params.chatId,
+                            metricsPersisted,
+                            ...turnSummary,
+                        });
+                        return;
+                    }
+
                     const payloadSendResult = await sendRichPayload(
                         carouselPayload,
                         instanceToken
@@ -3011,6 +3134,30 @@ export async function processAiMessage(params: OrchestratorParams) {
                 if (toolName === "search_product_catalog" && parsedToolResultRecord?.ok === true) {
                     const searchedProducts = asProductList(parsedToolResultRecord.products);
                     if (searchedProducts.length > 0) {
+                        const shouldPromoteKanbanToAssembly =
+                            !cartSnapshotMeta.hasItems &&
+                            /novo lead/i.test(String(kanbanStatus || "")) &&
+                            /roleta/i.test(String(kanbanStatus || ""));
+
+                        if (shouldPromoteKanbanToAssembly) {
+                            const stageMoveRaw = await executeAiTool(
+                                "move_kanban_stage",
+                                { stage_name: "Montando Pedido" },
+                                ctx
+                            );
+                            try {
+                                const stageMoveResult = asRecord(JSON.parse(stageMoveRaw));
+                                markToolCompleted(turnMetrics, {
+                                    toolName: "move_kanban_stage",
+                                    blocked: false,
+                                    skipped: stageMoveResult?.skipped === true,
+                                    ok: stageMoveResult?.ok === true,
+                                });
+                            } catch {
+                                // ignore metric parse issue
+                            }
+                        }
+
                         const carouselToolRaw = await executeAiTool(
                             "send_uaz_carousel",
                             { products: searchedProducts },
@@ -3021,6 +3168,23 @@ export async function processAiMessage(params: OrchestratorParams) {
                             const carouselToolResult = asRecord(JSON.parse(carouselToolRaw));
                             const carouselPayload = asRecord(carouselToolResult?.uazapi_payload);
                             if (carouselPayload) {
+                                if (
+                                    await wasTurnSupersededByNewInbound(
+                                        supabase,
+                                        params.chatId,
+                                        ctx.trigger_message_created_at
+                                    )
+                                ) {
+                                    logAiEvent("auto_carousel_skipped", {
+                                        chatId: params.chatId,
+                                        iteration,
+                                        reason: "STALE_TURN_SUPERSEDED",
+                                        autoTriggeredBy: "search_product_catalog",
+                                    });
+                                    loopActive = false;
+                                    break;
+                                }
+
                                 if (
                                     await wasOutgoingPayloadAlreadySent(
                                         supabase,
@@ -3157,6 +3321,31 @@ export async function processAiMessage(params: OrchestratorParams) {
                 });
 
                 if (structuredReplyIntent?.kind === "category_catalog") {
+                    const shouldPromoteKanbanToAssembly =
+                        structuredReplyIntent.category === "principal" &&
+                        !cartSnapshotMeta.hasItems &&
+                        /novo lead/i.test(String(kanbanStatus || "")) &&
+                        /roleta/i.test(String(kanbanStatus || ""));
+
+                    if (shouldPromoteKanbanToAssembly) {
+                        const stageMoveRaw = await executeAiTool(
+                            "move_kanban_stage",
+                            { stage_name: "Montando Pedido" },
+                            ctx
+                        );
+                        try {
+                            const stageMoveResult = asRecord(JSON.parse(stageMoveRaw));
+                            markToolCompleted(turnMetrics, {
+                                toolName: "move_kanban_stage",
+                                blocked: false,
+                                skipped: stageMoveResult?.skipped === true,
+                                ok: stageMoveResult?.ok === true,
+                            });
+                        } catch {
+                            // ignore metric parse issue
+                        }
+                    }
+
                     const categorySearchRaw = await executeAiTool(
                         "search_product_catalog",
                         { category: structuredReplyIntent.category },

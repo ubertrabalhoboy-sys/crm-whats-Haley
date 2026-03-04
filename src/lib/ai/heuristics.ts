@@ -23,6 +23,19 @@ export type SalesSignals = {
     customerRejectedOffer: boolean;
 };
 
+export type ExplicitCommercialState =
+    | "saudacao"
+    | "oferta_principal"
+    | "oferta_adicional"
+    | "oferta_bebida"
+    | "coleta_endereco"
+    | "coleta_referencia"
+    | "confirmacao_total"
+    | "coleta_pagamento"
+    | "fechamento"
+    | "pos_venda"
+    | "abandono_recuperacao";
+
 type CommercialObjectiveInput = {
     pendingSteps: string[];
     commercialPhase: string;
@@ -201,4 +214,77 @@ export function determineRecommendedCommercialObjective(
     }
 
     return "conduzir_atendimento_e_identificar_melhor_proxima_oferta";
+}
+
+export function deriveExplicitCommercialState(
+    details: CommercialObjectiveInput
+): ExplicitCommercialState {
+    if (
+        (details.resumptionSignal === "resposta_a_followup" ||
+            details.resumptionSignal === "retomada_carrinho") &&
+        !details.cartSnapshotMeta.hasOrder
+    ) {
+        return "abandono_recuperacao";
+    }
+
+    if (details.cartSnapshotMeta.hasOrder) {
+        return "pos_venda";
+    }
+
+    if (details.pendingSteps.includes("solicitar_localizacao_nativa")) {
+        return "coleta_endereco";
+    }
+
+    if (details.pendingSteps.includes("coletar_endereco")) {
+        return "coleta_endereco";
+    }
+
+    if (details.pendingSteps.includes("coletar_referencia")) {
+        return "coleta_referencia";
+    }
+
+    if (details.commercialPhase === "pagamento") {
+        return "coleta_pagamento";
+    }
+
+    if (
+        details.cartSnapshotMeta.hasItems &&
+        !details.cartSnapshotMeta.hasPaymentMethod &&
+        details.cartSnapshotMeta.source === "calculate_cart_total" &&
+        details.cartSnapshotMeta.hasPrincipal &&
+        details.cartSnapshotMeta.hasAdditional &&
+        details.cartSnapshotMeta.hasDrink
+    ) {
+        return "confirmacao_total";
+    }
+
+    if (
+        details.commercialPhase === "fechamento" ||
+        details.salesSignals.closeAttemptStarted ||
+        details.cartSnapshotMeta.hasPaymentMethod
+    ) {
+        return "fechamento";
+    }
+
+    if (!details.cartSnapshotMeta.hasItems && details.dominantCustomerIntent === "saudacao") {
+        return "saudacao";
+    }
+
+    if (!details.cartSnapshotMeta.hasItems || !details.cartSnapshotMeta.hasPrincipal) {
+        return "oferta_principal";
+    }
+
+    if (!details.cartSnapshotMeta.hasAdditional) {
+        return "oferta_adicional";
+    }
+
+    if (!details.cartSnapshotMeta.hasDrink) {
+        return "oferta_bebida";
+    }
+
+    if (!details.cartSnapshotMeta.hasPaymentMethod) {
+        return "coleta_pagamento";
+    }
+
+    return "fechamento";
 }

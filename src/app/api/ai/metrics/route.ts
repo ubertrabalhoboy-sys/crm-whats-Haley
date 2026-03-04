@@ -79,11 +79,21 @@ export async function GET() {
     const successfulTurns = rows.filter((row) =>
         row.outcome === "payload_sent" || row.outcome === "text_sent"
     ).length;
+    const hardFailedTurns = rows.filter((row) =>
+        row.outcome === "delivery_failed" ||
+        row.outcome === "process_failed" ||
+        row.outcome === "max_iterations_reached" ||
+        row.outcome === "stopped_without_send"
+    ).length;
     const blockedTurns = rows.filter(
         (row) => row.outcome === "blocked_before_send" || row.tool_blocks > 0
     ).length;
     const guardrailTurns = rows.filter((row) => row.guardrail_interventions > 0).length;
-    const failedTurns = rows.filter((row) => row.total_failures > 0).length;
+    const recoveredIssueTurns = rows.filter(
+        (row) =>
+            (row.outcome === "payload_sent" || row.outcome === "text_sent") &&
+            row.total_failures > 0
+    ).length;
     const payloadTurns = rows.filter((row) => row.send_mode === "payload").length;
     const textTurns = rows.filter((row) => row.send_mode === "text").length;
     const avgIterations = turnsTotal
@@ -114,14 +124,16 @@ export async function GET() {
             successfulTurns,
             blockedTurns,
             guardrailTurns,
-            failedTurns,
+            failedTurns: hardFailedTurns,
+            recoveredIssueTurns,
             payloadTurns,
             textTurns,
             avgIterations,
             successRate: percent(successfulTurns, turnsTotal),
             blockRate: percent(blockedTurns, turnsTotal),
             guardrailRate: percent(guardrailTurns, turnsTotal),
-            failureRate: percent(failedTurns, turnsTotal),
+            failureRate: percent(hardFailedTurns, turnsTotal),
+            recoveredIssueRate: percent(recoveredIssueTurns, turnsTotal),
         },
         outcomeBreakdown,
         recentTurns: rows.slice(0, 12),

@@ -134,7 +134,7 @@ const invalidButtonsRequest = resolveUazapiRequest({
     type: "button",
     text: "Escolha",
 });
-assert.equal(invalidButtonsRequest.endpoint, "/send/buttons");
+assert.equal(invalidButtonsRequest.endpoint, "/send/button");
 assert.deepEqual(
     validateOutgoingPayload(invalidButtonsRequest.endpoint, invalidButtonsRequest.payload),
     { ok: false, error: "INVALID_UAZ_PAYLOAD_BUTTONS" }
@@ -147,13 +147,16 @@ const buttonFallbackRequests = buildButtonFallbackRequests({
     choices: ["PIX", "Dinheiro"],
     footerText: "Selecione abaixo",
 });
-assert.equal(buttonFallbackRequests.length, 2);
+assert.equal(buttonFallbackRequests.length, 4);
 assert.equal(buttonFallbackRequests[0].endpoint, "/send/button");
+assert.ok(Array.isArray(buttonFallbackRequests[0].payload.buttonsMessage));
+assert.equal("choices" in buttonFallbackRequests[0].payload, false);
 assert.equal(buttonFallbackRequests[1].endpoint, "/send/button");
-assert.ok(Array.isArray(buttonFallbackRequests[1].payload.buttonsMessage));
-assert.equal("choices" in buttonFallbackRequests[1].payload, false);
+assert.equal(buttonFallbackRequests[2].endpoint, "/send/buttons");
+assert.equal(buttonFallbackRequests[3].endpoint, "/send/buttons");
+assert.ok(Array.isArray(buttonFallbackRequests[3].payload.buttonsMessage));
 assert.deepEqual(
-    validateOutgoingPayload(buttonFallbackRequests[1].endpoint, buttonFallbackRequests[1].payload),
+    validateOutgoingPayload(buttonFallbackRequests[0].endpoint, buttonFallbackRequests[0].payload),
     { ok: true }
 );
 

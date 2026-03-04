@@ -13,34 +13,6 @@ export function isNonEmptyString(value: unknown): value is string {
     return typeof value === "string" && value.trim().length > 0;
 }
 
-export function resolveUazapiRequest(payloadInput: Record<string, unknown>) {
-    const payload = { ...payloadInput };
-
-    let endpoint: UazapiEndpoint = "/send/text";
-
-    if (payload.locationButton) {
-        endpoint = "/send/location-button";
-        delete payload.locationButton;
-    } else if (payload.carousel) {
-        endpoint = "/send/carousel";
-    } else if (payload.pixKey && payload.amount) {
-        endpoint = "/send/request-payment";
-    } else if (payload.pixKey) {
-        endpoint = "/send/pix-button";
-    } else if (payload.type === "button" || payload.buttonsMessage || payload.choices) {
-        endpoint = "/send/buttons";
-    } else if (payload.listMessage || payload.list) {
-        endpoint = "/send/list";
-    } else if (payload.templateMessage || payload.template) {
-        endpoint = "/send/template";
-    }
-
-    return {
-        endpoint,
-        payload,
-    };
-}
-
 function normalizeButtonChoices(choices: unknown[]) {
     return choices
         .map((choice, index) => {
@@ -59,36 +31,85 @@ function normalizeButtonChoices(choices: unknown[]) {
         .filter((choice): choice is NonNullable<typeof choice> => Boolean(choice));
 }
 
-export function buildButtonFallbackRequests(payloadInput: Record<string, unknown>) {
-    const payload = { ...payloadInput };
-    const candidates: Array<{ endpoint: UazapiEndpoint; payload: Record<string, unknown> }> = [
-        {
-            endpoint: "/send/button",
-            payload,
-        },
-    ];
+function normalizeButtonPayload(payloadInput: Record<string, unknown>) {
+    const payload: Record<string, unknown> = { ...payloadInput };
 
     if (Array.isArray(payload.choices) && payload.choices.length > 0) {
         const buttonsMessage = normalizeButtonChoices(payload.choices);
         if (buttonsMessage.length > 0) {
-            const compactPayload: Record<string, unknown> = {
-                ...payload,
-                buttonsMessage,
-            };
-
-            delete compactPayload.choices;
-            delete compactPayload.type;
-
-            if (isNonEmptyString(compactPayload.footerText)) {
-                compactPayload.footer = compactPayload.footerText;
-            }
-
-            candidates.push({
-                endpoint: "/send/button",
-                payload: compactPayload,
-            });
+            payload.buttonsMessage = buttonsMessage;
         }
     }
+
+    delete payload.choices;
+    delete payload.type;
+
+    if (isNonEmptyString(payload.footerText) && !isNonEmptyString(payload.footer)) {
+        payload.footer = payload.footerText;
+    }
+
+    return payload;
+}
+
+function buildPayloadRequestKey(
+    endpoint: UazapiEndpoint,
+    payload: Record<string, unknown>
+) {
+    return `${endpoint}:${JSON.stringify(payload)}`;
+}
+
+export function resolveUazapiRequest(payloadInput: Record<string, unknown>) {
+    let payload = { ...payloadInput };
+
+    let endpoint: UazapiEndpoint = "/send/text";
+
+    if (payload.locationButton) {
+        endpoint = "/send/location-button";
+        delete payload.locationButton;
+    } else if (payload.carousel) {
+        endpoint = "/send/carousel";
+    } else if (payload.pixKey && payload.amount) {
+        endpoint = "/send/request-payment";
+    } else if (payload.pixKey) {
+        endpoint = "/send/pix-button";
+    } else if (payload.type === "button" || payload.buttonsMessage || payload.choices) {
+        endpoint = "/send/button";
+        payload = normalizeButtonPayload(payload);
+    } else if (payload.listMessage || payload.list) {
+        endpoint = "/send/list";
+    } else if (payload.templateMessage || payload.template) {
+        endpoint = "/send/template";
+    }
+
+    return {
+        endpoint,
+        payload,
+    };
+}
+
+export function buildButtonFallbackRequests(payloadInput: Record<string, unknown>) {
+    const originalPayload = { ...payloadInput };
+    const normalizedPayload = normalizeButtonPayload(payloadInput);
+    const candidates: Array<{ endpoint: UazapiEndpoint; payload: Record<string, unknown> }> = [];
+    const seen = new Set<string>();
+
+    const pushCandidate = (endpoint: UazapiEndpoint, payload: Record<string, unknown>) => {
+        const key = buildPayloadRequestKey(endpoint, payload);
+        if (seen.has(key)) {
+            return;
+        }
+
+        seen.add(key);
+        candidates.push({
+            endpoint,
+            payload,
+        });
+    };
+
+    pushCandidate("/send/button", normalizedPayload);
+    pushCandidate("/send/button", originalPayload);
+    pushCandidate("/send/buttons", originalPayload);
+    pushCandidate("/send/buttons", normalizedPayload);
 
     return candidates;
 }

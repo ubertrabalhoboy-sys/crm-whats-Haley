@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+    deriveExplicitCommercialState,
     determineRecommendedCommercialObjective,
     readCartSnapshotMeta,
 } from "../src/lib/ai/heuristics.ts";
@@ -37,6 +38,15 @@ assert.equal(
     ),
     "oferecer_produto_principal"
 );
+assert.equal(
+    deriveExplicitCommercialState(
+        makeContext({
+            cartSnapshotMeta: emptyCart,
+            dominantCustomerIntent: "saudacao",
+        })
+    ),
+    "saudacao"
+);
 
 const principalCart = readCartSnapshotMeta({
     items: [{ product_id: "1", quantity: 1, category: "principal" }],
@@ -57,6 +67,14 @@ assert.equal(
     ),
     "oferecer_adicional"
 );
+assert.equal(
+    deriveExplicitCommercialState(
+        makeContext({
+            cartSnapshotMeta: principalCart,
+        })
+    ),
+    "oferta_adicional"
+);
 
 const principalAndAdditionalCart = readCartSnapshotMeta({
     items: [
@@ -76,6 +94,14 @@ assert.equal(
         })
     ),
     "oferecer_bebida"
+);
+assert.equal(
+    deriveExplicitCommercialState(
+        makeContext({
+            cartSnapshotMeta: principalAndAdditionalCart,
+        })
+    ),
+    "oferta_bebida"
 );
 
 assert.equal(
@@ -123,6 +149,15 @@ assert.equal(
     ),
     "confirmar_pagamento"
 );
+assert.equal(
+    deriveExplicitCommercialState(
+        makeContext({
+            cartSnapshotMeta: fullCart,
+            commercialPhase: "pagamento",
+        })
+    ),
+    "coleta_pagamento"
+);
 
 const fullCartWithPayment = readCartSnapshotMeta({
     items: [
@@ -145,6 +180,14 @@ assert.equal(
     ),
     "fechar_pedido"
 );
+assert.equal(
+    deriveExplicitCommercialState(
+        makeContext({
+            cartSnapshotMeta: fullCartWithPayment,
+        })
+    ),
+    "fechamento"
+);
 
 const orderedCart = readCartSnapshotMeta({
     items: [{ product_id: "1", quantity: 1, category: "principal" }],
@@ -164,6 +207,14 @@ assert.equal(
     ),
     "acompanhar_pos_fechamento_ou_confirmar_pagamento"
 );
+assert.equal(
+    deriveExplicitCommercialState(
+        makeContext({
+            cartSnapshotMeta: orderedCart,
+        })
+    ),
+    "pos_venda"
+);
 
 assert.equal(
     determineRecommendedCommercialObjective(
@@ -174,6 +225,15 @@ assert.equal(
     ),
     "solicitar_localizacao_nativa"
 );
+assert.equal(
+    deriveExplicitCommercialState(
+        makeContext({
+            pendingSteps: ["solicitar_localizacao_nativa"],
+            cartSnapshotMeta: fullCart,
+        })
+    ),
+    "coleta_endereco"
+);
 
 assert.equal(
     determineRecommendedCommercialObjective(
@@ -183,6 +243,35 @@ assert.equal(
         })
     ),
     "retomar_carrinho_e_conduzir_fechamento"
+);
+assert.equal(
+    deriveExplicitCommercialState(
+        makeContext({
+            resumptionSignal: "retomada_carrinho",
+            cartSnapshotMeta: principalCart,
+        })
+    ),
+    "abandono_recuperacao"
+);
+
+const calculatedCart = readCartSnapshotMeta({
+    items: [
+        { product_id: "1", quantity: 1, category: "principal" },
+        { product_id: "2", quantity: 1, category: "adicional" },
+    ],
+    subtotal: 35,
+    discount: 5,
+    delivery_fee: 7,
+    total: 37,
+    source: "calculate_cart_total",
+});
+assert.equal(
+    deriveExplicitCommercialState(
+        makeContext({
+            cartSnapshotMeta: calculatedCart,
+        })
+    ),
+    "oferta_bebida"
 );
 
 assert.equal(

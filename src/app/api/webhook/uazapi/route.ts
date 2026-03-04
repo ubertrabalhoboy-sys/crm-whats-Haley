@@ -353,17 +353,28 @@ export async function POST(req: Request) {
   const phone = phoneRaw ? phoneRaw.replace(/\D/g, "") : null;
   const text =
     readString(
+      body?.BODY?.message?.text,
+      body?.BODY?.message?.body?.text,
+      body?.BODY?.message?.content?.text,
+      body?.BODY?.message?.content?.conversation,
+      body?.BODY?.message?.conversation,
       body?.message?.text,
       body?.message?.message?.text,
       body?.message?.body?.text,
+      body?.message?.content?.text,
+      body?.message?.content?.conversation,
       body?.chat?.wa_lastMessageTextVote,
       body?.text,
       body?.data?.text,
       body?.data?.message?.text,
       body?.data?.body?.text,
+      body?.data?.message?.content?.text,
+      body?.data?.message?.content?.conversation,
       // Baileys / Evolution API conversation fields
       body?.data?.message?.conversation,
       body?.message?.conversation,
+      body?.BODY?.message?.extendedTextMessage?.text,
+      body?.BODY?.message?.content?.extendedTextMessage?.text,
       body?.data?.message?.extendedTextMessage?.text,
       body?.message?.extendedTextMessage?.text
     ) ?? null;
@@ -558,7 +569,7 @@ export async function POST(req: Request) {
     restaurant_id: restaurantId,
     direction: "in",
     wa_message_id: waMessageId ?? null,
-    text,
+    text: chatInboundSummaryText ?? text,
     payload: body,
   });
 

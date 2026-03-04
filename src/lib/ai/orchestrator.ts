@@ -1191,6 +1191,41 @@ function looksLikeReference(text: string) {
     return refHints.some((hint) => normalized.includes(hint));
 }
 
+function extractOperationalInputParts(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || trimmed.toLowerCase().startsWith("client_action:location_shared ")) {
+        return {
+            addressText: "",
+            referenceText: "",
+        };
+    }
+
+    const quantityLikePattern =
+        /^\d{1,3}\s+(?:dele|dela|deles|delas|disso|desse|deste|dessa|x)\b/i;
+
+    if (quantityLikePattern.test(trimmed)) {
+        return {
+            addressText: "",
+            referenceText: "",
+        };
+    }
+
+    const leadingNumberMatch = trimmed.match(/^(\d{1,5}[a-z]?)\b(?:\s+(.*))?$/i);
+    if (leadingNumberMatch) {
+        const addressText = leadingNumberMatch[1]?.trim() || "";
+        const trailingText = leadingNumberMatch[2]?.trim() || "";
+        return {
+            addressText,
+            referenceText: trailingText,
+        };
+    }
+
+    return {
+        addressText: looksLikeAddress(trimmed) ? trimmed : "",
+        referenceText: looksLikeReference(trimmed) ? trimmed : "",
+    };
+}
+
 /**
  * Detects if a message (current or from history) contains a native location shared via WhatsApp.
  */
@@ -1498,12 +1533,23 @@ export async function processAiMessage(params: OrchestratorParams) {
     const incomingTextClean = normalizedIncomingText.toLowerCase();
 
     const incomingHasLocation = incomingTextClean.startsWith("client_action:location_shared ");
-    const incomingHasAddress = !incomingHasLocation && looksLikeAddress(normalizedIncomingText);
-    const incomingHasReference = !incomingHasLocation && looksLikeReference(normalizedIncomingText);
+    const incomingOperationalInput = incomingHasLocation
+        ? { addressText: "", referenceText: "" }
+        : extractOperationalInputParts(normalizedIncomingText);
+    const incomingHasAddress =
+        !incomingHasLocation &&
+        (Boolean(incomingOperationalInput.addressText) || looksLikeAddress(normalizedIncomingText));
+    const incomingHasReference =
+        !incomingHasLocation &&
+        (Boolean(incomingOperationalInput.referenceText) || looksLikeReference(normalizedIncomingText));
 
     const incomingMessages = typedMessages.filter((m) => m.direction === "in");
-    const latestAddressText = extractLatestOperationalText(incomingMessages, looksLikeAddress);
-    const latestReferenceText = extractLatestOperationalText(incomingMessages, looksLikeReference);
+    const latestAddressText =
+        incomingOperationalInput.addressText ||
+        extractLatestOperationalText(incomingMessages, looksLikeAddress);
+    const latestReferenceText =
+        incomingOperationalInput.referenceText ||
+        extractLatestOperationalText(incomingMessages, looksLikeReference);
     const latestGpsLocation = extractLatestGpsLocation(incomingMessages);
 
     const historyHasLocation = incomingMessages.some((m) =>
@@ -1713,6 +1759,61 @@ export async function processAiMessage(params: OrchestratorParams) {
             ...turnSummary,
         });
         return;
+    }
+
+    if (
+        locationConfirmed &&
+        cartSnapshotMeta.hasItems &&
+        !immediateOperationalCalculation &&
+        !cartSnapshotMeta.hasPaymentMethod &&
+        !cartSnapshotMeta.hasOrder &&
+        (incomingHasAddress || incomingHasReference)
+    ) {
+        const missingOperationalText = buildPostLocationFollowUpMessage({
+            incomingHasLocation: true,
+            addressConfirmed,
+            referenceConfirmed,
+        });
+
+        if (missingOperationalText) {
+            const sendResult = await sendTextMessage(
+                params.waChatId,
+                missingOperationalText,
+                instanceToken
+            );
+
+            if (wasOutboundDeliveryAccepted(sendResult)) {
+                logAiEvent("outbound_text_sent", {
+                    chatId: params.chatId,
+                    endpoint: sendResult.endpoint || "/send/text",
+                    status: sendResult.status || null,
+                    textLength: missingOperationalText.length,
+                    autoTriggeredBy: "operational_input_incomplete",
+                });
+                markTextSent(turnMetrics);
+                await persistOutgoingMessage(supabase, params, missingOperationalText);
+            } else {
+                logAiEvent("outbound_text_failed", {
+                    chatId: params.chatId,
+                    endpoint: sendResult.endpoint || "/send/text",
+                    status: sendResult.status || null,
+                    error: sendResult.error || null,
+                    autoTriggeredBy: "operational_input_incomplete",
+                });
+                markTextFailed(turnMetrics);
+            }
+
+            const turnSummary = buildAiTurnSummary(turnMetrics, {
+                maxIterationsReached: false,
+            });
+            const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+            logAiEvent("process_completed", {
+                chatId: params.chatId,
+                metricsPersisted,
+                ...turnSummary,
+            });
+            return;
+        }
     }
 
     if (immediateOperationalCalculation) {

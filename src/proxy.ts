@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { PUBLIC_SUPABASE_ANON_KEY, PUBLIC_SUPABASE_URL } from "@/lib/shared/env-public";
 
 function isAuthPage(pathname: string) {
   return pathname === "/login" || pathname === "/signup";
@@ -16,10 +17,6 @@ function isProtectedPath(pathname: string) {
   );
 }
 
-function isCriticalPath(pathname: string) {
-  return pathname === "/settings/whatsapp" || pathname === "/automations";
-}
-
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({
     request: {
@@ -28,8 +25,8 @@ export async function proxy(request: NextRequest) {
   });
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    PUBLIC_SUPABASE_URL,
+    PUBLIC_SUPABASE_ANON_KEY,
     {
       cookies: {
         getAll() {
@@ -65,7 +62,7 @@ export async function proxy(request: NextRequest) {
   // NOTE: email_verified column does not exist in profiles table.
   // Skipping the email verification gate to avoid SQL errors on every request.
   // This block can be re-enabled once the column is added via migration.
-  // if (user && isCriticalPath(pathname)) { ... }
+  // if (user && (pathname === "/settings/whatsapp" || pathname === "/automations")) { ... }
 
   return response;
 }

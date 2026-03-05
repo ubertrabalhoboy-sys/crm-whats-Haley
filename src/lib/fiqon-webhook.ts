@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { FIQON_WEBHOOK_URL } from "@/lib/shared/env";
 
 export async function triggerFiqonWebhook(chatId: string, newStageId: string) {
     try {
@@ -34,7 +35,7 @@ export async function triggerFiqonWebhook(chatId: string, newStageId: string) {
             return;
         }
 
-        const webhookUrl = process.env.FIQON_WEBHOOK_URL;
+        const webhookUrl = FIQON_WEBHOOK_URL;
 
         if (!webhookUrl) {
             console.error("[Fiqon Webhook] FIQON_WEBHOOK_URL não definida.");

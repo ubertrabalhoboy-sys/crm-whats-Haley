@@ -1,4 +1,19 @@
-type AnyRecord = Record<string, any>;
+type AnyRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): AnyRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as AnyRecord;
+}
+
+function readPath(payload: unknown, ...path: string[]) {
+  let current: unknown = payload;
+  for (const segment of path) {
+    const record = asRecord(current);
+    if (!record) return undefined;
+    current = record[segment];
+  }
+  return current;
+}
 
 function readString(...values: unknown[]) {
   for (const value of values) {
@@ -20,41 +35,52 @@ function readBool(...values: unknown[]) {
 }
 
 export function extractButtonClicked(payload: AnyRecord) {
-  const eventType = readString(payload?.EventType, payload?.eventType, payload?.event, payload?.type);
-  const messageType = readString(payload?.message?.messageType, payload?.data?.message?.messageType);
-  const fromMe = readBool(payload?.message?.fromMe, payload?.data?.message?.fromMe);
+  const eventType = readString(
+    readPath(payload, "EventType"),
+    readPath(payload, "eventType"),
+    readPath(payload, "event"),
+    readPath(payload, "type")
+  );
+  const messageType = readString(
+    readPath(payload, "message", "messageType"),
+    readPath(payload, "data", "message", "messageType")
+  );
+  const fromMe = readBool(
+    readPath(payload, "message", "fromMe"),
+    readPath(payload, "data", "message", "fromMe")
+  );
 
   if (!eventType || eventType.toLowerCase() !== "messages") return null;
   if (!messageType || messageType !== "ButtonsResponseMessage") return null;
   if (fromMe) return null;
 
   const buttonId = readString(
-    payload?.message?.buttonOrListid,
-    payload?.message?.content?.selectedButtonID,
-    payload?.message?.content?.Response?.SelectedButtonID
+    readPath(payload, "message", "buttonOrListid"),
+    readPath(payload, "message", "content", "selectedButtonID"),
+    readPath(payload, "message", "content", "Response", "SelectedButtonID")
   );
 
   if (!buttonId) return null;
 
   const displayText = readString(
-    payload?.message?.content?.Response?.SelectedDisplayText,
-    payload?.message?.content?.selectedDisplayText
+    readPath(payload, "message", "content", "Response", "SelectedDisplayText"),
+    readPath(payload, "message", "content", "selectedDisplayText")
   );
 
   const messageId = readString(
-    payload?.message?.id,
-    payload?.message?.key?.id,
-    payload?.data?.message?.id,
-    payload?.data?.message?.key?.id
+    readPath(payload, "message", "id"),
+    readPath(payload, "message", "key", "id"),
+    readPath(payload, "data", "message", "id"),
+    readPath(payload, "data", "message", "key", "id")
   );
 
   const chatId = readString(
-    payload?.message?.chatid,
-    payload?.message?.chatId,
-    payload?.chatId,
-    payload?.chat_id,
-    payload?.data?.chatId,
-    payload?.data?.chat_id
+    readPath(payload, "message", "chatid"),
+    readPath(payload, "message", "chatId"),
+    readPath(payload, "chatId"),
+    readPath(payload, "chat_id"),
+    readPath(payload, "data", "chatId"),
+    readPath(payload, "data", "chat_id")
   );
 
   return {
@@ -67,13 +93,21 @@ export function extractButtonClicked(payload: AnyRecord) {
 }
 
 export function extractPollVoted(payload: AnyRecord) {
-  const eventType = readString(payload?.EventType, payload?.eventType, payload?.event, payload?.type);
-  const messageType = readString(payload?.message?.messageType, payload?.data?.message?.messageType);
+  const eventType = readString(
+    readPath(payload, "EventType"),
+    readPath(payload, "eventType"),
+    readPath(payload, "event"),
+    readPath(payload, "type")
+  );
+  const messageType = readString(
+    readPath(payload, "message", "messageType"),
+    readPath(payload, "data", "message", "messageType")
+  );
 
   if (!eventType || eventType.toLowerCase() !== "messages") return null;
   if (!messageType || messageType !== "PollUpdateMessage") return null;
 
-  const vote = payload?.message?.vote ?? payload?.data?.message?.vote ?? null;
+  const vote = readPath(payload, "message", "vote") ?? readPath(payload, "data", "message", "vote") ?? null;
   if (!vote) return null;
 
   return {
@@ -83,14 +117,26 @@ export function extractPollVoted(payload: AnyRecord) {
 }
 
 export function extractLocationShared(payload: AnyRecord) {
-  const eventType = readString(payload?.EventType, payload?.eventType, payload?.event, payload?.type);
-  const messageType = readString(payload?.message?.messageType, payload?.data?.message?.messageType);
+  const eventType = readString(
+    readPath(payload, "EventType"),
+    readPath(payload, "eventType"),
+    readPath(payload, "event"),
+    readPath(payload, "type")
+  );
+  const messageType = readString(
+    readPath(payload, "message", "messageType"),
+    readPath(payload, "data", "message", "messageType")
+  );
 
   if (!eventType || eventType.toLowerCase() !== "messages") return null;
   if (!messageType || messageType !== "LocationMessage") return null;
 
-  const lat = payload?.message?.content?.degreesLatitude ?? payload?.data?.message?.content?.degreesLatitude;
-  const lng = payload?.message?.content?.degreesLongitude ?? payload?.data?.message?.content?.degreesLongitude;
+  const lat =
+    readPath(payload, "message", "content", "degreesLatitude") ??
+    readPath(payload, "data", "message", "content", "degreesLatitude");
+  const lng =
+    readPath(payload, "message", "content", "degreesLongitude") ??
+    readPath(payload, "data", "message", "content", "degreesLongitude");
 
   if (lat == null || lng == null) return null;
 
@@ -100,4 +146,3 @@ export function extractLocationShared(payload: AnyRecord) {
     longitude: lng,
   };
 }
-

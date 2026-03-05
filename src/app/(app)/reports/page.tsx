@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, TrendingUp, Filter, ArrowDown, Award, TrendingDown } from "lucide-react";
+import { BarChart3, TrendingUp, Filter, Award } from "lucide-react";
 import {
     BarChart,
     Bar,
@@ -30,16 +30,28 @@ const topProdutos = [
     { nome: "Porção Batata P", vendas: 2, faturamento: 30, percentual: 5 },
 ];
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+type TooltipEntry = {
+    name?: string;
+    color?: string;
+    value?: number;
+};
+
+type CustomTooltipProps = {
+    active?: boolean;
+    payload?: TooltipEntry[];
+    label?: string;
+};
+
+const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
     if (active && payload && payload.length) {
         return (
             <div className="bg-white/80 backdrop-blur-xl border border-white/50 rounded-2xl p-4 shadow-xl shadow-[#086788]/10">
                 <p className="text-sm font-black uppercase tracking-widest text-[#086788] mb-3">{label}</p>
-                {payload.map((entry: any, index: number) => (
+                {payload.map((entry, index: number) => (
                     <div key={index} className="flex items-center justify-between gap-6 mb-2 last:mb-0">
                         <span className="text-xs font-bold text-slate-500">{entry.name}:</span>
                         <span className="text-sm font-black" style={{ color: entry.color }}>
-                            R$ {entry.value.toFixed(2)}
+                            R$ {(entry.value || 0).toFixed(2)}
                         </span>
                     </div>
                 ))}

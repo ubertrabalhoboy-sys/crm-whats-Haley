@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { Copy, QrCode, Smartphone, SmartphoneNfc, Unplug, Zap, RefreshCcw } from "lucide-react";
 
 type ConnectResponse = {
@@ -17,6 +18,12 @@ type StatusResponse = {
   status?: unknown;
   connected?: boolean;
   loggedIn?: boolean;
+  statusReasonCode?: string | null;
+  statusReason?: string | null;
+  hints?: string[];
+  batteryPercent?: number | null;
+  phoneOnline?: boolean | null;
+  upstreamHealthy?: boolean;
   qrcode?: string;
   paircode?: string;
   jid?: string;
@@ -60,6 +67,11 @@ export default function WhatsAppSettingsPage() {
   const [connected, setConnected] = useState(false);
   const [qrcode, setQrcode] = useState<string | null>(null);
   const [paircode, setPaircode] = useState<string | null>(null);
+  const [statusReason, setStatusReason] = useState<string | null>(null);
+  const [statusHints, setStatusHints] = useState<string[]>([]);
+  const [batteryPercent, setBatteryPercent] = useState<number | null>(null);
+  const [phoneOnline, setPhoneOnline] = useState<boolean | null>(null);
+  const [upstreamHealthy, setUpstreamHealthy] = useState(true);
 
   const [loadingEnsure, setLoadingEnsure] = useState(false);
   const [loadingQr, setLoadingQr] = useState(false);
@@ -78,6 +90,12 @@ export default function WhatsAppSettingsPage() {
     const json = (await res.json()) as StatusResponse;
 
     if (!json.ok) return;
+
+    setStatusReason(typeof json.statusReason === "string" ? json.statusReason : null);
+    setStatusHints(Array.isArray(json.hints) ? json.hints.filter((hint): hint is string => typeof hint === "string") : []);
+    setBatteryPercent(typeof json.batteryPercent === "number" ? json.batteryPercent : null);
+    setPhoneOnline(typeof json.phoneOnline === "boolean" ? json.phoneOnline : null);
+    setUpstreamHealthy(json.upstreamHealthy !== false);
 
     // If the API confirms connected, force the status to "open" regardless of status string
     if (json.connected === true) {
@@ -184,6 +202,11 @@ export default function WhatsAppSettingsPage() {
       setQrcode(null);
       setPaircode(null);
       setWebhookConfigured(false);
+      setStatusReason(null);
+      setStatusHints([]);
+      setBatteryPercent(null);
+      setPhoneOnline(null);
+      setUpstreamHealthy(true);
     } catch {
       setError("Erro ao tentar desconectar.");
     }
@@ -299,6 +322,43 @@ export default function WhatsAppSettingsPage() {
                 {error}
               </div>
             )}
+
+            {(statusReason || statusHints.length > 0 || batteryPercent !== null || phoneOnline !== null || !upstreamHealthy) && (
+              <div className="mt-6 w-full rounded-2xl border border-amber-100 bg-amber-50/70 p-4 text-left">
+                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-700">Diagnóstico</p>
+                {statusReason && (
+                  <p className="mt-2 text-sm font-semibold text-amber-900">{statusReason}</p>
+                )}
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {batteryPercent !== null && (
+                    <span className="rounded-lg bg-white px-2 py-1 text-xs font-bold text-slate-700 border border-slate-200">
+                      Bateria: {batteryPercent}%
+                    </span>
+                  )}
+                  {phoneOnline !== null && (
+                    <span className="rounded-lg bg-white px-2 py-1 text-xs font-bold text-slate-700 border border-slate-200">
+                      Celular online: {phoneOnline ? "Sim" : "Não"}
+                    </span>
+                  )}
+                  {!upstreamHealthy && (
+                    <span className="rounded-lg bg-white px-2 py-1 text-xs font-bold text-red-700 border border-red-200">
+                      Provedor instável
+                    </span>
+                  )}
+                </div>
+
+                {statusHints.length > 0 && (
+                  <ul className="mt-3 space-y-1.5 pl-4">
+                    {statusHints.map((hint) => (
+                      <li key={hint} className="list-disc text-xs font-semibold text-amber-900/90">
+                        {hint}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -360,7 +420,14 @@ export default function WhatsAppSettingsPage() {
 
                 {qrcode && qrImageSrc && (
                   <div className="p-4 bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 mb-6">
-                    <img src={qrImageSrc} alt="QR Code" className="h-56 w-56 rounded-xl" />
+                    <Image
+                      src={qrImageSrc}
+                      alt="QR Code"
+                      width={224}
+                      height={224}
+                      className="h-56 w-56 rounded-xl"
+                      unoptimized
+                    />
                   </div>
                 )}
 

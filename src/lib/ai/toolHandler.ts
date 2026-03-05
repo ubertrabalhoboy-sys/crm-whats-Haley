@@ -12,6 +12,11 @@ import {
     getChatFollowupState,
     persistChatCartSnapshot,
 } from "./toolHandlerData";
+import {
+    GOOGLE_MAPS_API_KEY,
+    SUPABASE_SERVICE_ROLE_KEY,
+    SUPABASE_URL,
+} from "../shared/env";
 
 export type ToolContext = {
     restaurant_id: string;
@@ -64,10 +69,16 @@ type ExistingOrderRow = {
 };
 const GOOGLE_MAPS_REQUEST_TIMEOUT_MS = 8000;
 
+const STORE_INFO_CACHE_TTL_MS = 5 * 60 * 1000;
+const STORE_INFO_CACHE = new Map<string, { expiresAt: number; data: unknown }>();
+
+const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+const CATALOG_CACHE = new Map<string, { expiresAt: number; data: unknown }>();
+
 function createAdminClient(): SupabaseClient {
     return createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        SUPABASE_URL,
+        SUPABASE_SERVICE_ROLE_KEY,
         { auth: { persistSession: false } }
     );
 }
@@ -153,7 +164,7 @@ function isDuplicateOrderMatch(
         normalizeMoney(order.delivery_fee) === normalizeMoney(appliedDeliveryFee) &&
         normalizeMoney(order.total) === normalizeMoney(finalTotal) &&
         getStringOrEmpty(order.payment_method).toLowerCase() ===
-            getStringOrEmpty(args.payment_method).toLowerCase() &&
+        getStringOrEmpty(args.payment_method).toLowerCase() &&
         normalizeMoney(order.change_for) === normalizeMoney(args.change_for) &&
         getStringOrEmpty(order.address_number) === getStringOrEmpty(args.address_number) &&
         getStringOrEmpty(order.address_reference) === getStringOrEmpty(args.address_reference) &&
@@ -174,12 +185,12 @@ async function persistCartSnapshot(
 
     if (result.ok) {
         logToolEvent("cart_snapshot_updated", {
-        restaurantId: ctx.restaurant_id,
-        chatId: ctx.chat_id,
-        source: snapshot.source,
-        total: snapshot.total,
-        itemsCount: snapshot.items.length,
-    });
+            restaurantId: ctx.restaurant_id,
+            chatId: ctx.chat_id,
+            source: snapshot.source,
+            total: snapshot.total,
+            itemsCount: snapshot.items.length,
+        });
     }
 }
 
@@ -305,6 +316,13 @@ export async function executeAiTool(
 }
 
 async function handleGetStoreInfo(ctx: ToolContext) {
+    const now = Date.now();
+    const cached = STORE_INFO_CACHE.get(ctx.restaurant_id);
+    if (cached && cached.expiresAt > now) {
+        logToolEvent("store_info_cache_hit", { restaurantId: ctx.restaurant_id });
+        return cached.data;
+    }
+
     const db = createAdminClient();
     const storeSelectOptions = [
         "name, store_address, operating_hours, business_rules, description, logo_url, pix_key",
@@ -331,7 +349,7 @@ async function handleGetStoreInfo(ctx: ToolContext) {
 
     const storeData = (data ?? {}) as unknown as Record<string, unknown>;
 
-    return {
+    const result = {
         ok: true,
         store_info: {
             ...storeData,
@@ -348,23 +366,40 @@ async function handleGetStoreInfo(ctx: ToolContext) {
             is_open_now: computeIsOpenNow(storeData.operating_hours),
         },
     };
+
+    if (STORE_INFO_CACHE.size > 500) {
+        const oldestKey = STORE_INFO_CACHE.keys().next().value;
+        if (oldestKey) STORE_INFO_CACHE.delete(oldestKey);
+    }
+    STORE_INFO_CACHE.set(ctx.restaurant_id, { expiresAt: now + STORE_INFO_CACHE_TTL_MS, data: result });
+    return result;
 }
 
 async function handleSearchProductCatalog(
     args: Record<string, unknown>,
     ctx: ToolContext
 ) {
+    const categoryName = typeof args.category === "string" ? args.category.trim() : "";
+    const searchTerm = typeof args.query === "string" ? args.query.trim() : "";
+    const cacheKey = `${ctx.restaurant_id}:${categoryName}:${searchTerm}`;
+    const now = Date.now();
+    const cached = CATALOG_CACHE.get(cacheKey);
+
+    if (cached && cached.expiresAt > now) {
+        logToolEvent("product_catalog_cache_hit", { restaurantId: ctx.restaurant_id, cacheKey });
+        return cached.data;
+    }
+
     const db = createAdminClient();
     let query = db
         .from("produtos_promo")
         .select("id, nome, description, preco_original, preco_promo, imagem_url, category")
         .eq("restaurant_id", ctx.restaurant_id);
 
-    if (args.category) {
-        query = query.eq("category", args.category);
+    if (categoryName) {
+        query = query.eq("category", categoryName);
     }
 
-    const searchTerm = typeof args.query === "string" ? args.query.trim() : "";
     if (searchTerm) {
         query = query.ilike("nome", `%${searchTerm}%`);
     }
@@ -381,7 +416,14 @@ async function handleSearchProductCatalog(
         image_url: p.imagem_url || "",
     }));
 
-    return { ok: true, products: mappedProducts };
+    const result = { ok: true, products: mappedProducts };
+
+    if (CATALOG_CACHE.size > 1000) {
+        const oldestKey = CATALOG_CACHE.keys().next().value;
+        if (oldestKey) CATALOG_CACHE.delete(oldestKey);
+    }
+    CATALOG_CACHE.set(cacheKey, { expiresAt: now + CATALOG_CACHE_TTL_MS, data: result });
+    return result;
 }
 
 async function handleCalculateCartTotal(args: Record<string, unknown>, ctx: ToolContext) {
@@ -442,13 +484,13 @@ async function handleCalculateCartTotal(args: Record<string, unknown>, ctx: Tool
     if (freeDeliveryThreshold > 0 && subtotalAfterDiscount >= freeDeliveryThreshold) {
         delivery_fee = 0;
         deliverySource = "free_delivery_threshold";
-    } else if (gpsDestination && rest?.store_address && process.env.GOOGLE_MAPS_API_KEY) {
+    } else if (gpsDestination && rest?.store_address && GOOGLE_MAPS_API_KEY) {
         try {
             const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(
                 rest.store_address
             )}&destinations=${encodeURIComponent(
                 gpsDestination
-            )}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+            )}&key=${GOOGLE_MAPS_API_KEY}`;
             const res = await fetchWithTimeout(url, {}, GOOGLE_MAPS_REQUEST_TIMEOUT_MS);
             const gmData = await res.json();
             if (gmData.status === "OK" && gmData.rows[0].elements[0].status === "OK") {
@@ -464,13 +506,13 @@ async function handleCalculateCartTotal(args: Record<string, unknown>, ctx: Tool
             console.error("[MAPS_GPS_ERROR]", e);
             deliverySource = "google_maps_gps_error";
         }
-    } else if (customerAddress && rest?.store_address && process.env.GOOGLE_MAPS_API_KEY) {
+    } else if (customerAddress && rest?.store_address && GOOGLE_MAPS_API_KEY) {
         try {
             const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(
                 rest.store_address
             )}&destinations=${encodeURIComponent(
                 customerAddress
-            )}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+            )}&key=${GOOGLE_MAPS_API_KEY}`;
             const res = await fetchWithTimeout(url, {}, GOOGLE_MAPS_REQUEST_TIMEOUT_MS);
             const gmData = await res.json();
             if (gmData.status === "OK" && gmData.rows[0].elements[0].status === "OK") {
@@ -490,6 +532,15 @@ async function handleCalculateCartTotal(args: Record<string, unknown>, ctx: Tool
         distance_km = 5;
         delivery_fee = Number((distance_km * pricePerKm).toFixed(2));
         deliverySource = "fallback_fixed_distance";
+    }
+
+    const isFreeDeliveryCoupon = activeCouponCode.toLowerCase().includes("frete") &&
+        (activeCouponCode.toLowerCase().includes("gratis") ||
+            activeCouponCode.toLowerCase().includes("grátis"));
+
+    if (isFreeDeliveryCoupon) {
+        delivery_fee = 0;
+        deliverySource = "coupon_free_delivery";
     }
 
     const total = subtotalAfterDiscount + delivery_fee;
@@ -596,7 +647,11 @@ async function handleSubmitFinalOrder(
         args.discount,
         activeCouponCode
     );
-    const appliedDeliveryFee = normalizeMoney(args.delivery_fee);
+    const isFreeDeliveryCoupon = activeCouponCode.toLowerCase().includes("frete") &&
+        (activeCouponCode.toLowerCase().includes("gratis") ||
+            activeCouponCode.toLowerCase().includes("grátis"));
+
+    const appliedDeliveryFee = isFreeDeliveryCoupon ? 0 : normalizeMoney(args.delivery_fee);
     const finalTotal = realSubtotal - appliedDiscount + appliedDeliveryFee;
 
     if (finalTotal <= 0) {
@@ -950,4 +1005,3 @@ async function handleMoveKanbanStage(args: Record<string, unknown>, ctx: ToolCon
     await db.from("chats").update(updatePayload).eq("id", chatId);
     return { ok: true, message: `Moved to ${stage.name}` };
 }
-

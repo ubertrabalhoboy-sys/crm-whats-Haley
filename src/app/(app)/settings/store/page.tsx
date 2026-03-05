@@ -6,6 +6,7 @@ import useSWR from "swr";
 
 type DayHours = { open: string; close: string; isClosed: boolean };
 type OperatingHours = Record<string, DayHours>;
+type RestaurantVertical = "burger" | "acai" | "pizza" | "sushi" | "generic";
 
 type StoreSettings = {
     store_name: string;
@@ -15,6 +16,7 @@ type StoreSettings = {
     pix_key_masked: string | null;
     has_pix_key: boolean;
     operating_hours: OperatingHours;
+    ai_vertical?: RestaurantVertical | null;
 };
 
 const defaultHours: OperatingHours = {
@@ -49,6 +51,7 @@ export default function StoreSettingsPage() {
     const { data, error, isLoading, mutate } = useSWR<StoreSettings>("/api/settings/store", fetcher);
 
     const [storeName, setStoreName] = useState("");
+    const [aiVertical, setAiVertical] = useState<RestaurantVertical>("generic");
     const [address, setAddress] = useState("");
     const [pricePerKm, setPricePerKm] = useState(0);
     const [freeThreshold, setFreeThreshold] = useState(0);
@@ -74,6 +77,7 @@ export default function StoreSettingsPage() {
     useEffect(() => {
         if (data) {
             setStoreName(data.store_name || "");
+            setAiVertical(data.ai_vertical || "generic");
             setAddress(data.store_address);
             setPricePerKm(data.delivery_price_per_km);
             setFreeThreshold(data.free_delivery_threshold);
@@ -92,6 +96,7 @@ export default function StoreSettingsPage() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     store_name: storeName,
+                    ai_vertical: aiVertical,
                     store_address: address,
                     delivery_price_per_km: pricePerKm,
                     free_delivery_threshold: freeThreshold,
@@ -153,7 +158,7 @@ export default function StoreSettingsPage() {
         }
     };
 
-    const updateHour = (day: string, field: keyof DayHours, value: any) => {
+    const updateHour = <K extends keyof DayHours>(day: string, field: K, value: DayHours[K]) => {
         setHours(prev => ({
             ...prev,
             [day]: { ...prev[day], [field]: value }
@@ -182,6 +187,37 @@ export default function StoreSettingsPage() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mx-2 relative z-10">
+                <div className="lg:col-span-2 rounded-[2.5rem] border border-white/60 bg-white/40 dark:bg-slate-900/60 dark:border-white/10 p-8 shadow-lg shadow-[#086788]/5 backdrop-blur-xl">
+                    <h2 className="text-lg font-black uppercase tracking-widest text-[#086788] dark:text-white mb-6">
+                        Playbook da IA
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                        <div>
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2 block">
+                                Vertical da loja
+                            </label>
+                            <select
+                                value={aiVertical}
+                                onChange={(e) => setAiVertical(e.target.value as RestaurantVertical)}
+                                className="w-full px-4 py-3 text-sm font-semibold bg-white/60 dark:bg-slate-800/50 border border-white dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#086788]/20 transition-all text-slate-800 dark:text-white"
+                            >
+                                <option value="burger">Hamburguer</option>
+                                <option value="acai">Acai</option>
+                                <option value="pizza">Pizza</option>
+                                <option value="sushi">Sushi</option>
+                                <option value="generic">Generico</option>
+                            </select>
+                        </div>
+                        <button
+                            onClick={handleSaveDelivery}
+                            disabled={savingDelivery}
+                            className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest bg-[#086788] text-white hover:bg-[#07a0c3] shadow-md transition-all disabled:opacity-40"
+                        >
+                            {savingDelivery ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                            Salvar Vertical
+                        </button>
+                    </div>
+                </div>
                 {/* Card 1 — Delivery */}
                 <div className="rounded-[2.5rem] border border-white/60 bg-white/40 dark:bg-slate-900/60 dark:border-white/10 p-8 shadow-lg shadow-[#086788]/5 backdrop-blur-xl">
                     <h2 className="text-lg font-black uppercase tracking-widest text-[#086788] dark:text-white mb-6 flex items-center gap-3">

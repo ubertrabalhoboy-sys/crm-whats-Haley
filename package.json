@@ -13,15 +13,21 @@
     "test:ai:transcripts": "node --experimental-strip-types scripts/test-ai-transcripts.mjs",
     "test:ai:transcripts:multi": "node --experimental-strip-types scripts/test-ai-transcripts-multirun.mjs",
     "test:ai:orchestrator": "node --experimental-strip-types scripts/test-ai-orchestrator-rules.mjs",
+    "test:ai:e2e": "node --experimental-strip-types scripts/test-ai-e2e-checkout.mjs",
     "test:ai:mocks": "node --experimental-strip-types scripts/test-ai-integration-mocks.mjs",
     "test:ai:metrics": "node --experimental-strip-types scripts/test-ai-metrics.mjs",
-    "test:ai:all": "npm run test:ai && npm run test:ai:tools && npm run test:ai:flow && npm run test:ai:transcripts && npm run test:ai:orchestrator && npm run test:ai:mocks && npm run test:ai:metrics"
+    "test:ai:all": "npm run test:ai && npm run test:ai:tools && npm run test:ai:flow && npm run test:ai:e2e && npm run test:ai:transcripts && npm run test:ai:orchestrator && npm run test:ai:mocks && npm run test:ai:metrics",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.97.0",
     "@types/canvas-confetti": "^1.9.0",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.36.3",
     "canvas-confetti": "^1.9.4",
     "lucide-react": "^0.575.0",
     "next": "16.1.6",
@@ -34,15 +40,21 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react-swc": "^4.2.3",
+    "@vitest/coverage-v8": "^4.0.18",
     "autoprefixer": "^10.4.24",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "jsdom": "^28.1.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.18"
   }
 }

@@ -10,10 +10,23 @@ type Chat = {
   id: string;
   wa_chat_id: string | null;
   kanban_status: string | null;
+  sentiment?: string | null;
   updated_at: string | null;
   last_message?: string | null;
   contacts?: { phone: string | null; name: string | null } | null;
 };
+
+type RawChatRow = Chat & {
+  contacts?:
+    | { phone: string | null; name: string | null }
+    | Array<{ phone: string | null; name: string | null }>
+    | null;
+};
+
+const CHAT_SELECTS = [
+  "id, wa_chat_id, kanban_status, sentiment, updated_at, last_message, contacts(phone, name)",
+  "id, wa_chat_id, kanban_status, updated_at, last_message, contacts(phone, name)",
+];
 
 
 export default async function KanbanPage() {
@@ -62,12 +75,23 @@ export default async function KanbanPage() {
     .eq("restaurant_id", restaurantId)
     .order("name", { ascending: true });
 
-  const { data: chats, error: chatsError } = await supabase
+  let chatsResult = await supabase
     .from("chats")
-    .select("id, wa_chat_id, kanban_status, updated_at, last_message, contacts(phone, name)")
+    .select(CHAT_SELECTS[0])
     .eq("restaurant_id", restaurantId)
     .order("updated_at", { ascending: false })
     .limit(200);
+
+  if (chatsResult.error) {
+    chatsResult = await supabase
+      .from("chats")
+      .select(CHAT_SELECTS[1])
+      .eq("restaurant_id", restaurantId)
+      .order("updated_at", { ascending: false })
+      .limit(200);
+  }
+
+  const { data: chats, error: chatsError } = chatsResult;
 
   if (stagesError || chatsError) {
     return (
@@ -79,10 +103,16 @@ export default async function KanbanPage() {
   }
 
   const stageList = (stages ?? []) as Stage[];
-  const chatList: Chat[] = (chats ?? []).map((c) => ({
-    ...c,
-    contacts: Array.isArray(c.contacts) ? c.contacts[0] : c.contacts,
-  })) as Chat[];
+  const chatRows = ((chats ?? []) as unknown) as RawChatRow[];
+  const chatList: Chat[] = chatRows.map((c) => ({
+    id: c.id,
+    wa_chat_id: c.wa_chat_id ?? null,
+    kanban_status: c.kanban_status ?? null,
+    sentiment: c.sentiment ?? null,
+    updated_at: c.updated_at ?? null,
+    last_message: c.last_message ?? null,
+    contacts: Array.isArray(c.contacts) ? c.contacts[0] : c.contacts ?? null,
+  }));
 
   return <KanbanBoard stageList={stageList} chatList={chatList} restaurantId={restaurantId} />;
 }

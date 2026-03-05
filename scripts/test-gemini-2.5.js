@@ -9,7 +9,7 @@ function getApiKey() {
         const content = fs.readFileSync(envPath, "utf8");
         const match = content.match(/GEMINI_API_KEY=([^\s]+)/);
         return match ? match[1].replace(/['"]/g, "") : null;
-    } catch (e) {
+    } catch {
         return null;
     }
 }

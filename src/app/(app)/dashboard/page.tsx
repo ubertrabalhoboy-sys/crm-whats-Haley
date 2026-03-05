@@ -2,6 +2,7 @@
 
 import useSWR from "swr";
 import Link from "next/link";
+import Image from "next/image";
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
@@ -53,6 +54,19 @@ type DashboardData = {
     chatsComVenda: number;
     totalLeads: number;
   };
+  roi?: {
+    recoveredSales7d: number;
+    recoveredOrders7d: number;
+    recoveryRuns7d: number;
+    recoveryConversionRate7d: number;
+    recoveredSalesMonth: number;
+    recoveredOrdersMonth: number;
+    recoveryRunsMonth: number;
+    recoveryConversionRateMonth: number;
+    successfulAiTurnsMonth: number;
+    estimatedHoursSavedMonth: number;
+    averageHumanMinutesPerTurn: number;
+  };
   topProdutos: ProdutoPromo[];
   webhookStats?: {
     total7d: number;
@@ -66,6 +80,13 @@ type DashboardData = {
     storeConfigured: boolean;
     automationConfigured: boolean;
     firstLeadMoved: boolean;
+  };
+  whatsappHealth?: {
+    state: "online" | "connecting" | "unstable" | "token_invalid" | "instance_limit" | "offline" | "unknown";
+    label: string;
+    reason: string;
+    status: string;
+    updatedAt: string | null;
   };
 };
 
@@ -88,9 +109,38 @@ export default function DashboardPage() {
 
   const produtos = data?.topProdutos || [];
   const webhookStats = data?.webhookStats || { total7d: 0, hoje: 0, successCount: 0, errorCount: 0, porDia: [] };
+  const roi = data?.roi || {
+    recoveredSales7d: 0,
+    recoveredOrders7d: 0,
+    recoveryRuns7d: 0,
+    recoveryConversionRate7d: 0,
+    recoveredSalesMonth: 0,
+    recoveredOrdersMonth: 0,
+    recoveryRunsMonth: 0,
+    recoveryConversionRateMonth: 0,
+    successfulAiTurnsMonth: 0,
+    estimatedHoursSavedMonth: 0,
+    averageHumanMinutesPerTurn: 2.5,
+  };
   const maxDayCount = Math.max(1, ...webhookStats.porDia.map(d => d.success + d.error));
   const onboarding = data?.onboarding || { whatsappConnected: false, storeConfigured: false, automationConfigured: false, firstLeadMoved: false };
+  const whatsappHealth = data?.whatsappHealth || {
+    state: "unknown",
+    label: "Indefinido",
+    reason: "Sem dados recentes de saude do WhatsApp.",
+    status: "unknown",
+    updatedAt: null,
+  };
   const allComplete = onboarding.whatsappConnected && onboarding.storeConfigured && onboarding.automationConfigured && onboarding.firstLeadMoved;
+  const healthTone = (() => {
+    if (whatsappHealth.state === "online") return "text-emerald-600 bg-emerald-50 border-emerald-200";
+    if (whatsappHealth.state === "connecting") return "text-cyan-600 bg-cyan-50 border-cyan-200";
+    if (whatsappHealth.state === "unstable") return "text-amber-600 bg-amber-50 border-amber-200";
+    if (whatsappHealth.state === "token_invalid" || whatsappHealth.state === "instance_limit") {
+      return "text-rose-600 bg-rose-50 border-rose-200";
+    }
+    return "text-slate-600 bg-slate-50 border-slate-200";
+  })();
 
   return (
     <div className="w-full h-full overflow-y-auto custom-scroll px-4 pb-12">
@@ -271,6 +321,84 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      <div className="mb-8 relative z-10">
+        <div className={`rounded-[2rem] border p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl ${healthTone}`}>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest">Saúde do WhatsApp</p>
+              <h3 className="mt-2 text-2xl font-black tracking-tight">{isLoading ? "..." : whatsappHealth.label}</h3>
+              <p className="mt-2 text-sm font-semibold">{isLoading ? "Carregando..." : whatsappHealth.reason}</p>
+              <p className="mt-2 text-[11px] font-bold uppercase tracking-wider opacity-70">
+                status: {whatsappHealth.status}
+                {whatsappHealth.updatedAt ? ` • alerta: ${new Date(whatsappHealth.updatedAt).toLocaleString("pt-BR")}` : ""}
+              </p>
+            </div>
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/70">
+              <Smartphone size={24} />
+            </div>
+          </div>
+          <div className="mt-4">
+            <Link href="/settings/whatsapp" className="text-xs font-black uppercase tracking-widest underline underline-offset-4">
+              Abrir configurações do WhatsApp
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* ROI / Monetization */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 relative z-10">
+        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Recuperado 7 dias</p>
+              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
+                {isLoading ? "..." : formatCurrency(roi.recoveredSales7d)}
+              </h3>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/10 to-lime-500/10 text-emerald-600 transition-transform group-hover:scale-110 group-hover:bg-emerald-500 group-hover:text-white">
+              <Wallet size={24} />
+            </div>
+          </div>
+          <p className="mt-4 text-xs font-bold text-emerald-600">
+            {roi.recoveredOrders7d} pedidos apos retomada • {roi.recoveryConversionRate7d.toFixed(1)}% de conversao
+          </p>
+        </div>
+
+        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Recuperado no mes</p>
+              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
+                {isLoading ? "..." : formatCurrency(roi.recoveredSalesMonth)}
+              </h3>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500/10 to-blue-500/10 text-cyan-600 transition-transform group-hover:scale-110 group-hover:bg-cyan-600 group-hover:text-white">
+              <PiggyBank size={24} />
+            </div>
+          </div>
+          <p className="mt-4 text-xs font-bold text-cyan-600">
+            {roi.recoveredOrdersMonth} pedidos recuperados • {roi.recoveryRunsMonth} tentativas
+          </p>
+        </div>
+
+        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Tempo economizado</p>
+              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
+                {isLoading ? "..." : `${roi.estimatedHoursSavedMonth.toFixed(1)}h`}
+              </h3>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/10 to-fuchsia-500/10 text-violet-600 transition-transform group-hover:scale-110 group-hover:bg-violet-600 group-hover:text-white">
+              <Activity size={24} />
+            </div>
+          </div>
+          <p className="mt-4 text-xs font-bold text-violet-600">
+            Estimativa: {roi.successfulAiTurnsMonth} turnos x {roi.averageHumanMinutesPerTurn} min
+          </p>
+        </div>
+      </div>
+
       {/* Webhook Per-Day Chart */}
       {webhookStats.porDia.length > 0 && (
         <div className="w-full bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5 rounded-[2.5rem] p-8 mb-8 relative z-10">
@@ -344,7 +472,17 @@ export default function DashboardPage() {
                     <td className="py-4 px-4">
                       <div className="flex items-center gap-3">
                         {p.imagem_url ? (
-                          <img src={p.imagem_url} alt={p.nome} className="h-10 w-10 shrink-0 object-cover rounded-lg shadow-sm border border-white/50" />
+                          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-white/50 shadow-sm">
+                            <Image
+                              src={p.imagem_url}
+                              alt={p.nome}
+                              fill
+                              sizes="40px"
+                              className="object-cover"
+                              unoptimized
+                              loader={({ src }) => src}
+                            />
+                          </div>
                         ) : (
                           <div className="h-10 w-10 shrink-0 rounded-lg bg-gradient-to-br from-[#07a0c3]/20 to-[#086788]/20 flex items-center justify-center text-[#086788] shadow-inner border border-white/50">
                             <ImageIcon size={18} />

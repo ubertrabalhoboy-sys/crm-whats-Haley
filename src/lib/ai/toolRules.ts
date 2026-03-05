@@ -84,13 +84,32 @@ export function calculateCouponDiscount(subtotal: number, cupomCode: unknown) {
         return 0;
     }
 
-    const match = cupomCode.match(/(\d+)/);
+    const normalized = cupomCode.toLowerCase();
+
+    // Caso especial: Frete Grátis (não altera o subtotal, mas sinaliza para o motor de frete)
+    if (normalized.includes("frete") && (normalized.includes("gratis") || normalized.includes("grátis") || normalized.includes("off"))) {
+        return 0; // O desconto no total será aplicado na taxa de entrega, não no subtotal
+    }
+
+    const match = normalized.match(/(\d+(?:[.,]\d+)?)/);
     if (!match) {
         return 0;
     }
 
-    const percentage = Math.min(Number(match[1]), 100);
-    return subtotal * (percentage / 100);
+    const value = Number(match[1].replace(",", "."));
+
+    // Se tiver "%", trata como porcentagem
+    if (normalized.includes("%")) {
+        const percentage = Math.min(value, 100);
+        return subtotal * (percentage / 100);
+    }
+
+    // Se tiver "r$" ou for apenas número sem %, trata como valor fixo
+    if (normalized.includes("r$") || !normalized.includes("%")) {
+        return Math.min(value, subtotal);
+    }
+
+    return 0;
 }
 
 export function resolveAppliedDiscount(
@@ -126,12 +145,20 @@ export function buildCarouselPriceText(details: {
         couponAdjustedPrice > 0 &&
         couponAdjustedPrice < baseDisplayPrice;
 
+    const isFreeDelivery = details.activeCouponCode.toLowerCase().includes("frete") &&
+        (details.activeCouponCode.toLowerCase().includes("gratis") ||
+            details.activeCouponCode.toLowerCase().includes("grátis"));
+
+    if (isFreeDelivery) {
+        return `*R$ ${baseDisplayPrice.toFixed(2)}*\n🎁 + *FRETE GRÁTIS*`;
+    }
+
     if (hasCouponDisplay && hasPromo && normalizedPromoPrice != null) {
-        return `De ~R$ ${normalizedPrice.toFixed(2)}~ por *R$ ${normalizedPromoPrice.toFixed(2)}*\nCom seu cupom: *R$ ${couponAdjustedPrice.toFixed(2)}*`;
+        return `De ~R$ ${normalizedPrice.toFixed(2)}~ por *R$ ${normalizedPromoPrice.toFixed(2)}*\n🎁 Seu cupom deu desconto extra: *R$ ${couponAdjustedPrice.toFixed(2)}*`;
     }
 
     if (hasCouponDisplay) {
-        return `De ~R$ ${normalizedPrice.toFixed(2)}~ por *R$ ${couponAdjustedPrice.toFixed(2)}* com seu cupom`;
+        return `De ~R$ ${normalizedPrice.toFixed(2)}~ por *R$ ${couponAdjustedPrice.toFixed(2)}* 🎁 (cupom aplicado)`;
     }
 
     if (hasPromo && normalizedPromoPrice != null) {
@@ -177,9 +204,9 @@ export function appendItemToCartSnapshot(details: {
 }): CartSnapshotData {
     const currentItems = Array.isArray(details.snapshot?.items)
         ? details.snapshot.items.filter(
-              (item): item is ToolCartItem =>
-                  typeof item === "object" && item !== null && typeof item.quantity === "number"
-          )
+            (item): item is ToolCartItem =>
+                typeof item === "object" && item !== null && typeof item.quantity === "number"
+        )
         : [];
 
     const nextItems = [...currentItems];

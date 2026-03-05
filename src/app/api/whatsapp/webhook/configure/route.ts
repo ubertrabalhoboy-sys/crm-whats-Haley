@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  PUBLIC_BASE_URL,
+  UAZAPI_BASE_URL,
+  UAZAPI_GLOBAL_API_KEY,
+  WEBHOOK_SECRET_TOKEN,
+} from "@/lib/shared/env";
 
 export const runtime = "nodejs";
 
@@ -91,12 +97,12 @@ async function getRestaurantContext() {
   };
 }
 
-export async function POST(req: Request) {
-  const baseUrl = process.env.UAZAPI_BASE_URL;
+export async function POST() {
+  const baseUrl = UAZAPI_BASE_URL;
   if (!baseUrl) {
     return NextResponse.json({ ok: false, error: "UAZAPI_NOT_CONFIGURED" }, { status: 501 });
   }
-  const publicBaseUrl = process.env.PUBLIC_BASE_URL;
+  const publicBaseUrl = PUBLIC_BASE_URL;
   if (!publicBaseUrl) {
     return NextResponse.json({ ok: false, error: "PUBLIC_BASE_URL_NOT_CONFIGURED" }, { status: 501 });
   }
@@ -104,7 +110,8 @@ export async function POST(req: Request) {
   const context = await getRestaurantContext();
   if ("errorResponse" in context) return context.errorResponse;
 
-  const webhookUrl = `${normalizeBaseUrl(publicBaseUrl)}/api/webhook/uazapi?token=${encodeURIComponent(context.instanceToken)}`;
+  const secretParam = WEBHOOK_SECRET_TOKEN ? `&secret=${encodeURIComponent(WEBHOOK_SECRET_TOKEN)}` : "";
+  const webhookUrl = `${normalizeBaseUrl(publicBaseUrl)}/api/webhook/uazapi?token=${encodeURIComponent(context.instanceToken)}${secretParam}`;
   const payload = {
     enabled: true,
     url: webhookUrl,
@@ -120,7 +127,7 @@ export async function POST(req: Request) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "apikey": process.env.UAZAPI_GLOBAL_API_KEY || "",
+        "apikey": UAZAPI_GLOBAL_API_KEY || "",
         token: context.instanceToken,
       },
       body: JSON.stringify(payload),
@@ -142,7 +149,7 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
-  const baseUrl = process.env.UAZAPI_BASE_URL;
+  const baseUrl = UAZAPI_BASE_URL;
   if (!baseUrl) {
     return NextResponse.json({ ok: false, error: "UAZAPI_NOT_CONFIGURED" }, { status: 501 });
   }
@@ -155,7 +162,7 @@ export async function GET() {
     {
       method: "GET",
       headers: {
-        "apikey": process.env.UAZAPI_GLOBAL_API_KEY || "",
+        "apikey": UAZAPI_GLOBAL_API_KEY || "",
         "token": context.instanceToken,
       },
       cache: "no-store",

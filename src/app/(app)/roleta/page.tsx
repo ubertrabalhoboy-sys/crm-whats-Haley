@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import useSWR, { mutate } from "swr";
-import { Plus, Trash2, Save, Loader2, Dices, AlertTriangle, CheckCircle2, Link2, Copy, Check, QrCode, RotateCcw, PartyPopper, X, TrendingUp, BarChart3, Store, Image } from "lucide-react";
+import Image from "next/image";
+import { Plus, Trash2, Save, Loader2, Dices, AlertTriangle, CheckCircle2, Link2, Copy, Check, TrendingUp, BarChart3, Store, Image as ImageIcon } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
 type Prize = {
@@ -184,7 +185,7 @@ export default function RoletaPage() {
                         <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1 block">URL do Logo</label>
                         <div className="flex gap-2">
                             <div className="flex-1 relative">
-                                <Image size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <ImageIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                 <input
                                     type="url"
                                     value={logoUrl}
@@ -195,7 +196,15 @@ export default function RoletaPage() {
                             </div>
                             {logoUrl && (
                                 <div className="w-12 h-12 rounded-xl border border-slate-200 bg-white overflow-hidden flex items-center justify-center shrink-0">
-                                    <img src={logoUrl} alt="Logo preview" className="w-full h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                                    <Image
+                                        src={logoUrl}
+                                        alt="Logo preview"
+                                        width={48}
+                                        height={48}
+                                        className="h-full w-full object-contain"
+                                        unoptimized
+                                        loader={({ src }) => src}
+                                    />
                                 </div>
                             )}
                         </div>

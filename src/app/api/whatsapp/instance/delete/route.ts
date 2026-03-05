@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  UAZAPI_ADMIN_TOKEN,
+  UAZAPI_BASE_URL,
+  UAZAPI_GLOBAL_API_KEY,
+} from "@/lib/shared/env";
 
 export const runtime = "nodejs";
 
@@ -109,8 +114,8 @@ async function deleteRemoteInstance(params: DeleteRemoteInstanceParams) {
 }
 
 export async function POST() {
-  const baseUrl = process.env.UAZAPI_BASE_URL;
-  const adminToken = process.env.UAZAPI_ADMIN_TOKEN;
+  const baseUrl = UAZAPI_BASE_URL;
+  const adminToken = UAZAPI_ADMIN_TOKEN;
 
   if (!baseUrl || !adminToken) {
     return NextResponse.json({ ok: false, error: "UAZAPI_NOT_CONFIGURED" }, { status: 501 });
@@ -168,7 +173,7 @@ export async function POST() {
   const deleteResult = await deleteRemoteInstance({
     baseUrl,
     adminToken,
-    globalApiKey: process.env.UAZAPI_GLOBAL_API_KEY || "",
+    globalApiKey: UAZAPI_GLOBAL_API_KEY || "",
     instanceId: restaurant.uaz_instance_id,
     instanceName: restaurant.uaz_instance_name,
     instanceToken: restaurant.uaz_instance_token,

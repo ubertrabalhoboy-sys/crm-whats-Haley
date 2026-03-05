@@ -46,10 +46,30 @@ type AutoCalculateAfterOperationalInputContext = {
     hasOrder?: boolean;
 };
 
+type SalesObjectionContext = {
+    latestInboundText: string;
+    latestOutboundText: string;
+    hasCartItems: boolean;
+    hasPrincipal?: boolean;
+    hasAdditional?: boolean;
+    hasDrink?: boolean;
+    hasPaymentMethod?: boolean;
+    hasOrder?: boolean;
+    preferredDomain?: SalesDomain;
+    availability?: Partial<CategoryAvailability> | null;
+};
+
 type AddToCartAction = {
     productId: string;
     productName: string;
     category: "principal" | "adicional" | "bebida";
+};
+
+export type SalesDomain = "burger" | "acai" | "pizza" | "sushi" | "generic";
+export type CategoryAvailability = {
+    principal: boolean;
+    adicional: boolean;
+    bebida: boolean;
 };
 
 function normalizeLooseText(text: string) {
@@ -341,6 +361,495 @@ export function isGreetingOnly(text: string) {
     const normalized = normalizeLooseText(text);
     if (!normalized) return false;
     return /^(oi|ola|opa|bom dia|boa tarde|boa noite|e ai|eae|oii+)$/.test(normalized);
+}
+
+export function isNeutralInboundWithoutCatalogIntent(text: string) {
+    const normalized = normalizeLooseText(text);
+    if (!normalized) return false;
+    if (isGreetingOnly(normalized)) return true;
+    return /^(ok|okay|blz|beleza|ta bom|tudo bem|certo|entendi|show|valeu)$/.test(
+        normalized
+    );
+}
+
+export function buildActiveCategoryPitch(
+    category: "principal" | "adicional" | "bebida",
+    cupomGanho?: string | null
+) {
+    const hasCoupon =
+        typeof cupomGanho === "string" &&
+        cupomGanho.trim().length > 0 &&
+        cupomGanho.trim().toLowerCase() !== "nenhum";
+
+    if (category === "principal") {
+        return hasCoupon
+            ? `Fechou! Seu ${cupomGanho} ja entra no fechamento. Vou te mostrar nossos principais mais pedidos agora.`
+            : "Fechou! Vou te mostrar nossos principais mais pedidos agora.";
+    }
+
+    if (category === "adicional") {
+        return "Seu principal ja esta garantido. Agora vou te mostrar os adicionais que mais combinam com ele.";
+    }
+
+    return "Pedido forte desse jeito nao vai no seco. Agora vou te mostrar as bebidas que mais saem com ele.";
+}
+
+function coerceAvailability(
+    availability?: Partial<CategoryAvailability> | null
+): CategoryAvailability {
+    return {
+        principal: availability?.principal !== false,
+        adicional: availability?.adicional !== false,
+        bebida: availability?.bebida !== false,
+    };
+}
+
+function pickAvailableCategory(
+    availability: CategoryAvailability,
+    preferred: Array<"principal" | "adicional" | "bebida">
+) {
+    for (const category of preferred) {
+        if (availability[category]) {
+            return category;
+        }
+    }
+    return null;
+}
+
+export function resolveCategoryForPlaybook(details: {
+    requestedCategory: "principal" | "adicional" | "bebida";
+    preferredDomain?: SalesDomain;
+    availability?: Partial<CategoryAvailability> | null;
+    hasPrincipal?: boolean;
+    hasAdditional?: boolean;
+    hasDrink?: boolean;
+}) {
+    const availability = coerceAvailability(details.availability);
+    const preferredDomain = details.preferredDomain || "generic";
+
+    if (
+        preferredDomain === "acai" &&
+        details.requestedCategory === "bebida"
+    ) {
+        return (
+            pickAvailableCategory(availability, [
+                details.hasAdditional ? "principal" : "adicional",
+                "principal",
+                "adicional",
+            ]) || "principal"
+        );
+    }
+
+    if (availability[details.requestedCategory]) {
+        return details.requestedCategory;
+    }
+
+    if (preferredDomain === "acai") {
+        return (
+            pickAvailableCategory(availability, ["adicional", "principal"]) ||
+            details.requestedCategory
+        );
+    }
+
+    return (
+        pickAvailableCategory(availability, ["adicional", "bebida", "principal"]) ||
+        details.requestedCategory
+    );
+}
+
+function inferCategoryFromOfferText(text: string): "principal" | "adicional" | "bebida" | null {
+    if (/(bebida|refrigerante|suco|agua|cha|guarana|coca)/.test(text)) {
+        return "bebida";
+    }
+    if (/(adicional|acompanh|extra|complemento|batata|anel de cebola)/.test(text)) {
+        return "adicional";
+    }
+    if (/(principal|lanche|burger|hamburg|pizza|sushi|cardapio)/.test(text)) {
+        return "principal";
+    }
+    return null;
+}
+
+export function detectSalesObjectionIntent(details: SalesObjectionContext) {
+    if (details.hasPaymentMethod || details.hasOrder) {
+        return null;
+    }
+
+    const inbound = normalizeLooseText(details.latestInboundText);
+    if (!inbound) {
+        return null;
+    }
+
+    const hasObjectionSignal =
+        /(so tem isso|so isso|tem mais|mais opc|outra opc|outro opc|mais barato|mais em conta|ta caro|caro|muito caro|valor alto|preco alto)/.test(
+            inbound
+        );
+
+    if (!hasObjectionSignal) {
+        return null;
+    }
+
+    const outbound = normalizeLooseText(details.latestOutboundText);
+    let category = outbound ? inferCategoryFromOfferText(outbound) : null;
+    const preferredDomain = details.preferredDomain || "generic";
+    const availability = coerceAvailability(details.availability);
+
+    if (!category) {
+        if (preferredDomain === "acai") {
+            category = !details.hasAdditional
+                ? pickAvailableCategory(availability, ["adicional", "principal"])
+                : pickAvailableCategory(availability, ["principal", "adicional"]);
+        } else if (!details.hasPrincipal) {
+            category = pickAvailableCategory(availability, ["principal", "adicional", "bebida"]);
+        } else if (!details.hasAdditional) {
+            category = pickAvailableCategory(availability, ["adicional", "bebida", "principal"]);
+        } else if (!details.hasDrink) {
+            category = pickAvailableCategory(availability, ["bebida", "adicional", "principal"]);
+        } else if (details.hasCartItems) {
+            category = pickAvailableCategory(availability, ["adicional", "bebida", "principal"]);
+        } else {
+            category = pickAvailableCategory(availability, ["principal", "adicional", "bebida"]);
+        }
+    }
+
+    if (!category) {
+        category = "principal";
+    }
+    category = resolveCategoryForPlaybook({
+        requestedCategory: category,
+        preferredDomain,
+        availability,
+        hasPrincipal: details.hasPrincipal,
+        hasAdditional: details.hasAdditional,
+        hasDrink: details.hasDrink,
+    });
+
+    const isPriceObjection = /(mais barato|mais em conta|ta caro|caro|muito caro|valor alto|preco alto)/.test(
+        inbound
+    );
+
+    return {
+        category,
+        isPriceObjection,
+    } as const;
+}
+
+export function buildObjectionRecoveryPitch(details: {
+    category: "principal" | "adicional" | "bebida";
+    isPriceObjection: boolean;
+    cupomGanho?: string | null;
+}) {
+    const hasCoupon =
+        typeof details.cupomGanho === "string" &&
+        details.cupomGanho.trim().length > 0 &&
+        details.cupomGanho.trim().toLowerCase() !== "nenhum";
+    const couponTail = hasCoupon
+        ? ` Seu ${details.cupomGanho} segue ativo no fechamento.`
+        : "";
+
+    if (details.isPriceObjection) {
+        if (details.category === "principal") {
+            return `Fechou, vou te mostrar principais mais em conta agora.${couponTail}`.trim();
+        }
+        if (details.category === "adicional") {
+            return `Boa, vou te mostrar adicionais mais leves pro bolso agora.${couponTail}`.trim();
+        }
+        return `Perfeito, vou te mostrar bebidas com melhor custo-beneficio agora.${couponTail}`.trim();
+    }
+
+    if (details.category === "principal") {
+        return "Tem sim. Vou abrir mais opcoes de principais agora pra voce escolher o melhor.";
+    }
+    if (details.category === "adicional") {
+        return "Tem sim. Vou abrir mais opcoes de adicionais que combinam com seu pedido.";
+    }
+    return "Tem sim. Vou abrir mais opcoes de bebidas pra fechar seu pedido redondo.";
+}
+
+function inferSalesDomainFromContextText(text: string): SalesDomain {
+    const normalized = normalizeLooseText(text);
+    if (!normalized) {
+        return "generic";
+    }
+    if (/(acai|açai|açaí|creme|tigela)/.test(normalized)) {
+        return "acai";
+    }
+    if (/(pizza|calabresa|marguerita|portuguesa|quatro queijos|4 queijos)/.test(normalized)) {
+        return "pizza";
+    }
+    if (/(sushi|temaki|uramaki|hossomaki|sashimi|niguiri|nigiri|hot roll)/.test(normalized)) {
+        return "sushi";
+    }
+    if (/(burger|hamburg|x-|smash|lanche|bacon monster|cheese salada|cheddar|chicken crisp)/.test(normalized)) {
+        return "burger";
+    }
+    return "generic";
+}
+
+function hasPizzaSizeToken(text: string) {
+    const normalized = normalizeLooseText(text);
+    if (!normalized) return false;
+    return /(media|m[eé]dia|grande|gigante|brotinho|familia|fam[ií]lia|individual|pequena|pequeno)/.test(
+        normalized
+    );
+}
+
+export function inferSalesDomainFromProductName(productName: string): SalesDomain {
+    return inferSalesDomainFromContextText(productName);
+}
+
+export function buildPostAddToCartSalesPlan(details: {
+    addedCategory: "principal" | "adicional" | "bebida";
+    addedProductName: string;
+    latestOutboundText: string;
+    hasAdditional: boolean;
+    hasDrink: boolean;
+    preferredDomain?: SalesDomain;
+    availability?: Partial<CategoryAvailability> | null;
+}) {
+    const availability = coerceAvailability(details.availability);
+    const explicitDomain = inferSalesDomainFromProductName(details.addedProductName);
+    const hintedDomain = details.preferredDomain && details.preferredDomain !== "generic"
+        ? details.preferredDomain
+        : explicitDomain !== "generic"
+            ? explicitDomain
+            : inferSalesDomainFromContextText(details.latestOutboundText);
+
+    if (details.addedCategory === "bebida") {
+        return {
+            nextCategory: null,
+            searchQuery: null,
+            followupText: `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+            domain: hintedDomain,
+        } as const;
+    }
+
+    if (hintedDomain === "pizza") {
+        if (
+            details.addedCategory === "principal" &&
+            availability.principal &&
+            !hasPizzaSizeToken(details.addedProductName)
+        ) {
+            return {
+                nextCategory: "principal" as const,
+                searchQuery: "pizza media grande gigante",
+                followupText:
+                    "Perfeito! Agora escolhe o tamanho da pizza: media, grande ou gigante. Ja te mostro as opcoes.",
+                domain: hintedDomain,
+            } as const;
+        }
+
+        if (!details.hasAdditional) {
+            const nextCategory = pickAvailableCategory(availability, [
+                "adicional",
+                "principal",
+                "bebida",
+            ]);
+            if (!nextCategory) {
+                return {
+                    nextCategory: null,
+                    searchQuery: null,
+                    followupText:
+                        `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+                    domain: hintedDomain,
+                } as const;
+            }
+            return {
+                nextCategory,
+                searchQuery: null,
+                followupText: nextCategory === "adicional"
+                    ? "Pizza no carrinho! Agora ja te mostro os adicionais que mais saem para turbinar seu pedido."
+                    : "Pizza no carrinho! Agora ja te mostro mais opcoes de pizza pra fechar no melhor formato.",
+                domain: hintedDomain,
+            } as const;
+        }
+
+        if (!details.hasDrink) {
+            const nextCategory = pickAvailableCategory(availability, [
+                "bebida",
+                "adicional",
+                "principal",
+            ]);
+            if (!nextCategory) {
+                return {
+                    nextCategory: null,
+                    searchQuery: null,
+                    followupText:
+                        `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+                    domain: hintedDomain,
+                } as const;
+            }
+            return {
+                nextCategory,
+                searchQuery: null,
+                followupText: nextCategory === "bebida"
+                    ? "Pizza no esquema! Agora ja te mostro as bebidas pra acompanhar."
+                    : "Pizza no esquema! Agora ja te mostro os complementos que mais saem com esse pedido.",
+                domain: hintedDomain,
+            } as const;
+        }
+
+        return {
+            nextCategory: null,
+            searchQuery: null,
+            followupText:
+                `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+            domain: hintedDomain,
+        } as const;
+    }
+
+    if (hintedDomain === "acai") {
+        if (!details.hasAdditional && availability.adicional) {
+            return {
+                nextCategory: "adicional" as const,
+                searchQuery: null,
+                followupText:
+                    `Top! Adicionei ${details.addedProductName}.\nAgora ja te mostro os complementos pra montar seu acai do seu jeito.`,
+                domain: hintedDomain,
+            } as const;
+        }
+
+        const nextCategory = pickAvailableCategory(availability, ["principal", "adicional"]);
+        if (!nextCategory) {
+            return {
+                nextCategory: null,
+                searchQuery: null,
+                followupText:
+                    `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+                domain: hintedDomain,
+            } as const;
+        }
+        return {
+            nextCategory,
+            searchQuery: nextCategory === "principal" ? "acai" : null,
+            followupText: nextCategory === "principal"
+                ? "Boa! Quer aproveitar e levar mais um acai? Ja te mostro as opcoes que mais saem."
+                : "Boa! Ja te mostro mais complementos pra deixar seu acai ainda melhor.",
+            domain: hintedDomain,
+        } as const;
+    }
+
+    if (hintedDomain === "sushi") {
+        if (!details.hasAdditional) {
+            const nextCategory = pickAvailableCategory(availability, [
+                "adicional",
+                "bebida",
+                "principal",
+            ]);
+            if (!nextCategory) {
+                return {
+                    nextCategory: null,
+                    searchQuery: null,
+                    followupText:
+                        `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+                    domain: hintedDomain,
+                } as const;
+            }
+            return {
+                nextCategory,
+                searchQuery: null,
+                followupText: nextCategory === "adicional"
+                    ? `Perfeito! Adicionei ${details.addedProductName}.\nAgora ja te mostro adicionais e entradas pra completar seu combinado.`
+                    : `Perfeito! Adicionei ${details.addedProductName}.\nAgora ja te mostro as melhores opcoes para acompanhar seu combinado.`,
+                domain: hintedDomain,
+            } as const;
+        }
+
+        if (!details.hasDrink) {
+            const nextCategory = pickAvailableCategory(availability, [
+                "bebida",
+                "adicional",
+                "principal",
+            ]);
+            if (!nextCategory) {
+                return {
+                    nextCategory: null,
+                    searchQuery: null,
+                    followupText:
+                        `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+                    domain: hintedDomain,
+                } as const;
+            }
+            return {
+                nextCategory,
+                searchQuery: null,
+                followupText: nextCategory === "bebida"
+                    ? `Fechou! Adicionei ${details.addedProductName}.\nAgora ja te mostro as bebidas pra acompanhar.`
+                    : `Fechou! Adicionei ${details.addedProductName}.\nAgora ja te mostro adicionais para fechar esse pedido redondo.`,
+                domain: hintedDomain,
+            } as const;
+        }
+
+        return {
+            nextCategory: null,
+            searchQuery: null,
+            followupText:
+                `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+            domain: hintedDomain,
+        } as const;
+    }
+
+    if (!details.hasAdditional) {
+        const nextCategory = pickAvailableCategory(availability, [
+            "adicional",
+            "bebida",
+            "principal",
+        ]);
+        if (!nextCategory) {
+            return {
+                nextCategory: null,
+                searchQuery: null,
+                followupText:
+                    `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+                domain: hintedDomain,
+            } as const;
+        }
+        return {
+            nextCategory,
+            searchQuery: null,
+            followupText: nextCategory === "adicional"
+                ? `Perfeito! Adicionei ${details.addedProductName} ao seu pedido.\nSeu principal ja ficou no carrinho. Agora ja te mostro os adicionais mais pedidos.`
+                : nextCategory === "bebida"
+                    ? `Perfeito! Adicionei ${details.addedProductName} ao seu pedido.\nAgora ja te mostro as bebidas para acompanhar.`
+                    : `Perfeito! Adicionei ${details.addedProductName} ao seu pedido.\nAgora ja te mostro mais principais para reforcar o pedido.`,
+            domain: hintedDomain,
+        } as const;
+    }
+
+    if (!details.hasDrink) {
+        const nextCategory = pickAvailableCategory(availability, [
+            "bebida",
+            "adicional",
+            "principal",
+        ]);
+        if (!nextCategory) {
+            return {
+                nextCategory: null,
+                searchQuery: null,
+                followupText:
+                    `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+                domain: hintedDomain,
+            } as const;
+        }
+        return {
+            nextCategory,
+            searchQuery: null,
+            followupText: nextCategory === "bebida"
+                ? `Fechou! Adicionei ${details.addedProductName}.\nPedido forte desse jeito nao vai no seco. Agora ja te mostro as bebidas.`
+                : nextCategory === "adicional"
+                    ? `Fechou! Adicionei ${details.addedProductName}.\nAgora ja te mostro os adicionais que mais saem com esse pedido.`
+                    : `Fechou! Adicionei ${details.addedProductName}.\nAgora ja te mostro mais principais para reforcar o pedido.`,
+            domain: hintedDomain,
+        } as const;
+    }
+
+    return {
+        nextCategory: null,
+        searchQuery: null,
+        followupText:
+            `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+        domain: hintedDomain,
+    } as const;
 }
 
 export function shouldAutoCalculateAfterOperationalInput(

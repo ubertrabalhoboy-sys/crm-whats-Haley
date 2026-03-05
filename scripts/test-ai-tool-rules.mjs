@@ -42,7 +42,7 @@ assert.equal(
         promoPrice: null,
         activeCouponCode: "GANHE10",
     }),
-    "De ~R$ 30.00~ por *R$ 27.00* com seu cupom"
+    "De ~R$ 30.00~ por *R$ 20.00* 🎁 (cupom aplicado)"
 );
 
 assert.equal(
@@ -51,7 +51,7 @@ assert.equal(
         promoPrice: 24,
         activeCouponCode: "GANHE10",
     }),
-    "De ~R$ 30.00~ por *R$ 24.00*\nCom seu cupom: *R$ 21.60*"
+    "De ~R$ 30.00~ por *R$ 24.00*\n🎁 Seu cupom deu desconto extra: *R$ 14.00*"
 );
 
 const snapshot = buildCartSnapshotData({

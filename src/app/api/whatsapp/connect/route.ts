@@ -1,6 +1,7 @@
 
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { UAZAPI_BASE_URL, UAZAPI_GLOBAL_API_KEY } from "@/lib/shared/env";
 
 export const runtime = "nodejs";
 
@@ -16,7 +17,7 @@ type ConnectResult = {
   status?: string;
 };
 export async function POST(req: Request) {
-  const baseUrl = process.env.UAZAPI_BASE_URL;
+  const baseUrl = UAZAPI_BASE_URL;
   if (!baseUrl) {
     return NextResponse.json({ ok: false, error: "UAZAPI_NOT_CONFIGURED" }, { status: 501 });
   }
@@ -93,7 +94,7 @@ export async function POST(req: Request) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "apikey": process.env.UAZAPI_GLOBAL_API_KEY || "",
+          "apikey": UAZAPI_GLOBAL_API_KEY || "",
           "token": instanceToken
         },
         body: JSON.stringify(body.phone ? { phone: body.phone } : {}),

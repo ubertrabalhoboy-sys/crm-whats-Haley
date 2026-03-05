@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabaseServer";
 import { matchesOnlyIf } from "@/lib/automations/filters";
+import { UAZAPI_BASE_URL, UAZAPI_TOKEN } from "@/lib/shared/env";
 
 type AutomationContext = Record<string, unknown>;
 
@@ -10,6 +11,76 @@ type RunParams = {
   fingerprint: string;
   context?: AutomationContext;
 };
+
+type ChatContact = {
+  phone?: string | null;
+};
+
+type ChatRow = {
+  id: string;
+  wa_chat_id: string | null;
+  contacts?: ChatContact | ChatContact[] | null;
+};
+
+type AutomationOnlyIf = Record<string, unknown> | null;
+
+type AutomationRow = {
+  id: string;
+  only_if?: AutomationOnlyIf;
+  action_type?: string | null;
+  template_text?: string | null;
+  delay_seconds?: number | string | null;
+  run_once_per_chat?: boolean | null;
+};
+
+type TargetStageRow = {
+  id?: string;
+  name?: string | null;
+};
+
+type MessageTemplateRow = {
+  id?: string;
+  content?: string | null;
+  is_active?: boolean;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function asOnlyIfObject(value: AutomationOnlyIf | undefined): Record<string, unknown> | null {
+  return asRecord(value ?? null);
+}
+
+function parseJsonSafe(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function extractUazMessageId(payload: unknown): string | null {
+  const record = asRecord(payload);
+  const id = record?.id;
+  if (typeof id === "string" && id.trim()) return id;
+  const messageId = record?.messageId;
+  if (typeof messageId === "string" && messageId.trim()) return messageId;
+  return null;
+}
+
+function extractPhoneFromChat(chat: ChatRow): string | null {
+  const contacts = chat.contacts;
+  if (Array.isArray(contacts)) {
+    const firstPhone = contacts.find((item) => typeof item?.phone === "string" && item.phone.trim())?.phone;
+    return typeof firstPhone === "string" ? firstPhone : null;
+  }
+  if (contacts && typeof contacts.phone === "string" && contacts.phone.trim()) {
+    return contacts.phone;
+  }
+  return null;
+}
 
 function isUniqueViolation(error: unknown) {
   const err = error as { code?: string; message?: string } | null;
@@ -60,15 +131,16 @@ async function sendTextForChat(params: {
     throw new Error(chatError?.message || "chat_not_found");
   }
 
-  const base = process.env.UAZAPI_BASE_URL;
-  const token = process.env.UAZAPI_TOKEN;
+  const base = UAZAPI_BASE_URL;
+  const token = UAZAPI_TOKEN;
   if (!base || !token) {
     throw new Error("UAZAPI_NOT_CONFIGURED");
   }
 
+  const typedChat = chat as ChatRow;
   const rawNumber =
-    (chat as any)?.contacts?.phone ||
-    guessNumberFromChatId((chat as any)?.wa_chat_id ?? null) ||
+    extractPhoneFromChat(typedChat) ||
+    guessNumberFromChatId(typedChat.wa_chat_id ?? null) ||
     "";
   const number = String(rawNumber).replace(/\D/g, "");
 
@@ -86,18 +158,13 @@ async function sendTextForChat(params: {
   });
 
   const raw = await uazRes.text();
-  let uazJson: any = null;
-  try {
-    uazJson = JSON.parse(raw);
-  } catch {
-    uazJson = raw;
-  }
+  const uazJson = parseJsonSafe(raw);
 
   if (!uazRes.ok) {
     throw new Error(`UAZ_SEND_FAILED:${typeof uazJson === "string" ? uazJson : JSON.stringify(uazJson)}`);
   }
 
-  const wa_message_id = (uazJson as any)?.id || (uazJson as any)?.messageId || null;
+  const wa_message_id = extractUazMessageId(uazJson);
 
   const { error: insertError } = await supabaseServer.from("messages").insert({
     chat_id,
@@ -144,21 +211,21 @@ export async function runAutomations(params: RunParams) {
   let firstRunId: string | null = null;
   let matchedAny = false;
 
-  for (const automation of automations ?? []) {
-    const onlyIfRaw = (automation as any).only_if;
+  const typedAutomations = (automations ?? []) as AutomationRow[];
+
+  for (const automation of typedAutomations) {
+    const onlyIfRaw = automation.only_if ?? null;
+    const onlyIfObject = asOnlyIfObject(onlyIfRaw);
     const onlyIfForMatch =
-      onlyIfRaw && typeof onlyIfRaw === "object" && !Array.isArray(onlyIfRaw)
+      onlyIfObject
         ? Object.fromEntries(
-            Object.entries(onlyIfRaw as Record<string, unknown>).filter(
+            Object.entries(onlyIfObject).filter(
               ([key]) => key !== "template_id" && key !== "to_stage_id" && key !== "to_stage_name"
             )
           )
         : onlyIfRaw;
 
-    const onlyIfButtonId =
-      onlyIfRaw && typeof onlyIfRaw === "object" && !Array.isArray(onlyIfRaw)
-        ? (onlyIfRaw as Record<string, unknown>).buttonId
-        : undefined;
+    const onlyIfButtonId = onlyIfObject?.buttonId;
 
     if (params.trigger === "button_clicked") {
       if (typeof onlyIfButtonId !== "string" || !onlyIfButtonId.trim()) continue;
@@ -166,7 +233,7 @@ export async function runAutomations(params: RunParams) {
 
     if (!matchesOnlyIf(onlyIfForMatch, context)) continue;
     matchedAny = true;
-    const automationId = String((automation as any).id);
+    const automationId = String(automation.id);
     const runFingerprint = `${params.fingerprint}:${automationId}`;
 
     const { data: run, error: runInsertError } = await supabaseServer
@@ -241,10 +308,10 @@ export async function runAutomations(params: RunParams) {
     let runStatus: "success" | "failed" | "skipped" = "success";
     let runError: string | null = null;
 
-    if ((automation as any).run_once_per_chat) {
+    if (automation.run_once_per_chat) {
       const { error: lockError } = await supabaseServer.from("automation_run_locks").insert({
         restaurant_id: params.restaurant_id,
-        automation_id: (automation as any).id,
+        automation_id: automation.id,
         chat_id: params.chat_id,
       });
       if (lockError) {
@@ -278,21 +345,16 @@ export async function runAutomations(params: RunParams) {
       }
     }
 
-    if ((automation as any).action_type === "move_stage") {
+    if (automation.action_type === "move_stage") {
       try {
-        const delaySeconds = Number((automation as any).delay_seconds ?? 0);
+        const delaySeconds = Number(automation.delay_seconds ?? 0);
         if (Number.isFinite(delaySeconds) && delaySeconds > 0) {
           await sleep(delaySeconds * 1000);
         }
 
-        const toStageId =
-          onlyIfRaw && typeof onlyIfRaw === "object" && !Array.isArray(onlyIfRaw)
-            ? ((onlyIfRaw as Record<string, unknown>).to_stage_id as string | undefined)
-            : undefined;
+        const toStageId = typeof onlyIfObject?.to_stage_id === "string" ? onlyIfObject.to_stage_id : undefined;
         const toStageNameRaw =
-          onlyIfRaw && typeof onlyIfRaw === "object" && !Array.isArray(onlyIfRaw)
-            ? ((onlyIfRaw as Record<string, unknown>).to_stage_name as string | undefined)
-            : undefined;
+          typeof onlyIfObject?.to_stage_name === "string" ? onlyIfObject.to_stage_name : undefined;
         const toStageName =
           typeof toStageNameRaw === "string" && toStageNameRaw.trim() ? toStageNameRaw.trim() : null;
 
@@ -313,9 +375,10 @@ export async function runAutomations(params: RunParams) {
           }
 
           const { data: targetStage, error: targetStageError } = await targetStageQuery.maybeSingle();
+          const typedTargetStage = (targetStage ?? null) as TargetStageRow | null;
 
           const targetStageName =
-            typeof (targetStage as any)?.name === "string" ? (targetStage as any).name : null;
+            typeof typedTargetStage?.name === "string" ? typedTargetStage.name : null;
 
           if (targetStageError) {
             runFailed += 1;
@@ -360,7 +423,7 @@ export async function runAutomations(params: RunParams) {
       continue;
     }
 
-    if ((automation as any).action_type !== "send_template") {
+    if (automation.action_type !== "send_template") {
       skippedCount += 1;
       await supabaseServer
         .from("automation_runs")
@@ -375,18 +438,15 @@ export async function runAutomations(params: RunParams) {
     }
 
     try {
-      const delaySeconds = Number((automation as any).delay_seconds ?? 0);
+      const delaySeconds = Number(automation.delay_seconds ?? 0);
       if (Number.isFinite(delaySeconds) && delaySeconds > 0) {
         await sleep(delaySeconds * 1000);
       }
 
-      let templateText = ((automation as any).template_text as string | null) ?? null;
+      let templateText = automation.template_text ?? null;
 
       if (!templateText || !templateText.trim()) {
-        const templateId =
-          onlyIfRaw && typeof onlyIfRaw === "object" && !Array.isArray(onlyIfRaw)
-            ? ((onlyIfRaw as Record<string, unknown>).template_id as string | undefined)
-            : undefined;
+        const templateId = typeof onlyIfObject?.template_id === "string" ? onlyIfObject.template_id : undefined;
 
         if (templateId) {
           const { data: template } = await supabaseServer
@@ -396,7 +456,8 @@ export async function runAutomations(params: RunParams) {
             .eq("restaurant_id", params.restaurant_id)
             .eq("is_active", true)
             .maybeSingle();
-          templateText = (template as any)?.content ?? null;
+          const typedTemplate = (template ?? null) as MessageTemplateRow | null;
+          templateText = typeof typedTemplate?.content === "string" ? typedTemplate.content : null;
         }
       }
 

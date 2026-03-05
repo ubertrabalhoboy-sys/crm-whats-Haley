@@ -11,6 +11,12 @@ type TestBody = {
   context?: Record<string, unknown>;
 };
 
+type AutomationResult = {
+  ok?: boolean;
+  status?: string;
+  run_id?: string | null;
+};
+
 export async function POST(req: Request) {
   const supabase = await createSupabaseServerClient();
   const {
@@ -67,12 +73,14 @@ export async function POST(req: Request) {
     context: body.context ?? {},
   });
 
+  const resultInfo = result as AutomationResult;
+
   return NextResponse.json(
     {
       ok: true,
-      status: (result as any)?.status ?? ((result as any)?.ok ? "success" : "failed"),
+      status: resultInfo.status ?? (resultInfo.ok ? "success" : "failed"),
       fingerprint,
-      run_id: (result as any)?.run_id ?? null,
+      run_id: resultInfo.run_id ?? null,
       result,
     },
     { status: 200 }

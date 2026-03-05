@@ -15,6 +15,10 @@ type FiqonBody = {
   owner?: string | null;
 };
 
+type AutomationResult = {
+  ok?: boolean;
+};
+
 function readString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -39,7 +43,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "invalid_payload" }, { status: 400 });
   }
 
-  const root = raw as Record<string, any>;
+  const root = raw as Record<string, unknown>;
   const body = ((root.BODY ?? root) || {}) as FiqonBody;
 
   const event = readString(body.event);
@@ -101,7 +105,7 @@ export async function POST(req: Request) {
     },
   });
 
-  console.log("[fiqon-button] done", { chatid, buttonId, ok: (result as any)?.ok === true });
+  const resultInfo = result as AutomationResult;
+  console.log("[fiqon-button] done", { chatid, buttonId, ok: resultInfo.ok === true });
   return NextResponse.json(result, { status: 200 });
 }
-

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { processAiMessage } from "@/lib/ai/orchestrator";
+import { FIQON_WEBHOOK_URL } from "@/lib/shared/env";
 
 export async function POST(
     req: NextRequest,
@@ -147,7 +148,7 @@ export async function POST(
                 .eq("restaurant_id", restaurantId)
                 .maybeSingle();
 
-            const webhookUrl = process.env.FIQON_WEBHOOK_URL;
+            const webhookUrl = FIQON_WEBHOOK_URL;
 
             if (automation?.enabled && automation.trigger?.trim() && webhookUrl) {
                 const payload = {

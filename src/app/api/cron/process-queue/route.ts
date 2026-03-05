@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { buildFollowupReminderText } from "@/lib/ai/toolRules";
+import {
+    CRON_SECRET,
+    SUPABASE_SERVICE_ROLE_KEY,
+    SUPABASE_URL,
+    UAZAPI_BASE_URL,
+    UAZAPI_GLOBAL_API_KEY,
+} from "@/lib/shared/env";
 
 export const dynamic = "force-dynamic";
 
@@ -27,8 +34,8 @@ type RestaurantRow = {
 
 function createSupabaseAdminClient() {
     return createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        SUPABASE_URL,
+        SUPABASE_SERVICE_ROLE_KEY,
         { auth: { persistSession: false } }
     );
 }
@@ -91,15 +98,15 @@ function cleanNumberFromWaChatId(waChatId: string | null) {
 export async function POST(req: NextRequest) {
     // Validate cron secret to prevent unauthorized execution
     const authHeader = req.headers.get("authorization");
-    const cronSecret = process.env.CRON_SECRET;
+    const cronSecret = CRON_SECRET;
 
     if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
         return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
     }
 
     const supabase = createSupabaseAdminClient();
-    const baseUrl = process.env.UAZAPI_BASE_URL;
-    const globalApiKey = process.env.UAZAPI_GLOBAL_API_KEY || "";
+    const baseUrl = UAZAPI_BASE_URL;
+    const globalApiKey = UAZAPI_GLOBAL_API_KEY || "";
 
     if (!baseUrl) {
         return NextResponse.json(

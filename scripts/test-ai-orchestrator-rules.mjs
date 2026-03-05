@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
 import {
+    buildActiveCategoryPitch,
+    buildObjectionRecoveryPitch,
+    buildPostAddToCartSalesPlan,
+    detectSalesObjectionIntent,
     detectRouletteChoiceIntent,
     detectStructuredReplyIntent,
     detectUnverifiedCommercialClaim,
+    inferSalesDomainFromProductName,
+    isNeutralInboundWithoutCatalogIntent,
     isRoulettePrizeTrigger,
     normalizeOutboundText,
     parseAddToCartClientAction,
+    resolveCategoryForPlaybook,
     shouldAutoCalculateAfterOperationalInput,
     shouldHandleDelayedCouponDeferral,
     stripThoughtBlocks,
@@ -306,6 +313,192 @@ assert.equal(
         hasOrder: false,
     }),
     false
+);
+
+assert.equal(
+    isNeutralInboundWithoutCatalogIntent("oi"),
+    true
+);
+
+assert.equal(
+    isNeutralInboundWithoutCatalogIntent("quero ver os principais"),
+    false
+);
+
+assert.equal(
+    buildActiveCategoryPitch("principal", "20%OFF"),
+    "Fechou! Seu 20%OFF ja entra no fechamento. Vou te mostrar nossos principais mais pedidos agora."
+);
+
+assert.equal(
+    buildActiveCategoryPitch("adicional"),
+    "Seu principal ja esta garantido. Agora vou te mostrar os adicionais que mais combinam com ele."
+);
+
+assert.equal(
+    buildActiveCategoryPitch("bebida"),
+    "Pedido forte desse jeito nao vai no seco. Agora vou te mostrar as bebidas que mais saem com ele."
+);
+
+assert.deepEqual(
+    detectSalesObjectionIntent({
+        latestInboundText: "so tem isso?",
+        latestOutboundText: "Vou te mostrar nossos principais agora.",
+        hasCartItems: false,
+        hasPrincipal: false,
+        hasAdditional: false,
+        hasDrink: false,
+        hasPaymentMethod: false,
+        hasOrder: false,
+    }),
+    {
+        category: "principal",
+        isPriceObjection: false,
+    }
+);
+
+assert.deepEqual(
+    detectSalesObjectionIntent({
+        latestInboundText: "ta caro",
+        latestOutboundText: "Pra completar, ja te mostro as bebidas.",
+        hasCartItems: true,
+        hasPrincipal: true,
+        hasAdditional: true,
+        hasDrink: false,
+        hasPaymentMethod: false,
+        hasOrder: false,
+    }),
+    {
+        category: "bebida",
+        isPriceObjection: true,
+    }
+);
+
+assert.deepEqual(
+    detectSalesObjectionIntent({
+        latestInboundText: "ta caro",
+        latestOutboundText: "Pra completar, ja te mostro as bebidas.",
+        hasCartItems: true,
+        hasPrincipal: true,
+        hasAdditional: true,
+        hasDrink: false,
+        hasPaymentMethod: false,
+        hasOrder: false,
+        preferredDomain: "acai",
+        availability: { principal: true, adicional: true, bebida: false },
+    }),
+    {
+        category: "principal",
+        isPriceObjection: true,
+    }
+);
+
+assert.equal(
+    buildObjectionRecoveryPitch({
+        category: "principal",
+        isPriceObjection: true,
+        cupomGanho: "20%OFF",
+    }),
+    "Fechou, vou te mostrar principais mais em conta agora. Seu 20%OFF segue ativo no fechamento."
+);
+
+assert.equal(
+    buildObjectionRecoveryPitch({
+        category: "adicional",
+        isPriceObjection: false,
+        cupomGanho: "Nenhum",
+    }),
+    "Tem sim. Vou abrir mais opcoes de adicionais que combinam com seu pedido."
+);
+
+assert.equal(
+    inferSalesDomainFromProductName("Pizza Calabresa"),
+    "pizza"
+);
+
+assert.equal(
+    inferSalesDomainFromProductName("Acai Tradicional 500ml"),
+    "acai"
+);
+
+assert.deepEqual(
+    buildPostAddToCartSalesPlan({
+        addedCategory: "principal",
+        addedProductName: "Pizza Calabresa",
+        latestOutboundText: "Confira nossas opcoes",
+        hasAdditional: false,
+        hasDrink: false,
+    }),
+    {
+        nextCategory: "principal",
+        searchQuery: "pizza media grande gigante",
+        followupText:
+            "Perfeito! Agora escolhe o tamanho da pizza: media, grande ou gigante. Ja te mostro as opcoes.",
+        domain: "pizza",
+    }
+);
+
+assert.deepEqual(
+    buildPostAddToCartSalesPlan({
+        addedCategory: "adicional",
+        addedProductName: "Granola",
+        latestOutboundText: "Agora ja te mostro os complementos pra montar seu acai do seu jeito.",
+        hasAdditional: true,
+        hasDrink: false,
+    }),
+    {
+        nextCategory: "principal",
+        searchQuery: "acai",
+        followupText:
+            "Boa! Quer aproveitar e levar mais um acai? Ja te mostro as opcoes que mais saem.",
+        domain: "acai",
+    }
+);
+
+assert.deepEqual(
+    buildPostAddToCartSalesPlan({
+        addedCategory: "adicional",
+        addedProductName: "Granola",
+        latestOutboundText: "Agora ja te mostro os complementos pra montar seu acai do seu jeito.",
+        hasAdditional: true,
+        hasDrink: false,
+        preferredDomain: "acai",
+        availability: { principal: true, adicional: true, bebida: false },
+    }),
+    {
+        nextCategory: "principal",
+        searchQuery: "acai",
+        followupText:
+            "Boa! Quer aproveitar e levar mais um acai? Ja te mostro as opcoes que mais saem.",
+        domain: "acai",
+    }
+);
+
+assert.equal(
+    resolveCategoryForPlaybook({
+        requestedCategory: "bebida",
+        preferredDomain: "acai",
+        availability: { principal: true, adicional: true, bebida: false },
+        hasAdditional: true,
+    }),
+    "principal"
+);
+
+assert.deepEqual(
+    buildPostAddToCartSalesPlan({
+        addedCategory: "principal",
+        addedProductName: "Bacon Monster",
+        latestOutboundText: "Confira nossas opcoes",
+        hasAdditional: false,
+        hasDrink: false,
+    }),
+    {
+        nextCategory: "adicional",
+        searchQuery: null,
+        followupText:
+            "Perfeito! Adicionei Bacon Monster ao seu pedido.\nSeu principal ja ficou no carrinho. Agora ja te mostro os adicionais mais pedidos.",
+        domain: "burger",
+    }
 );
 
 assert.deepEqual(

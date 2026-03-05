@@ -34,7 +34,7 @@ export default function SendBox({
       } else {
         showToast("Falha ao gerar sugestão de resposta.", "error");
       }
-    } catch (err: any) {
+    } catch {
       showToast("Erro de conexão com a IA.", "error");
     } finally {
       setAiLoading(false);
@@ -155,4 +155,3 @@ export default function SendBox({
     </div>
   );
 }
-

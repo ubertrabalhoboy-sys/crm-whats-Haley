@@ -5,10 +5,21 @@ import { extractButtonClicked } from "@/lib/uazapi/triggers";
 import { runAutomations } from "@/lib/automations/engine";
 import { triggerFiqonWebhook } from "@/lib/fiqon-webhook";
 import { processAiMessage } from "@/lib/ai/orchestrator";
-import { WEBHOOK_SECRET_REQUIRED, WEBHOOK_SECRET_TOKEN } from "@/lib/shared/env";
+import {
+  FIQON_WEBHOOK_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
+  SUPABASE_URL,
+  UAZAPI_GLOBAL_API_KEY,
+  WEBHOOK_SECRET_REQUIRED,
+  WEBHOOK_SECRET_TOKEN,
+} from "@/lib/shared/env";
 import { checkRateLimit } from "@/lib/shared/rate-limit";
 
 export const runtime = "nodejs";
+
+interface WebhookPayload {
+  [key: string]: WebhookPayload | undefined;
+}
 
 // Rate Limit Warning Function
 
@@ -18,7 +29,7 @@ async function sendRateLimitWarning(waChatId: string, instanceName: string, inst
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.UAZAPI_GLOBAL_API_KEY}`,
+        "Authorization": `Bearer ${UAZAPI_GLOBAL_API_KEY}`,
         "Instance-Token": instanceToken,
       },
       body: JSON.stringify({
@@ -68,8 +79,8 @@ export async function POST(req: Request) {
 
   // Late initialization to avoid Next.js global caching crashes
   const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY,
     { auth: { persistSession: false } }
   );
 
@@ -83,8 +94,7 @@ export async function POST(req: Request) {
   if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
     return NextResponse.json({ ok: false, error: "invalid_payload" }, { status: 400 });
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const body = parsedBody as Record<string, any>;
+  const body = parsedBody as WebhookPayload;
 
   const readString = (...values: unknown[]) => {
     for (const value of values) {
@@ -555,6 +565,7 @@ export async function POST(req: Request) {
         last_message: chatInboundSummaryText ?? existingChat.last_message ?? "[Mensagem recebida]",
         unread_count: 1,
         updated_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString(),
         ...stagePatch,
       })
       .eq("id", chatId)
@@ -576,6 +587,7 @@ export async function POST(req: Request) {
         last_message: chatInboundSummaryText ?? "[Mensagem recebida]",
         unread_count: 1,
         updated_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString(),
       })
       .select("id")
       .single();
@@ -783,7 +795,7 @@ export async function POST(req: Request) {
     }
 
     if (extractedButtonClicked) {
-      const fiqonWebhookUrl = process.env.FIQON_WEBHOOK_URL;
+      const fiqonWebhookUrl = FIQON_WEBHOOK_URL;
       if (!fiqonWebhookUrl) {
         console.warn("[fiqon-forward] missing_env");
       } else {

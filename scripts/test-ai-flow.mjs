@@ -36,7 +36,7 @@ const principalSnapshot = buildCartSnapshotData({
     subtotal: 32,
     discount: resolveAppliedDiscount(32, 0, "GANHE10"),
     delivery_fee: 0,
-    total: 28.8,
+    total: 22,
     applied_coupon_code: "GANHE10",
     source: "calculate_cart_total",
     updated_at: "2026-03-02T01:00:00.000Z",
@@ -44,7 +44,7 @@ const principalSnapshot = buildCartSnapshotData({
 
 const principalMeta = readCartSnapshotMeta(principalSnapshot);
 assert.equal(principalMeta.hasPrincipal, true);
-assert.equal(principalMeta.discount, 3.2);
+assert.equal(principalMeta.discount, 10);
 assert.equal(
     determineRecommendedCommercialObjective(
         makeObjectiveInput({
@@ -147,7 +147,7 @@ assert.equal(
         promoPrice: null,
         activeCouponCode: principalSnapshot.applied_coupon_code || "",
     }),
-    "De ~R$ 32.00~ por *R$ 28.80* com seu cupom"
+    "De ~R$ 32.00~ por *R$ 22.00* 🎁 (cupom aplicado)"
 );
 
 console.log("AI flow integration smoke tests passed");

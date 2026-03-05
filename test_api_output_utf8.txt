@@ -1,0 +1,221 @@
+﻿
+ RUN  v4.0.18 C:/Users/USER/Desktop/meu-servidor-whatsapp/crm-whats
+
+node.exe : stderr | 
+src/app/api/webhook/
+uazapi/webhook.test.
+ts > Webhook Uazapi 
+Integration > 
+should return 401 
+when WEBHOOK_SECRET_
+TOKEN is required 
+but missing
+No linha:1 
+caractere:1
++ & "C:\Program File
+s\nodejs/node.exe" 
+"C:\Program Files\no
+dejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~
+    + CategoryInfo  
+            : NotS  
+  pecified: (stde   
+ rr | src/ap...r    
+ed but missing:    
+String) [], Rem    
+oteException
+    + FullyQualifie 
+   dErrorId : Nati  
+  veCommandError
+ 
+[webhook/uazapi] 
+restaurant 
+unresolved {
+  instanceName: 
+[1mnull[22m,
+  instanceId: 
+[1mnull[22m,
+  instanceRestaurant
+Ref: [1mnull[22m,
+  instanceOwner: 
+[1mnull[22m,
+  hasInstanceToken: 
+[33mfalse[39m
+}
+
+stderr | src/app/api
+/webhook/uazapi/webh
+ook.test.ts > 
+Webhook Uazapi 
+Integration > 
+should return 401 
+when provided 
+secret is incorrect
+[webhook/uazapi] 
+restaurant 
+unresolved {
+  instanceName: 
+[1mnull[22m,
+  instanceId: 
+[1mnull[22m,
+  instanceRestaurant
+Ref: [1mnull[22m,
+  instanceOwner: 
+[1mnull[22m,
+  hasInstanceToken: 
+[33mfalse[39m
+}
+
+stderr | src/app/api
+/webhook/uazapi/webh
+ook.test.ts > 
+Webhook Uazapi 
+Integration > 
+should allow 
+request when secret 
+is provided in 
+query params
+[webhook/uazapi] 
+restaurant 
+unresolved {
+  instanceName: [32
+m'test-instance'[39
+m,
+  instanceId: 
+[1mnull[22m,
+  instanceRestaurant
+Ref: [1mnull[22m,
+  instanceOwner: 
+[1mnull[22m,
+  hasInstanceToken: 
+[33mfalse[39m
+}
+
+ ÔØ» src/app/api/webhook/uazapi/webhook.test.ts (5 tests | 2 failed) 53ms
+     ├ù should return 401 when WEBHOOK_SECRET_TOKEN is required but missing 35ms
+     ├ù should return 401 when provided secret is incorrect 7ms
+     Ô£ô should allow request when secret is provided in query params 3ms
+     Ô£ô should allow request when secret is provided in x-webhook-secret header 4ms
+     Ô£ô should return 400 for invalid JSON 2ms
+stderr | src/app/api
+/webhook/uazapi/webh
+ook.test.ts > 
+Webhook Uazapi 
+Integration > 
+should allow 
+request when secret 
+is provided in 
+x-webhook-secret 
+header
+[webhook/uazapi] 
+restaurant 
+unresolved {
+  instanceName: [32
+m'test-instance'[39
+m,
+  instanceId: 
+[1mnull[22m,
+  instanceRestaurant
+Ref: [1mnull[22m,
+  instanceOwner: 
+[1mnull[22m,
+  hasInstanceToken: 
+[33mfalse[39m
+}
+
+
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ
+» Failed Tests 2 ÔÄ»
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»
+
+ FAIL  src/app/api/w
+ebhook/uazapi/webhoo
+k.test.ts > Webhook 
+Uazapi Integration 
+> should return 401 
+when WEBHOOK_SECRET_
+TOKEN is required 
+but missing
+AssertionError: 
+expected 200 to be 
+401 // Object.is 
+equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 401[39m
+[31m+ 200[39m
+
+ ÔØ» src/app/api/web
+hook/uazapi/webhook.
+test.ts:46:28
+     44| 
+     45|         
+const res = await 
+POST(req);
+     46|         exp
+ect(res.status).toBe
+(401);
+       |            
+                ^
+     47|         
+const data = await 
+res.json();
+     48|         exp
+ect(data.error).toBe
+("unauthorized");
+
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ
+»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»Ô
+Ä»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»[1/2]ÔÄ»
+
+ FAIL  src/app/api/w
+ebhook/uazapi/webhoo
+k.test.ts > Webhook 
+Uazapi Integration 
+> should return 401 
+when provided 
+secret is incorrect
+AssertionError: 
+expected 200 to be 
+401 // Object.is 
+equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 401[39m
+[31m+ 200[39m
+
+ ÔØ» src/app/api/web
+hook/uazapi/webhook.
+test.ts:58:28
+     56| 
+     57|         
+const res = await 
+POST(req);
+     58|         exp
+ect(res.status).toBe
+(401);
+       |            
+                ^
+     59|     });
+     60| 
+
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ
+»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»Ô
+Ä»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»[2/2]ÔÄ»
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+   Start at  23:35:40
+   Duration  4.12s (transform 778ms, setup 308ms, import 1.07s, tests 53ms, environment 2.12s)
+
+

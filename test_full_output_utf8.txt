@@ -1,0 +1,81 @@
+﻿
+ RUN  v4.0.18 C:/Users/USER/Desktop/meu-servidor-whatsapp/crm-whats
+
+ ÔØ» src/app/api/webhook/uazapi/webhook.test.ts (0 test)
+node.exe : 
+No linha:1 
+caractere:1
++ & "C:\Program File
+s\nodejs/node.exe" 
+"C:\Program Files\no
+dejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~
+    + CategoryInfo  
+            : NotS  
+  pecified: (:Str   
+ ing) [], Remote    
+Exception
+    + FullyQualifie 
+   dErrorId : Nati  
+  veCommandError
+ 
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ» 
+Failed Suites 1 ÔÄ»Ô
+Ä»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»
+
+ FAIL  src/app/api/w
+ebhook/uazapi/webhoo
+k.test.ts [ src/app/
+api/webhook/uazapi/w
+ebhook.test.ts ]
+Error: [env] 
+Missing required 
+environment 
+variable: 
+UAZAPI_BASE_URL. 
+Add it to 
+.env.local or your 
+hosting environment.
+ ÔØ» requireEnv src/
+lib/shared/env.ts:18
+:15
+     16|     const 
+value = 
+process.env[name];
+     17|     if 
+(!value || 
+value.trim() === 
+"") {
+     18|         
+throw new Error(
+       |            
+   ^
+     19|            
+ `[env] Missing 
+required 
+environment 
+variable: ${name}. 
+` +
+     20|            
+ `Add it to 
+.env.local or your 
+hosting 
+environment.`
+ ÔØ» src/lib/shared/
+env.ts:43:32
+
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ
+»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»Ô
+Ä»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»[1/1]ÔÄ»
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  23:33:11
+   Duration  26.67s (transform 5.10s, setup 2.00s, import 0ms, tests 0ms, environment 16.29s)
+
+

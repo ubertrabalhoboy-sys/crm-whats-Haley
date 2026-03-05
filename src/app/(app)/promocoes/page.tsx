@@ -2,7 +2,8 @@
 
 import { useState, useRef } from "react";
 import useSWR from "swr";
-import { Gift, Plus, Search, Tag, Trash2, Edit, Image as ImageIcon, UploadCloud, X, Loader2 } from "lucide-react";
+import Image from "next/image";
+import { Gift, Plus, Tag, Trash2, Edit, Image as ImageIcon, UploadCloud, X, Loader2 } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type ProdutoPromo = {
@@ -85,7 +86,7 @@ export default function PromocoesPage() {
                 const fileExt = imageFile.name.split('.').pop();
                 const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
 
-                const { data: uploadData, error: uploadError } = await supabase.storage
+                const { error: uploadError } = await supabase.storage
                     .from('produtos')
                     .upload(fileName, imageFile, {
                         cacheControl: '3600',
@@ -127,8 +128,9 @@ export default function PromocoesPage() {
             setFormData({ id: null, nome: "", description: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "", category: "principal", is_extra: false });
             handleRemoveImage();
             setIsAdding(false);
-        } catch (err: any) {
-            setErrorMsg(err.message);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Falha ao salvar produto";
+            setErrorMsg(message);
         } finally {
             setIsUploading(false);
         }
@@ -148,13 +150,13 @@ export default function PromocoesPage() {
         setFormData({
             id: product.id,
             nome: product.nome,
-            description: (product as any).description || "",
+            description: product.description || "",
             preco_original: product.preco_original.toString(),
             preco_promo: product.preco_promo.toString(),
             estoque: product.estoque.toString(),
             imagem_url: product.imagem_url || "",
-            category: (product as any).category || "principal",
-            is_extra: (product as any).is_extra || false
+            category: product.category || "principal",
+            is_extra: product.is_extra || false
         });
         setPreviewUrl(product.imagem_url || null);
         setImageFile(null);
@@ -330,7 +332,15 @@ export default function PromocoesPage() {
 
                                 {previewUrl ? (
                                     <div className="relative w-full h-40 rounded-2xl border border-indigo-100 overflow-hidden shadow-sm group">
-                                        <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                                        <Image
+                                            src={previewUrl}
+                                            alt="Preview"
+                                            fill
+                                            sizes="(max-width: 768px) 100vw, 450px"
+                                            className="object-cover"
+                                            unoptimized
+                                            loader={({ src }) => src}
+                                        />
                                         <div className="absolute inset-0 bg-indigo-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
                                             <button
                                                 type="button"
@@ -427,7 +437,15 @@ export default function PromocoesPage() {
 
                                 {p.imagem_url ? (
                                     <div className="h-14 w-14 rounded-2xl mb-4 shadow-sm border border-slate-200 overflow-hidden shrink-0">
-                                        <img src={p.imagem_url} alt={p.nome} className="h-full w-full object-cover" />
+                                        <Image
+                                            src={p.imagem_url}
+                                            alt={p.nome}
+                                            width={56}
+                                            height={56}
+                                            className="h-full w-full object-cover"
+                                            unoptimized
+                                            loader={({ src }) => src}
+                                        />
                                     </div>
                                 ) : (
                                     <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-100 to-purple-50 flex items-center justify-center mb-4 text-indigo-500 shadow-inner shrink-0">

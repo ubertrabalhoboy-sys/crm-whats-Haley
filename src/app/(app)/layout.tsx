@@ -279,61 +279,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 )}
               </button>
               <div className="w-full">
-                <div className="hidden">
-                  {/* mantém import do ícone e estilo como referência visual */}
+                <div
+                  className={
+                    "w-full px-8 py-4 rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] transition-all duration-300 flex items-center gap-3 justify-center " +
+                    "bg-transparent border border-slate-200/50 dark:border-slate-700/50 text-black dark:text-white " +
+                    "hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-900/50"
+                  }
+                >
                   <LogOut size={18} />
+                  <SignOutButton />
                 </div>
-
-                {/* Não mexo na lógica do logout: seu componente faz isso */}
-                <div className="w-full">
-                  <div className="w-full">
-                    <div className="w-full">
-                      <div className="w-full">
-                        {/* “casca” visual */}
-                        <div className="w-full">
-                          <div className="w-full">
-                            <div className="w-full">
-                              <div className="w-full">
-                                <div className="w-full">
-                                  <div className="w-full">
-                                    <div className="w-full">
-                                      <div className="w-full">
-                                        <div className="w-full">
-                                          <div className="w-full">
-                                            <div className="w-full">
-                                              {/* wrapper com o mesmo look do GlowButton red */}
-                                              <div className="w-full">
-                                                <div className="w-full">
-                                                  <div
-                                                    className={
-                                                      "w-full px-8 py-4 rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] transition-all duration-300 flex items-center gap-3 justify-center " +
-                                                      "bg-transparent border border-slate-200/50 dark:border-slate-700/50 text-black dark:text-white " +
-                                                      "hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-900/50"
-                                                    }
-                                                  >
-                                                    <LogOut size={18} />
-                                                    <SignOutButton />
-                                                  </div>
-                                                </div>
-                                              </div>
-                                              {/* fim wrapper */}
-                                            </div>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
               </div>
             </div>
           </aside>

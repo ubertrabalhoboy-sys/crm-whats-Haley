@@ -6,6 +6,7 @@ import SendBox from "./SendBox";
 type Chat = {
   wa_chat_id: string | null;
   kanban_status: string | null;
+  sentiment?: string | null;
   contacts?: { phone: string | null; name: string | null } | null;
   is_typing?: boolean | null;
 };
@@ -17,6 +18,14 @@ type Msg = {
   created_at: string;
   status?: "sent" | "delivered" | "read";
 };
+
+function getSentimentBadge(sentiment: string | null | undefined) {
+  const normalized = (sentiment || "").trim().toLowerCase();
+  if (normalized === "satisfeito") return { emoji: "🙂", label: "Satisfeito" };
+  if (normalized === "frustrado") return { emoji: "😠", label: "Frustrado" };
+  if (normalized === "neutro") return { emoji: "😐", label: "Neutro" };
+  return { emoji: "❔", label: "Sem sentimento" };
+}
 
 const MemoizedMessageBubble = React.memo(({ m }: { m: Msg }) => {
   const isIn = m.direction === "in";
@@ -46,6 +55,7 @@ const MemoizedMessageBubble = React.memo(({ m }: { m: Msg }) => {
 }, (prev, next) => {
   return prev.m.id === next.m.id && prev.m.status === next.m.status;
 });
+MemoizedMessageBubble.displayName = "MemoizedMessageBubble";
 
 export default function ChatPanel({
   selectedChat,
@@ -72,6 +82,8 @@ export default function ChatPanel({
   onJumpToLatest: () => void;
   onSend: (text: string) => Promise<void>;
 }) {
+  const sentimentBadge = getSentimentBadge(selectedChat?.sentiment);
+
   return (
     <main className="flex min-h-0 min-w-0 h-[calc(100vh-250px)] flex-col overflow-hidden rounded-[2rem] bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5 transition-all duration-500">
       <div className="sticky top-0 z-[2] border-b wa-divider bg-white/35 p-3 backdrop-blur-xl">
@@ -91,6 +103,12 @@ export default function ChatPanel({
 
           <span className="rounded-full border wa-divider bg-white/45 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-all">
             {selectedChat?.kanban_status || "Novo"}
+          </span>
+          <span
+            className="rounded-full border wa-divider bg-white/45 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-all"
+            title={`Sentimento: ${sentimentBadge.label}`}
+          >
+            {sentimentBadge.emoji} {sentimentBadge.label}
           </span>
         </div>
 
@@ -146,4 +164,3 @@ export default function ChatPanel({
     </main>
   );
 }
-

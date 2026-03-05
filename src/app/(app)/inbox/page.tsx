@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import useSWR, { useSWRConfig } from "swr";
+import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import ChatPanel from "@/components/inbox/ChatPanel";
 import DetailsPanel from "@/components/inbox/DetailsPanel";
@@ -11,6 +11,7 @@ type Chat = {
   id: string;
   wa_chat_id: string | null;
   kanban_status: string | null;
+  sentiment?: string | null;
   last_message: string | null;
   unread_count: number | null;
   updated_at: string | null;
@@ -26,6 +27,18 @@ type Msg = {
   status?: "sent" | "delivered" | "read";
 };
 
+type ChatListResponse = {
+  ok: boolean;
+  chats: Chat[];
+};
+
+type MessagesPageResponse = {
+  ok: boolean;
+  messages: Msg[];
+};
+
+const EMPTY_CHATS: Chat[] = [];
+
 const fetcher = async (url: string) => {
   const res = await fetch(url);
   const json = await res.json();
@@ -37,7 +50,8 @@ export default function InboxPage() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [hasNewWhileUp, setHasNewWhileUp] = useState(false);
   const [optimisticMsgs, setOptimisticMsgs] = useState<Msg[]>([]);
-  const { mutate } = useSWRConfig();
+  const prevChatsRef = useRef<Chat[]>([]);
+  const [orderedChatIds, setOrderedChatIds] = useState<string[]>([]);
 
   // Polling logic: 2s when focused, 5s when blurred
   const [isWindowFocused, setIsWindowFocused] = useState(true);
@@ -57,56 +71,54 @@ export default function InboxPage() {
     data: chatsData,
     error: chatsError,
     mutate: mutateChats,
-  } = useSWR<{ ok: boolean; chats: Chat[] }>(`/api/chats`, fetcher, {
+  } = useSWR<ChatListResponse>(`/api/chats`, fetcher, {
     refreshInterval: isWindowFocused ? 2000 : 5000,
     revalidateOnFocus: true,
+    onSuccess: (data) => {
+      const nextChats = data.chats ?? EMPTY_CHATS;
+      const currentChatIds = nextChats.map((c) => c.id);
+
+      setOrderedChatIds((prevOrderedIds) => {
+        if (nextChats.length === 0) {
+          return prevOrderedIds.length > 0 ? [] : prevOrderedIds;
+        }
+
+        if (prevOrderedIds.length === 0) {
+          return currentChatIds;
+        }
+
+        const needsReorder = nextChats.some((newChat) => {
+          const oldChat = prevChatsRef.current.find((c) => c.id === newChat.id);
+          if (!oldChat) return true;
+
+          if (newChat.last_message !== oldChat.last_message) return true;
+
+          if (newChat.unread_count && (!oldChat.unread_count || newChat.unread_count > oldChat.unread_count)) {
+            return true;
+          }
+
+          return false;
+        });
+
+        if (needsReorder) {
+          return currentChatIds;
+        }
+
+        const filteredPreviousIds = prevOrderedIds.filter((id) => currentChatIds.includes(id));
+        if (filteredPreviousIds.length !== prevOrderedIds.length) {
+          return filteredPreviousIds;
+        }
+
+        return prevOrderedIds;
+      });
+
+      prevChatsRef.current = nextChats;
+    },
   });
 
-  const rawChats = chatsData?.chats || [];
+  const rawChats = chatsData?.chats ?? EMPTY_CHATS;
   const loadingChats = !chatsData && !chatsError;
   const error = chatsError?.message || null;
-
-  // STABLE SORTING LOGIC:
-  // We keep a local order of IDs that only changes when a NEW message arrives or is sent.
-  const prevChatsRef = useRef<Chat[]>([]);
-  const [orderedChatIds, setOrderedChatIds] = useState<string[]>([]);
-
-  useEffect(() => {
-    if (rawChats.length === 0) return;
-
-    const currentChatIds = rawChats.map(c => c.id);
-
-    // Initial load
-    if (orderedChatIds.length === 0) {
-      setOrderedChatIds(currentChatIds);
-      prevChatsRef.current = rawChats;
-      return;
-    }
-
-    // Check if any chat has a NEWER updated_at than what we have in ref
-    // BUT ignore the one we just marked as read (if possible) or check if text changed
-    const needsReorder = rawChats.some(newChat => {
-      const oldChat = prevChatsRef.current.find(c => c.id === newChat.id);
-      if (!oldChat) return true; // New chat entirely
-
-      // If last_message changed, it's a real new message event
-      if (newChat.last_message !== oldChat.last_message) return true;
-
-      // If it's a new unread message in a chat that wasn't the active one
-      if (newChat.unread_count && (!oldChat.unread_count || newChat.unread_count > oldChat.unread_count)) {
-        return true;
-      }
-
-      return false;
-    });
-
-    if (needsReorder) {
-      // Re-sort primarily by updated_at (server order is already newest first)
-      setOrderedChatIds(currentChatIds);
-    }
-
-    prevChatsRef.current = rawChats;
-  }, [rawChats, orderedChatIds.length]);
 
   const chats = useMemo(() => {
     const chatMap = new Map(rawChats.map(c => [c.id, c]));
@@ -120,12 +132,14 @@ export default function InboxPage() {
     return [...remaining, ...sorted];
   }, [rawChats, orderedChatIds]);
 
+  const activeChatId = selectedChatId ?? chats[0]?.id ?? null;
+
   // SWR Infinite for Messages
-  const getKey = (pageIndex: number, previousPageData: any) => {
-    if (!selectedChatId) return null;
-    if (previousPageData && !previousPageData.messages?.length) return null;
-    let url = `/api/chats/${selectedChatId}/messages?limit=30`;
-    if (pageIndex > 0 && previousPageData?.messages?.length > 0) {
+  const getKey = (pageIndex: number, previousPageData: MessagesPageResponse | null) => {
+    if (!activeChatId) return null;
+    if (previousPageData && previousPageData.messages.length === 0) return null;
+    let url = `/api/chats/${activeChatId}/messages?limit=30`;
+    if (pageIndex > 0 && previousPageData && previousPageData.messages.length > 0) {
       const oldestMsg = previousPageData.messages[0];
       url += `&cursor=${encodeURIComponent(oldestMsg.created_at)}`;
     }
@@ -139,8 +153,8 @@ export default function InboxPage() {
     size,
     setSize,
     isValidating: isValidatingMsgs,
-  } = useSWRInfinite(getKey, fetcher, {
-    refreshInterval: selectedChatId && isWindowFocused ? 2000 : 0,
+  } = useSWRInfinite<MessagesPageResponse>(getKey, fetcher, {
+    refreshInterval: activeChatId && isWindowFocused ? 2000 : 0,
     revalidateOnFocus: true,
   });
 
@@ -168,8 +182,8 @@ export default function InboxPage() {
   const isSwitchingChatRef = useRef(false);
 
   const selectedChat = useMemo(
-    () => chats.find((c) => c.id === selectedChatId) ?? null,
-    [chats, selectedChatId]
+    () => chats.find((c) => c.id === activeChatId) ?? null,
+    [activeChatId, chats]
   );
 
   function scrollToBottom(behavior: ScrollBehavior = "smooth") {
@@ -187,39 +201,26 @@ export default function InboxPage() {
     }
   }
 
-  // Preselect chat logic
-  useEffect(() => {
-    if (!selectedChatId && chats.length > 0) {
-      setSelectedChatId(chats[0].id);
-    }
-  }, [chats, selectedChatId]);
-
   // Read message marking + Optimistic update
   useEffect(() => {
-    if (!selectedChatId) {
-      setHasNewWhileUp(false);
-      setOptimisticMsgs([]);
-      return;
-    }
+    if (!activeChatId) return;
 
     isSwitchingChatRef.current = true;
     shouldAutoScrollRef.current = true;
-    setHasNewWhileUp(false);
-    setOptimisticMsgs([]);
 
     // Optimistic unread zeroing
-    mutateChats((data: any) => {
+    mutateChats((data?: ChatListResponse) => {
       if (!data) return data;
       return {
         ...data,
-        chats: data.chats.map((c: any) => c.id === selectedChatId ? { ...c, unread_count: 0 } : c)
+        chats: data.chats.map((c) => (c.id === activeChatId ? { ...c, unread_count: 0 } : c)),
       };
     }, false);
 
-    fetch(`/api/chats/${selectedChatId}/read`, { method: "POST" }).then(() => {
+    fetch(`/api/chats/${activeChatId}/read`, { method: "POST" }).then(() => {
       mutateChats();
     });
-  }, [selectedChatId, mutateChats]);
+  }, [activeChatId, mutateChats]);
 
   // Infinite Scroll Observer
   const handleObserver = useCallback((entries: IntersectionObserverEntry[]) => {
@@ -253,7 +254,7 @@ export default function InboxPage() {
   }, [messages.length]);
 
   useEffect(() => {
-    if (!selectedChatId || !messages.length) return;
+    if (!activeChatId || !messages.length) return;
     if (!shouldAutoScrollRef.current) return;
 
     if (isSwitchingChatRef.current) {
@@ -264,7 +265,7 @@ export default function InboxPage() {
     } else {
       scrollToBottom("smooth");
     }
-  }, [messages.length, selectedChatId, hasNewWhileUp]); // Added hasNewWhileUp to deps to fix lint
+  }, [activeChatId, hasNewWhileUp, messages.length]);
 
   return (
     <div className="h-full max-h-full w-full flex flex-col overflow-hidden bg-[#f0f2f5] rounded-[2.5rem] p-3.5 shadow-inner">
@@ -272,12 +273,14 @@ export default function InboxPage() {
         <div className="w-[320px] min-w-[320px] max-w-[400px] flex-shrink-0 h-full flex flex-col min-h-0">
           <SidebarChats
             chats={chats}
-            selectedChatId={selectedChatId}
+            selectedChatId={activeChatId}
             loadingChats={loadingChats}
             error={error}
             onRefresh={() => mutateChats()}
             onSelectChat={(chatId) => {
-              if (chatId === selectedChatId) return;
+              if (chatId === activeChatId) return;
+              setHasNewWhileUp(false);
+              setOptimisticMsgs([]);
               setSelectedChatId(chatId);
             }}
           />
@@ -286,7 +289,7 @@ export default function InboxPage() {
         <div className="flex-1 min-w-0 h-full flex flex-col min-h-0">
           <ChatPanel
             selectedChat={selectedChat}
-            selectedChatId={selectedChatId}
+            selectedChatId={activeChatId}
             messages={messages}
             loadingMsgs={loadingMsgs || isValidatingMsgs}
             hasNewWhileUp={hasNewWhileUp}
@@ -300,7 +303,7 @@ export default function InboxPage() {
               requestAnimationFrame(() => scrollToBottom("smooth"));
             }}
             onSend={async (text) => {
-              if (!selectedChatId) return;
+              if (!activeChatId) return;
               shouldAutoScrollRef.current = true;
               setHasNewWhileUp(false);
               const tempId = "temp-" + Date.now();
@@ -308,7 +311,7 @@ export default function InboxPage() {
               setOptimisticMsgs((prev) => [...prev, optimisticMsg]);
               setTimeout(() => scrollToBottom("smooth"), 50);
               try {
-                const res = await fetch("/api/messages/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: selectedChatId, text }), });
+                const res = await fetch("/api/messages/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: activeChatId, text }), });
                 const json = await res.json();
                 if (!json.ok) console.error("Falha ao enviar via API");
               } catch (err) {
@@ -327,6 +330,3 @@ export default function InboxPage() {
     </div>
   );
 }
-
-
-

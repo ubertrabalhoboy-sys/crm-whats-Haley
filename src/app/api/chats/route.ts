@@ -4,6 +4,11 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const CHAT_SELECTS = [
+  "id, wa_chat_id, kanban_status, sentiment, last_message, unread_count, updated_at, contacts(phone, name)",
+  "id, wa_chat_id, kanban_status, last_message, unread_count, updated_at, contacts(phone, name)",
+];
+
 export async function GET() {
   const supabase = await createSupabaseServerClient();
   const {
@@ -38,11 +43,21 @@ export async function GET() {
     return res;
   }
 
-  const { data, error } = await supabase
+  let queryResult = await supabase
     .from("chats")
-    .select("id, wa_chat_id, kanban_status, last_message, unread_count, updated_at, contacts(phone, name)")
+    .select(CHAT_SELECTS[0])
     .eq("restaurant_id", restaurantId)
     .order("updated_at", { ascending: false });
+
+  if (queryResult.error) {
+    queryResult = await supabase
+      .from("chats")
+      .select(CHAT_SELECTS[1])
+      .eq("restaurant_id", restaurantId)
+      .order("updated_at", { ascending: false });
+  }
+
+  const { data, error } = queryResult;
 
   if (error) {
     const res = NextResponse.json({ ok: false, error: error.message }, { status: 500 });

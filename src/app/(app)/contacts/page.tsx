@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Users, Phone, Target, Gift, Ticket, Download, Search, FilterX } from "lucide-react";
+import { Users, Phone, Gift, Ticket, Download, Search, FilterX } from "lucide-react";
 import useSWR from "swr";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -157,7 +157,7 @@ export default function ContactsPage() {
 
                         <select
                             value={filterOrigin}
-                            onChange={(e) => setFilterOrigin(e.target.value as any)}
+                            onChange={(e) => setFilterOrigin(e.target.value as "all" | "roleta" | "direto")}
                             className="px-3 py-2 text-xs font-bold uppercase text-slate-600 bg-white/60 border border-white rounded-xl focus:outline-none focus:ring-2 focus:ring-[#086788]/20 transition-all"
                         >
                             <option value="all">Todas Origens</option>
@@ -167,7 +167,7 @@ export default function ContactsPage() {
 
                         <select
                             value={filterCupom}
-                            onChange={(e) => setFilterCupom(e.target.value as any)}
+                            onChange={(e) => setFilterCupom(e.target.value as "all" | "with_cupom" | "no_cupom")}
                             className="px-3 py-2 text-xs font-bold uppercase text-slate-600 bg-white/60 border border-white rounded-xl focus:outline-none focus:ring-2 focus:ring-[#086788]/20 transition-all"
                         >
                             <option value="all">Todos Cupons</option>

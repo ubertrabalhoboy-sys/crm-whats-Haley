@@ -194,3 +194,8 @@ Esses testes ainda nao cobrem:
 - conversa fim a fim com persistencia real
 
 Ou seja: eles validam a base logica da IA, nao a integracao completa em producao.
+
+## Backlog de Produto (Prioridade Alta)
+
+- Dashboard de metricas de vendas:
+  usar os dados de `automation_runs` para mostrar ao lojista quanto dinheiro a Haley recuperou em carrinhos abandonados nos ultimos 7 dias.

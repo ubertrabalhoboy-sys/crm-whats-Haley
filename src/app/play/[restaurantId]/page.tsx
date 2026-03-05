@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-// @ts-ignore
 import confetti from 'canvas-confetti';
+import Image from "next/image";
 
 // --- Funções Auxiliares de Geometria SVG ---
 const polarToCartesian = (cx: number, cy: number, r: number, angleInDegrees: number) => {
@@ -122,7 +122,7 @@ const renderIcon = (type: number) => {
 };
 
 // Usar 'any' nos parâmetros para evitar conflitos de tipagem rígida entre Next 14 e Next 15
-export default function RoletaPremiumPage({ params }: any) {
+export default function RoletaPremiumPage({ params }: { params: { restaurantId?: string } | Promise<{ restaurantId?: string }> }) {
     const [restaurantId, setRestaurantId] = useState<string>("");
     const [slices, setSlices] = useState<Prize[]>([]);
     const [rotation, setRotation] = useState(0);
@@ -150,7 +150,7 @@ export default function RoletaPremiumPage({ params }: any) {
                 if (resolvedParams?.restaurantId) {
                     setRestaurantId(resolvedParams.restaurantId);
                 }
-            } catch (err) {
+            } catch (err: unknown) {
                 console.error("Erro ao resolver params:", err);
             }
         }
@@ -167,7 +167,7 @@ export default function RoletaPremiumPage({ params }: any) {
                 if (res.ok) {
                     const data = await res.json();
                     if (data.ok && data.prizes && data.prizes.length > 0) {
-                        const formattedSlices = data.prizes.map((prize: any, index: number) => {
+                        const formattedSlices = (data.prizes as Prize[]).map((prize, index: number) => {
                             const theme = NEON_COLORS[index % NEON_COLORS.length];
                             return {
                                 id: prize.id,
@@ -189,7 +189,7 @@ export default function RoletaPremiumPage({ params }: any) {
                     }
                 }
                 throw new Error("Sem dados na BD");
-            } catch (err) {
+            } catch {
                 console.log("Falha ao carregar prémios da BD. A usar fallback de demonstração.");
                 setSlices(FALLBACK_SLICES);
             }
@@ -350,7 +350,15 @@ export default function RoletaPremiumPage({ params }: any) {
                 <div className="text-center mb-4">
                     {branding?.logo_url && (
                         <div className="mx-auto mb-3 w-16 h-16 rounded-2xl overflow-hidden bg-white/10 border border-white/20 shadow-lg flex items-center justify-center">
-                            <img src={branding.logo_url} alt={branding.name || 'Logo'} className="w-full h-full object-contain" />
+                            <Image
+                                src={branding.logo_url}
+                                alt={branding.name || 'Logo'}
+                                width={64}
+                                height={64}
+                                className="w-full h-full object-contain"
+                                unoptimized
+                                loader={({ src }) => src}
+                            />
                         </div>
                     )}
                     {branding?.name && (

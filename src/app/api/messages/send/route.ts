@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { UAZAPI_BASE_URL, UAZAPI_GLOBAL_API_KEY } from "@/lib/shared/env";
 
 type ChatWithContact = {
   id: string;
@@ -95,7 +96,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const baseUrl = process.env.UAZAPI_BASE_URL;
+  const baseUrl = UAZAPI_BASE_URL;
   const instanceToken = restaurant.uaz_instance_token;
   if (!baseUrl || !instanceToken) {
     return NextResponse.json(
@@ -125,7 +126,7 @@ export async function POST(req: Request) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      apikey: process.env.UAZAPI_GLOBAL_API_KEY || "",
+      apikey: UAZAPI_GLOBAL_API_KEY || "",
       token: instanceToken,
     },
     body: JSON.stringify(payload),

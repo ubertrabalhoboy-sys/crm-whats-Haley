@@ -6,11 +6,20 @@ type Chat = {
   id: string;
   wa_chat_id: string | null;
   kanban_status: string | null;
+  sentiment?: string | null;
   last_message: string | null;
   unread_count: number | null;
   updated_at: string | null;
   contacts?: { phone: string | null; name: string | null } | null;
 };
+
+function getSentimentBadge(sentiment: string | null | undefined) {
+  const normalized = (sentiment || "").trim().toLowerCase();
+  if (normalized === "satisfeito") return { emoji: "🙂", label: "Satisfeito" };
+  if (normalized === "frustrado") return { emoji: "😠", label: "Frustrado" };
+  if (normalized === "neutro") return { emoji: "😐", label: "Neutro" };
+  return { emoji: "❔", label: "Sem sentimento" };
+}
 
 export default React.memo(function SidebarChats({
   chats,
@@ -66,6 +75,7 @@ export default React.memo(function SidebarChats({
               const active = c.id === selectedChatId;
               const rawTitle = c.contacts?.name || c.contacts?.phone || c.wa_chat_id || "Sem nome";
               const title = rawTitle.includes("@") ? rawTitle.split("@")[0] : rawTitle;
+              const sentimentBadge = getSentimentBadge(c.sentiment);
 
               return (
                 <button
@@ -84,6 +94,12 @@ export default React.memo(function SidebarChats({
                       <div className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full bg-[#07a0c3] animate-pulse"></div>
                         <div className="truncate text-sm font-semibold text-slate-900">{title}</div>
+                        <span
+                          className="rounded-full border border-slate-200 bg-white/85 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700"
+                          title={`Sentimento: ${sentimentBadge.label}`}
+                        >
+                          {sentimentBadge.emoji}
+                        </span>
                       </div>
                       <div className="mt-1 truncate text-xs text-slate-600">
                         {c.last_message || "(sem mensagem)"}

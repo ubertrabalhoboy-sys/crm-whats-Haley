@@ -54,6 +54,7 @@ export const SUPABASE_SERVICE_ROLE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY")
 export const UAZAPI_BASE_URL = requireEnv("UAZAPI_BASE_URL");
 export const UAZAPI_GLOBAL_API_KEY = requireEnv("UAZAPI_GLOBAL_API_KEY");
 export const UAZAPI_ADMIN_TOKEN = optionalEnv("UAZAPI_ADMIN_TOKEN");
+export const UAZAPI_TOKEN = optionalEnv("UAZAPI_TOKEN");
 
 // ---------------------------------------------------------------------------
 // AI
@@ -76,6 +77,10 @@ export const FIQON_WEBHOOK_URL = optionalEnv("FIQON_WEBHOOK_URL");
 export const APP_URL = optionalEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
 export const PUBLIC_BASE_URL = optionalEnv("PUBLIC_BASE_URL");
 export const AI_PREFIX_CACHE_MODE = optionalEnv("AI_PREFIX_CACHE_MODE", "off");
+export const AI_RESTAURANT_PLAYBOOK_OVERRIDES_JSON = optionalEnv(
+    "AI_RESTAURANT_PLAYBOOK_OVERRIDES_JSON"
+);
+export const CRON_SECRET = optionalEnv("CRON_SECRET");
 
 // ---------------------------------------------------------------------------
 // Security — Webhook Authentication

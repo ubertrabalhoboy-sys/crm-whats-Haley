@@ -12,6 +12,7 @@ type Chat = {
     id: string;
     wa_chat_id: string | null;
     kanban_status: string | null;
+    sentiment?: string | null;
     updated_at: string | null;
     last_message?: string | null;
     contacts?: { phone: string | null; name: string | null } | null;
@@ -39,6 +40,14 @@ function getChatName(chat: Chat) {
 function getChatPhone(chat: Chat) {
     const phone = chat.contacts?.phone || chat.wa_chat_id || "Sem número";
     return phone.includes("@") ? phone.split("@")[0] : phone;
+}
+
+function getSentimentBadge(sentiment: string | null | undefined) {
+    const normalized = (sentiment || "").trim().toLowerCase();
+    if (normalized === "satisfeito") return { emoji: "🙂", label: "Satisfeito" };
+    if (normalized === "frustrado") return { emoji: "😠", label: "Frustrado" };
+    if (normalized === "neutro") return { emoji: "😐", label: "Neutro" };
+    return { emoji: "❔", label: "Sem sentimento" };
 }
 
 interface SalesFlowProps {
@@ -180,7 +189,7 @@ export default function SalesFlow({
                                             {/* Indicador lateral */}
                                             <div className="absolute left-0 top-1/4 bottom-1/4 w-1 rounded-r-full bg-[#07a0c3] opacity-0 transition-all group-hover:opacity-100" />
 
-                                            <div className="mb-4 flex items-start justify-between">
+                                            <div className="mb-4 flex items-start justify-between gap-2">
                                                 <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-lg font-black text-white shadow-md ${stage.name === "Atendimento Humano"
                                                         ? "bg-gradient-to-br from-red-500 to-red-700"
                                                         : "bg-gradient-to-br from-[#07a0c3] to-[#086788]"
@@ -191,6 +200,12 @@ export default function SalesFlow({
                                                         <User size={22} className="opacity-90" />
                                                     )}
                                                 </div>
+                                                <span
+                                                    className="rounded-full border border-slate-200 bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-700"
+                                                    title={`Sentimento: ${getSentimentBadge(chat.sentiment).label}`}
+                                                >
+                                                    {getSentimentBadge(chat.sentiment).emoji} {getSentimentBadge(chat.sentiment).label}
+                                                </span>
                                             </div>
 
                                             <p className="truncate text-[14px] font-[900] uppercase tracking-tight text-[#086788]">{getChatName(chat)}</p>

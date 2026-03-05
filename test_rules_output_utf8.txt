@@ -1,0 +1,99 @@
+﻿
+ RUN  v4.0.18 C:/Users/USER/Desktop/meu-servidor-whatsapp/crm-whats
+
+ ÔØ» src/lib/ai/orchestratorRules.test.ts (7 tests | 1 failed) 29ms
+     Ô£ô should suggest adicionales after adding a principal burger 6ms
+     Ô£ô should handle pizza size selection if missing 1ms
+     Ô£ô should skip size selection if pizza size is already in name 1ms
+     Ô£ô should suggest adicionales for acai 1ms
+     Ô£ô should suggest another acai principal after adicionales are added 0ms
+     ├ù should suggest drinks after principal and additional are present 16ms
+     Ô£ô should finish flow if all categories are present 1ms
+node.exe : 
+No linha:1 
+caractere:1
++ & "C:\Program File
+s\nodejs/node.exe" 
+"C:\Program Files\no
+dejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~
+    + CategoryInfo  
+            : NotS  
+  pecified: (:Str   
+ ing) [], Remote    
+Exception
+    + FullyQualifie 
+   dErrorId : Nati  
+  veCommandError
+ 
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ
+» Failed Tests 1 ÔÄ»
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»
+
+ FAIL  src/lib/ai/or
+chestratorRules.test
+.ts > Orchestrator 
+Rules ÔÇö Post Add 
+To Cart > should 
+suggest drinks 
+after principal and 
+additional are 
+present
+AssertionError: 
+expected 'Fechou! 
+Adicionei Batata 
+Frita.\nPediÔÇª' to 
+contain 'agora ja 
+te mostro as 
+bebidas'
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 
+[7ma[27mgora ja 
+te mostro as 
+bebidas[39m
+[31m+ Fechou! 
+Adicionei Batata 
+Frita.[39m
+[31m+ [7mPedido 
+forte desse jeito 
+nao vai no seco. 
+A[27mgora ja te 
+mostro as bebidas[7
+m.[27m[39m
+
+ ÔØ» src/lib/ai/orch
+estratorRules.test.t
+s:83:35
+     81| 
+     82|         exp
+ect(plan.nextCategor
+y).toBe("bebida");
+     83|         exp
+ect(plan.followupTex
+t).toContain("agora 
+ja te mostro as 
+bebÔÇª
+       |            
+                    
+   ^
+     84|     });
+     85| 
+
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ
+»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»Ô
+Ä»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»[1/1]ÔÄ»
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  00:10:43
+   Duration  6.49s (transform 210ms, setup 282ms, import 161ms, tests 29ms, environment 2.97s)
+
+

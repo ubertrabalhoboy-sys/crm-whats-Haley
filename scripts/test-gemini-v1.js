@@ -9,7 +9,7 @@ function getApiKey() {
         const content = fs.readFileSync(envPath, "utf8");
         const match = content.match(/GEMINI_API_KEY=([^\s]+)/);
         return match ? match[1].replace(/['"]/g, "") : null;
-    } catch (e) {
+    } catch {
         return null;
     }
 }
@@ -26,7 +26,7 @@ async function listModels() {
 
     console.log("Testing with v1 apiVersion");
     try {
-        const result = await model.generateContent("ping");
+        await model.generateContent("ping");
         console.log("✅ OK");
     } catch (err) {
         console.log(`❌ FAIL: ${err.message}`);

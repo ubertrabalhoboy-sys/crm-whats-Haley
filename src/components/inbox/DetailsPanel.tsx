@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Sparkles, Loader2, FileText, Phone, User, ChevronDown, ArrowRightLeft } from "lucide-react";
+import { Sparkles, Loader2, FileText, Phone, ChevronDown, ArrowRightLeft } from "lucide-react";
 
 type Chat = {
   id: string;
@@ -139,8 +139,9 @@ export default function DetailsPanel({
       } else {
         console.error("Falha ao resumir:", data.error);
       }
-    } catch (err: any) {
-      console.error("Erro de conexão ao resumir:", err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("Erro de conexão ao resumir:", message);
     } finally {
       setIsSummarizing(false);
     }

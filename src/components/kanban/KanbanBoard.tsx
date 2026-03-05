@@ -34,6 +34,7 @@ type Chat = {
     id: string;
     wa_chat_id: string | null;
     kanban_status: string | null;
+    sentiment?: string | null;
     updated_at: string | null;
     last_message?: string | null;
     contacts?: { phone: string | null; name: string | null } | null;

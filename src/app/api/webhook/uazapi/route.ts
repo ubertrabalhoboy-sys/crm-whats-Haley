@@ -5,13 +5,12 @@ import { extractButtonClicked } from "@/lib/uazapi/triggers";
 import { runAutomations } from "@/lib/automations/engine";
 import { triggerFiqonWebhook } from "@/lib/fiqon-webhook";
 import { processAiMessage } from "@/lib/ai/orchestrator";
+import { WEBHOOK_SECRET_REQUIRED, WEBHOOK_SECRET_TOKEN } from "@/lib/shared/env";
+import { checkRateLimit } from "@/lib/shared/rate-limit";
 
 export const runtime = "nodejs";
 
-// Rate Limiter Memory Map (Persists across warm serverless invocations)
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute window
-const MAX_MESSAGES_PER_MINUTE = 15; // Max allowed messages per minute
+// Rate Limit Warning Function
 
 async function sendRateLimitWarning(waChatId: string, instanceName: string, instanceToken: string) {
   try {
@@ -38,6 +37,35 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  if (WEBHOOK_SECRET_REQUIRED && !WEBHOOK_SECRET_TOKEN) {
+    console.error("[webhook/uazapi] Missing required WEBHOOK_SECRET_TOKEN while WEBHOOK_SECRET_REQUIRED=true");
+    return NextResponse.json(
+      { ok: false, error: "WEBHOOK_SECRET_NOT_CONFIGURED" },
+      { status: 503 }
+    );
+  }
+
+  // ─── 🔐 WEBHOOK AUTHENTICATION ───
+  // Validates the incoming request against WEBHOOK_SECRET_TOKEN.
+  // If the env var is set, every request MUST provide a matching token
+  // via the `x-webhook-secret` header OR the `?secret=` query param.
+  // If the env var is NOT set, auth is skipped (dev/migration mode).
+  if (WEBHOOK_SECRET_TOKEN) {
+    const reqUrlForAuth = new URL(req.url);
+    const providedSecret =
+      req.headers.get("x-webhook-secret") ??
+      reqUrlForAuth.searchParams.get("secret");
+
+    if (providedSecret !== WEBHOOK_SECRET_TOKEN) {
+      console.warn("[webhook/uazapi] 🛡️ Unauthorized request rejected (invalid or missing secret)");
+      return NextResponse.json(
+        { ok: false, error: "unauthorized" },
+        { status: 401 }
+      );
+    }
+  }
+  // ─────────────────────────────────
+
   // Late initialization to avoid Next.js global caching crashes
   const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -402,7 +430,7 @@ export async function POST(req: Request) {
     body?.data?.message?.locationMessage?.degreesLongitude,
     body?.data?.message?.message?.locationMessage?.degreesLongitude
   );
-  const locationMessageType = readString(
+  const messageType = readString(
     body?.BODY?.message?.messageType,
     body?.message?.messageType,
     body?.data?.message?.messageType,
@@ -413,39 +441,52 @@ export async function POST(req: Request) {
     locationLat !== null &&
     locationLng !== null &&
     (
-      locationMessageType === "LocationMessage" ||
-      locationMessageType === "location" ||
-      locationMessageType === "locationMessage" ||
-      locationMessageType === null
+      messageType === "LocationMessage" ||
+      messageType === "location" ||
+      messageType === "locationMessage" ||
+      messageType === null
     );
 
-  const chatInboundSummaryText = text ?? (isLocationMessage ? "[Localizacao compartilhada]" : null);
+  const mediaBase64 = readString(
+    body?.base64,
+    body?.data?.base64,
+    body?.message?.base64,
+    body?.data?.message?.base64
+  );
+
+  const mediaMimeType = readString(
+    body?.message?.audioMessage?.mimetype,
+    body?.data?.message?.audioMessage?.mimetype,
+    body?.BODY?.message?.audioMessage?.mimetype,
+    body?.mimetype,
+    body?.data?.mimetype
+  );
+
+  const isAudioMessage = !!mediaBase64 && (
+    messageType === "audioMessage" ||
+    messageType === "audio" ||
+    !!mediaMimeType
+  );
+
+  const chatInboundSummaryText = isAudioMessage
+    ? "[Mensagem de Áudio]"
+    : (text ?? (isLocationMessage ? "[Localizacao compartilhada]" : null));
 
   if (!waChatId || !phone) {
     return NextResponse.json({ ok: true, ignored: true, reason: "missing_fields" }, { status: 200 });
   }
 
   // --- 🛡️ RATE LIMITING ENFORCEMENT 🛡️ ---
-  const now = Date.now();
-  const userRate = rateLimitMap.get(phone) || { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS };
+  // Uses Upstash Redis for global distributed rate limiting (15 req/min).
+  // This identifier can be restaurant-based or phone-based. 
+  // We use phone here to prevent single-user spam.
+  const { success, limit, remaining } = await checkRateLimit(`webhook:${phone}`);
 
-  if (now > userRate.resetAt) {
-    // Window expired, reset counter
-    userRate.count = 1;
-    userRate.resetAt = now + RATE_LIMIT_WINDOW_MS;
-  } else {
-    // Increment counter
-    userRate.count++;
-  }
+  if (!success) {
+    console.warn(`[RATE LIMIT] Phone ${phone} exceeded limits (${limit} msgs/min). Dropping payload.`);
 
-  rateLimitMap.set(phone, userRate);
-
-  if (userRate.count > MAX_MESSAGES_PER_MINUTE) {
-    console.warn(`[RATE LIMIT] Phone ${phone} exceeded limits (${userRate.count} msgs/min). Dropping payload.`);
-
-    // Only send the warning exactly on the threshold breach to avoid spamming them back
-    if (userRate.count === MAX_MESSAGES_PER_MINUTE + 1 && instanceName && instanceToken) {
-      // Don't await the warning so we don't block the response
+    // Only send warning if it's the exact breach moment (approximate with remaining === 0)
+    if (remaining === 0 && instanceName && instanceToken) {
       sendRateLimitWarning(waChatId, instanceName, instanceToken);
     }
 
@@ -485,11 +526,11 @@ export async function POST(req: Request) {
 
   let chatId: string;
   const { data: existingChat, error: chatSelectError } = await supabaseAdmin
-      .from("chats")
-      .select("id, last_message, stage_id, kanban_status")
-      .eq("restaurant_id", restaurantId)
-      .eq("wa_chat_id", waChatId)
-      .maybeSingle();
+    .from("chats")
+    .select("id, last_message, stage_id, kanban_status")
+    .eq("restaurant_id", restaurantId)
+    .eq("wa_chat_id", waChatId)
+    .maybeSingle();
 
   if (chatSelectError) {
     return NextResponse.json({ ok: false, error: chatSelectError.message }, { status: 500 });
@@ -610,13 +651,15 @@ export async function POST(req: Request) {
       instanceName: instanceName || undefined,
       incomingText: `CLIENT_ACTION:location_shared lat=${locationLat} lng=${locationLng}`,
     }).catch(err => console.error("[AI LOOP] Location share failure:", err));
-  } else if (text && text.trim().length > 0) {
+  } else if ((text && text.trim().length > 0) || isAudioMessage) {
     processAiMessage({
       restaurantId,
       chatId,
       waChatId,
       instanceName: instanceName || undefined,
-      incomingText: text,
+      incomingText: chatInboundSummaryText || "",
+      mediaBase64: isAudioMessage ? mediaBase64 : undefined,
+      mediaMimeType: isAudioMessage ? mediaMimeType : undefined,
     }).catch(err => console.error("[AI LOOP] Background failure:", err));
   }
   // ───────────────────────────────

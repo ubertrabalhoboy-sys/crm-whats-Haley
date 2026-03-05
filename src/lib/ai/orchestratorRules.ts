@@ -324,11 +324,23 @@ export function detectRouletteChoiceIntent(details: RouletteChoiceContext) {
         return "use_later" as const;
     }
 
-    if (latestInboundNormalized.includes("agora")) {
+    const wantsNow =
+        latestInboundNormalized.includes("agora") ||
+        latestInboundNormalized.includes("hoje") ||
+        /\bhj\b/.test(latestInboundNormalized) ||
+        /^(usar\s+agora|agora\s+sim|pode\s+agora)/.test(latestInboundNormalized);
+
+    if (wantsNow) {
         return "use_now" as const;
     }
 
     return null;
+}
+
+export function isGreetingOnly(text: string) {
+    const normalized = normalizeLooseText(text);
+    if (!normalized) return false;
+    return /^(oi|ola|opa|bom dia|boa tarde|boa noite|e ai|eae|oii+)$/.test(normalized);
 }
 
 export function shouldAutoCalculateAfterOperationalInput(

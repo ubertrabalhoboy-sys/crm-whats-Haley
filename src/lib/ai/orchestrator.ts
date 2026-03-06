@@ -19,6 +19,7 @@ import {
     FunctionResponsePart,
     Part,
 } from "@google/generative-ai";
+import OpenAI from "openai";
 import { detectSentiment } from "./conversation-analyzer";
 import { executeAiTool, ToolContext } from "./toolHandler";
 import { readCartSnapshotMeta } from "./heuristics";
@@ -94,6 +95,7 @@ import {
 
 import {
     getOrCreateGeminiModel,
+    getContentText,
     sanitizeGeminiHistory,
 } from "./gemini-client";
 
@@ -116,7 +118,143 @@ import {
     sendRichPayload,
     persistOutgoingMessage,
 } from "./message-sender";
-import { APP_URL, GEMINI_API_KEY } from "../shared/env";
+import { APP_URL, GEMINI_API_KEY, OPENAI_API_KEY } from "../shared/env";
+
+type SentimentLabel = "Satisfeito" | "Frustrado" | "Neutro";
+
+type OpenAiFallbackResult = {
+    text: string;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+};
+
+const OPENAI_FALLBACK_MODEL_NAME = "gpt-4o-mini";
+const SENTIMENT_LLM_EVERY_N_TURNS = 5;
+const SENTIMENT_LLM_TIMEOUT_MS = 5000;
+
+function parseSentimentLabel(raw: string): SentimentLabel | null {
+    const normalized = raw.trim().toLowerCase();
+    if (!normalized) return null;
+    if (normalized.includes("frustrado")) return "Frustrado";
+    if (normalized.includes("satisfeito")) return "Satisfeito";
+    if (normalized.includes("neutro")) return "Neutro";
+    return null;
+}
+
+function extractConversationTranscript(
+    conversationContext: Content[],
+    limit = 10
+): string {
+    return conversationContext
+        .slice(-limit)
+        .map((message) => {
+            const text = getContentText(message);
+            if (!text) return "";
+            const role = message.role === "user" ? "Cliente" : "Assistente";
+            return `${role}: ${text}`;
+        })
+        .filter(Boolean)
+        .join("\n");
+}
+
+async function classifySentimentWithLlm(
+    conversationContext: Content[]
+): Promise<SentimentLabel | null> {
+    const transcript = extractConversationTranscript(conversationContext, 8);
+    if (!transcript) return null;
+
+    try {
+        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        const sentimentModel = genAI.getGenerativeModel({
+            model: GEMINI_MODEL_NAME,
+            systemInstruction:
+                "Classifique o sentimento do cliente em uma unica palavra: Satisfeito, Frustrado ou Neutro.",
+        });
+
+        const response = await withTimeout(
+            sentimentModel.generateContent({
+                contents: [
+                    {
+                        role: "user",
+                        parts: [
+                            {
+                                text: [
+                                    "Classifique o sentimento predominante do cliente na conversa abaixo.",
+                                    "Responda somente com uma palavra: Satisfeito, Frustrado ou Neutro.",
+                                    "",
+                                    transcript,
+                                ].join("\n"),
+                            },
+                        ],
+                    },
+                ],
+            }),
+            SENTIMENT_LLM_TIMEOUT_MS,
+            "SENTIMENT_LLM_TIMEOUT"
+        );
+
+        return parseSentimentLabel(response.response.text() || "");
+    } catch (error: unknown) {
+        logAiEvent("sentiment_llm_failed", {
+            error: getErrorMessage(error),
+        });
+        return null;
+    }
+}
+
+async function generateFallbackTextWithOpenAI(params: {
+    systemInstruction: string;
+    conversationContext: Content[];
+}): Promise<OpenAiFallbackResult | null> {
+    if (!OPENAI_API_KEY) return null;
+
+    const transcriptMessages = params.conversationContext
+        .map((message) => {
+            const text = getContentText(message);
+            if (!text) return null;
+            return {
+                role: message.role === "user" ? ("user" as const) : ("assistant" as const),
+                content: text,
+            };
+        })
+        .filter((item): item is { role: "user" | "assistant"; content: string } => item !== null);
+
+    if (transcriptMessages.length === 0) return null;
+
+    const client = new OpenAI({ apiKey: OPENAI_API_KEY });
+    const completion = await withTimeout(
+        client.chat.completions.create({
+            model: OPENAI_FALLBACK_MODEL_NAME,
+            temperature: 0.3,
+            max_completion_tokens: 220,
+            messages: [
+                {
+                    role: "system",
+                    content: [
+                        params.systemInstruction,
+                        "Seja objetivo, responda em portugues e nao exponha raciocinio interno.",
+                        "Se faltar dado, peca somente o proximo dado necessario em uma frase curta.",
+                    ].join("\n"),
+                },
+                ...transcriptMessages,
+            ],
+        }),
+        GEMINI_REQUEST_TIMEOUT_MS,
+        "OPENAI_FALLBACK_TIMEOUT"
+    );
+
+    const content = completion.choices[0]?.message?.content;
+    const text = typeof content === "string" ? content.trim() : "";
+    if (!text) return null;
+
+    return {
+        text,
+        promptTokens: completion.usage?.prompt_tokens || 0,
+        completionTokens: completion.usage?.completion_tokens || 0,
+        totalTokens: completion.usage?.total_tokens || 0,
+    };
+}
 
 
 
@@ -297,18 +435,43 @@ export async function processAiMessage(params: OrchestratorParams) {
     );
     const promptPlan = buildPromptExecutionPlan(rawPrompt, restaurantName, kanbanStatus, cupomGanho);
 
-    // AI Roadmap 2.0: Sentiment and Activity update
-    const sentiment = detectSentiment(baseConversationContext);
-    supabase
-        .from("chats")
-        .update({
-            sentiment,
-            last_activity_at: new Date().toISOString(),
-        })
-        .eq("id", params.chatId)
-        .then(({ error }) => {
-            if (error) console.error("[AI ROADMAP 2.0] Failed to update chat sentiment/activity:", error.message);
+    const heuristicSentiment = detectSentiment(baseConversationContext);
+    const userTurnCount = baseConversationContext.filter((message) => message.role === "user").length;
+    const shouldRunSentimentLlm =
+        userTurnCount > 0 && userTurnCount % SENTIMENT_LLM_EVERY_N_TURNS === 0;
+
+    void (async () => {
+        let finalSentiment: SentimentLabel = heuristicSentiment;
+        let source: "heuristic" | "hybrid_llm" = "heuristic";
+
+        if (shouldRunSentimentLlm) {
+            const llmSentiment = await classifySentimentWithLlm(baseConversationContext);
+            if (llmSentiment) {
+                finalSentiment = llmSentiment;
+                source = "hybrid_llm";
+            }
+        }
+
+        const { error } = await supabase
+            .from("chats")
+            .update({
+                sentiment: finalSentiment,
+                last_activity_at: new Date().toISOString(),
+            })
+            .eq("id", params.chatId);
+
+        if (error) {
+            console.error("[AI ROADMAP 2.0] Failed to update chat sentiment/activity:", error.message);
+            return;
+        }
+
+        logAiEvent("sentiment_updated", {
+            chatId: params.chatId,
+            sentiment: finalSentiment,
+            source,
+            userTurnCount,
         });
+    })();
 
     logAiEvent("context_ready", {
         chatId: params.chatId,
@@ -324,6 +487,8 @@ export async function processAiMessage(params: OrchestratorParams) {
         prefixCacheMode,
         playbookVertical: restaurantPlaybook.vertical,
         playbookCategories: restaurantPlaybook.availableCategories,
+        heuristicSentiment,
+        sentimentLlmScheduled: shouldRunSentimentLlm,
         triggerMessageCreatedAt: latestInboundMessage?.created_at || null,
         promptSanitized: promptSanitization.sanitized,
         promptSanitizationReason: promptSanitization.reason,
@@ -1592,19 +1757,154 @@ export async function processAiMessage(params: OrchestratorParams) {
                 contextMessages: conversationContext.length,
             });
 
-            const startTimeMs = Date.now();
-            const response = await withTimeout(
-                model.generateContent({
-                    contents: withPrefixCacheContext(
+            let response: Awaited<ReturnType<typeof model.generateContent>> | null = null;
+            let durationMs = 0;
+            try {
+                const startTimeMs = Date.now();
+                response = await withTimeout(
+                    model.generateContent({
+                        contents: withPrefixCacheContext(
+                            conversationContext,
+                            promptPlan.dynamicContextSuffix,
+                            prefixCacheMode
+                        ),
+                    }),
+                    GEMINI_REQUEST_TIMEOUT_MS,
+                    "GEMINI_REQUEST_TIMEOUT"
+                );
+                durationMs = Date.now() - startTimeMs;
+            } catch (primaryError: unknown) {
+                logAiEvent("llm_primary_failed", {
+                    chatId: params.chatId,
+                    iteration,
+                    model: GEMINI_MODEL_NAME,
+                    error: getErrorMessage(primaryError),
+                });
+
+                let fallbackResult: OpenAiFallbackResult | null = null;
+                const fallbackStartMs = Date.now();
+                try {
+                    fallbackResult = await generateFallbackTextWithOpenAI({
+                        systemInstruction:
+                            prefixCacheMode === "enabled"
+                                ? promptPlan.stableSystemInstruction
+                                : promptPlan.legacySystemInstruction,
                         conversationContext,
-                        promptPlan.dynamicContextSuffix,
-                        prefixCacheMode
-                    ),
-                }),
-                GEMINI_REQUEST_TIMEOUT_MS,
-                "GEMINI_REQUEST_TIMEOUT"
-            );
-            const durationMs = Date.now() - startTimeMs;
+                    });
+                } catch (fallbackError: unknown) {
+                    logAiEvent("llm_fallback_failed", {
+                        chatId: params.chatId,
+                        iteration,
+                        model: OPENAI_FALLBACK_MODEL_NAME,
+                        error: getErrorMessage(fallbackError),
+                    });
+                }
+
+                if (fallbackResult?.text) {
+                    const fallbackDurationMs = Date.now() - fallbackStartMs;
+                    const normalizedFallback = normalizeOutboundText(
+                        stripThoughtBlocks(fallbackResult.text),
+                        {
+                            restaurantName,
+                            kanbanStatus,
+                            cupomGanho,
+                        }
+                    );
+
+                    supabase
+                        .from("ai_logs")
+                        .insert({
+                            restaurant_id: params.restaurantId,
+                            chat_id: params.chatId,
+                            wa_chat_id: params.waChatId,
+                            model: OPENAI_FALLBACK_MODEL_NAME,
+                            prompt_tokens: fallbackResult.promptTokens,
+                            completion_tokens: fallbackResult.completionTokens,
+                            total_tokens: fallbackResult.totalTokens,
+                            duration_ms: fallbackDurationMs,
+                        })
+                        .then(({ error }) => {
+                            if (error) console.error("[TELEMETRY] Error:", error.message);
+                        });
+
+                    if (normalizedFallback.ok) {
+                        const safeFallbackText = normalizedFallback.text;
+                        const fallbackSendResult = await sendTextMessage(
+                            params.waChatId,
+                            safeFallbackText,
+                            instanceToken
+                        );
+
+                        if (wasOutboundDeliveryAccepted(fallbackSendResult)) {
+                            logAiEvent("llm_fallback_text_sent", {
+                                chatId: params.chatId,
+                                iteration,
+                                model: OPENAI_FALLBACK_MODEL_NAME,
+                                endpoint: fallbackSendResult.endpoint || "/send/text",
+                                status: fallbackSendResult.status || null,
+                                textLength: safeFallbackText.length,
+                            });
+                            markTextSent(turnMetrics);
+                            await persistOutgoingMessage(supabase, params, safeFallbackText);
+                            loopActive = false;
+                            break;
+                        }
+
+                        logAiEvent("llm_fallback_text_failed", {
+                            chatId: params.chatId,
+                            iteration,
+                            model: OPENAI_FALLBACK_MODEL_NAME,
+                            endpoint: fallbackSendResult.endpoint || "/send/text",
+                            status: fallbackSendResult.status || null,
+                            error: fallbackSendResult.error || null,
+                        });
+                        markTextFailed(turnMetrics);
+                    } else {
+                        logAiEvent("llm_fallback_text_blocked", {
+                            chatId: params.chatId,
+                            iteration,
+                            model: OPENAI_FALLBACK_MODEL_NAME,
+                            reason: normalizedFallback.reason,
+                        });
+                        markOutboundTextBlocked(turnMetrics);
+                    }
+                }
+
+                const emergencyFallbackText =
+                    "Opa, tive uma instabilidade agora. Me manda um OK que eu continuo seu atendimento.";
+                const emergencySendResult = await sendTextMessage(
+                    params.waChatId,
+                    emergencyFallbackText,
+                    instanceToken
+                );
+
+                if (wasOutboundDeliveryAccepted(emergencySendResult)) {
+                    logAiEvent("llm_emergency_fallback_sent", {
+                        chatId: params.chatId,
+                        iteration,
+                        endpoint: emergencySendResult.endpoint || "/send/text",
+                        status: emergencySendResult.status || null,
+                    });
+                    markTextSent(turnMetrics);
+                    await persistOutgoingMessage(supabase, params, emergencyFallbackText);
+                } else {
+                    logAiEvent("llm_emergency_fallback_failed", {
+                        chatId: params.chatId,
+                        iteration,
+                        endpoint: emergencySendResult.endpoint || "/send/text",
+                        status: emergencySendResult.status || null,
+                        error: emergencySendResult.error || null,
+                    });
+                    markTextFailed(turnMetrics);
+                }
+
+                loopActive = false;
+                break;
+            }
+            if (!response) {
+                loopActive = false;
+                break;
+            }
 
             const responseMessage = response.response;
             const usage = responseMessage.usageMetadata;

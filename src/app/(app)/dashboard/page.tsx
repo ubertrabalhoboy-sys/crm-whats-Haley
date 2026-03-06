@@ -24,7 +24,8 @@ import {
   CheckCircle2,
   Circle,
   Dices,
-  MessageSquare
+  MessageSquare,
+  FileDown
 } from "lucide-react";
 
 const fetcher = async (url: string) => {
@@ -343,6 +344,18 @@ export default function DashboardPage() {
             </Link>
           </div>
         </div>
+      </div>
+
+      <div className="mb-3 flex justify-end relative z-10">
+        <a
+          href="/api/dashboard/roi/pdf"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-2 rounded-xl border border-[#086788]/20 bg-white/70 px-4 py-2 text-[11px] font-black uppercase tracking-widest text-[#086788] transition-colors hover:bg-white"
+        >
+          <FileDown size={14} />
+          Exportar ROI em PDF
+        </a>
       </div>
 
       {/* ROI / Monetization */}

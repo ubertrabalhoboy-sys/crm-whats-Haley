@@ -67,13 +67,26 @@ type ExistingOrderRow = {
     gps_location: string | null;
     created_at?: string | null;
 };
-const GOOGLE_MAPS_REQUEST_TIMEOUT_MS = 8000;
+type CatalogVersionRow = {
+    updated_at: string | null;
+};
+
+const GOOGLE_MAPS_REQUEST_TIMEOUT_MS = 5000;
+const DELIVERY_FALLBACK_DISTANCE_KM = 5;
 
 const STORE_INFO_CACHE_TTL_MS = 5 * 60 * 1000;
 const STORE_INFO_CACHE = new Map<string, { expiresAt: number; data: unknown }>();
 
 const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
-const CATALOG_CACHE = new Map<string, { expiresAt: number; data: unknown }>();
+const CATALOG_CACHE = new Map<
+    string,
+    { expiresAt: number; data: unknown; catalogVersion: string }
+>();
+const CATALOG_VERSION_CACHE_TTL_MS = 15 * 1000;
+const CATALOG_VERSION_CACHE = new Map<
+    string,
+    { expiresAt: number; catalogVersion: string }
+>();
 
 function createAdminClient(): SupabaseClient {
     return createClient(
@@ -272,6 +285,70 @@ function normalizeGpsDestination(gpsLocation: unknown) {
     return "";
 }
 
+function resolveFixedDistanceFallbackDelivery(
+    pricePerKm: number,
+    fallbackReason: string
+) {
+    if (pricePerKm <= 0) {
+        return {
+            distanceKm: 0,
+            deliveryFee: 0,
+            deliverySource: fallbackReason,
+        };
+    }
+
+    const distanceKm = DELIVERY_FALLBACK_DISTANCE_KM;
+    return {
+        distanceKm,
+        deliveryFee: Number((distanceKm * pricePerKm).toFixed(2)),
+        deliverySource: `${fallbackReason}_fixed_distance`,
+    };
+}
+
+async function readCatalogVersion(
+    db: SupabaseClient,
+    restaurantId: string
+) {
+    const now = Date.now();
+    const cached = CATALOG_VERSION_CACHE.get(restaurantId);
+    if (cached && cached.expiresAt > now) {
+        return cached.catalogVersion;
+    }
+
+    const [{ data: latestRows, error: latestError }, { count, error: countError }] =
+        await Promise.all([
+            db
+                .from("produtos_promo")
+                .select("updated_at")
+                .eq("restaurant_id", restaurantId)
+                .order("updated_at", { ascending: false })
+                .limit(1),
+            db
+                .from("produtos_promo")
+                .select("id", { count: "exact", head: true })
+                .eq("restaurant_id", restaurantId),
+        ]);
+
+    if (latestError || countError) {
+        logToolEvent("product_catalog_version_check_failed", {
+            restaurantId,
+            latestError: latestError?.message || null,
+            countError: countError?.message || null,
+        });
+        return "unknown";
+    }
+
+    const latestUpdatedAt =
+        ((latestRows || []) as CatalogVersionRow[])[0]?.updated_at || "none";
+    const safeCount = typeof count === "number" ? count : -1;
+    const catalogVersion = `${latestUpdatedAt}:${safeCount}`;
+    CATALOG_VERSION_CACHE.set(restaurantId, {
+        expiresAt: now + CATALOG_VERSION_CACHE_TTL_MS,
+        catalogVersion,
+    });
+    return catalogVersion;
+}
+
 /**
  * Dispatcher principal.
  * Garante que cada ferramenta chamada pelo Gemini chegue ao handler correto.
@@ -379,18 +456,29 @@ async function handleSearchProductCatalog(
     args: Record<string, unknown>,
     ctx: ToolContext
 ) {
+    const db = createAdminClient();
     const categoryName = typeof args.category === "string" ? args.category.trim() : "";
     const searchTerm = typeof args.query === "string" ? args.query.trim() : "";
     const cacheKey = `${ctx.restaurant_id}:${categoryName}:${searchTerm}`;
     const now = Date.now();
+    const catalogVersion = await readCatalogVersion(db, ctx.restaurant_id);
+    const canUseVersionedCache = catalogVersion !== "unknown";
     const cached = CATALOG_CACHE.get(cacheKey);
 
-    if (cached && cached.expiresAt > now) {
-        logToolEvent("product_catalog_cache_hit", { restaurantId: ctx.restaurant_id, cacheKey });
+    if (
+        cached &&
+        cached.expiresAt > now &&
+        canUseVersionedCache &&
+        cached.catalogVersion === catalogVersion
+    ) {
+        logToolEvent("product_catalog_cache_hit", {
+            restaurantId: ctx.restaurant_id,
+            cacheKey,
+            catalogVersion,
+        });
         return cached.data;
     }
 
-    const db = createAdminClient();
     let query = db
         .from("produtos_promo")
         .select("id, nome, description, preco_original, preco_promo, imagem_url, category")
@@ -422,7 +510,13 @@ async function handleSearchProductCatalog(
         const oldestKey = CATALOG_CACHE.keys().next().value;
         if (oldestKey) CATALOG_CACHE.delete(oldestKey);
     }
-    CATALOG_CACHE.set(cacheKey, { expiresAt: now + CATALOG_CACHE_TTL_MS, data: result });
+    if (canUseVersionedCache) {
+        CATALOG_CACHE.set(cacheKey, {
+            expiresAt: now + CATALOG_CACHE_TTL_MS,
+            data: result,
+            catalogVersion,
+        });
+    }
     return result;
 }
 
@@ -500,11 +594,25 @@ async function handleCalculateCartTotal(args: Record<string, unknown>, ctx: Tool
                 );
                 deliverySource = "google_maps_gps";
             } else {
-                deliverySource = "google_maps_gps_unavailable";
+                const fallback = resolveFixedDistanceFallbackDelivery(
+                    pricePerKm,
+                    "google_maps_gps_unavailable"
+                );
+                delivery_fee = fallback.deliveryFee;
+                distance_km = fallback.distanceKm;
+                deliverySource = fallback.deliverySource;
             }
-        } catch (e) {
-            console.error("[MAPS_GPS_ERROR]", e);
-            deliverySource = "google_maps_gps_error";
+        } catch (error: unknown) {
+            console.error("[MAPS_GPS_ERROR]", error);
+            const fallback = resolveFixedDistanceFallbackDelivery(
+                pricePerKm,
+                error instanceof Error && error.name === "AbortError"
+                    ? "google_maps_gps_timeout"
+                    : "google_maps_gps_error"
+            );
+            delivery_fee = fallback.deliveryFee;
+            distance_km = fallback.distanceKm;
+            deliverySource = fallback.deliverySource;
         }
     } else if (customerAddress && rest?.store_address && GOOGLE_MAPS_API_KEY) {
         try {
@@ -522,14 +630,28 @@ async function handleCalculateCartTotal(args: Record<string, unknown>, ctx: Tool
                 );
                 deliverySource = "google_maps";
             } else {
-                deliverySource = "google_maps_unavailable";
+                const fallback = resolveFixedDistanceFallbackDelivery(
+                    pricePerKm,
+                    "google_maps_unavailable"
+                );
+                delivery_fee = fallback.deliveryFee;
+                distance_km = fallback.distanceKm;
+                deliverySource = fallback.deliverySource;
             }
-        } catch (e) {
-            console.error("[MAPS_ERROR]", e);
-            deliverySource = "google_maps_error";
+        } catch (error: unknown) {
+            console.error("[MAPS_ERROR]", error);
+            const fallback = resolveFixedDistanceFallbackDelivery(
+                pricePerKm,
+                error instanceof Error && error.name === "AbortError"
+                    ? "google_maps_timeout"
+                    : "google_maps_error"
+            );
+            delivery_fee = fallback.deliveryFee;
+            distance_km = fallback.distanceKm;
+            deliverySource = fallback.deliverySource;
         }
     } else if ((customerAddress || gpsDestination) && pricePerKm > 0) {
-        distance_km = 5;
+        distance_km = DELIVERY_FALLBACK_DISTANCE_KM;
         delivery_fee = Number((distance_km * pricePerKm).toFixed(2));
         deliverySource = "fallback_fixed_distance";
     }

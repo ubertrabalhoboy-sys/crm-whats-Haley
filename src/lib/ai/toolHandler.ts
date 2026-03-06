@@ -34,6 +34,12 @@ type CatalogProductRow = {
     preco_original: number | null;
     preco_promo: number | null;
     imagem_url: string | null;
+    category?: string | null;
+    is_available?: boolean | null;
+    is_priority?: boolean | null;
+    expiration_date?: string | null;
+    stock_quantity?: number | null;
+    estoque?: number | null;
 };
 type CartItem = {
     product_id?: string;
@@ -69,6 +75,11 @@ type ExistingOrderRow = {
 };
 type CatalogVersionRow = {
     updated_at: string | null;
+};
+type OrderHistoryRow = {
+    id: string;
+    created_at: string | null;
+    items: unknown;
 };
 
 const GOOGLE_MAPS_REQUEST_TIMEOUT_MS = 5000;
@@ -154,6 +165,105 @@ function normalizeMoney(value: unknown) {
     }
 
     return Number(numeric.toFixed(2));
+}
+
+function readStockNumber(row: CatalogProductRow) {
+    const stockCandidates = [row.stock_quantity, row.estoque];
+    for (const candidate of stockCandidates) {
+        const numeric = Number(candidate);
+        if (Number.isFinite(numeric)) {
+            return numeric;
+        }
+    }
+    return null;
+}
+
+function isCatalogProductAvailable(row: CatalogProductRow) {
+    if (typeof row.is_available === "boolean" && row.is_available === false) {
+        return false;
+    }
+
+    const stockNumber = readStockNumber(row);
+    if (stockNumber !== null) {
+        return stockNumber > 0;
+    }
+
+    return true;
+}
+
+function readExpirationTimestamp(row: CatalogProductRow) {
+    if (typeof row.expiration_date !== "string" || !row.expiration_date.trim()) {
+        return null;
+    }
+    const parsed = Date.parse(row.expiration_date);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sortCatalogProductsForSales(rows: CatalogProductRow[]) {
+    if (rows.length <= 1) {
+        return rows;
+    }
+
+    const hasStrategicSignals = rows.some((row) =>
+        row.is_priority === true || readExpirationTimestamp(row) !== null
+    );
+
+    if (!hasStrategicSignals) {
+        return rows;
+    }
+
+    const sorted = [...rows];
+    sorted.sort((a, b) => {
+        const aPriority = a.is_priority === true ? 1 : 0;
+        const bPriority = b.is_priority === true ? 1 : 0;
+        if (aPriority !== bPriority) {
+            return bPriority - aPriority;
+        }
+
+        const aExpiration = readExpirationTimestamp(a);
+        const bExpiration = readExpirationTimestamp(b);
+
+        if (aExpiration !== null && bExpiration !== null && aExpiration !== bExpiration) {
+            return aExpiration - bExpiration;
+        }
+        if (aExpiration !== null && bExpiration === null) {
+            return -1;
+        }
+        if (aExpiration === null && bExpiration !== null) {
+            return 1;
+        }
+
+        const aName = (a.nome || "").toLowerCase();
+        const bName = (b.nome || "").toLowerCase();
+        return aName.localeCompare(bName);
+    });
+
+    return sorted;
+}
+
+function parseOrderItems(value: unknown) {
+    if (!Array.isArray(value)) {
+        return [] as Array<{ product_id: string; quantity: number }>;
+    }
+
+    return value
+        .map((item) => {
+            if (typeof item !== "object" || item === null) {
+                return null;
+            }
+            const typed = item as Record<string, unknown>;
+            const productId =
+                typeof typed.product_id === "string" ? typed.product_id : "";
+            const quantity = Number(typed.quantity);
+            if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+                return null;
+            }
+            return { product_id: productId, quantity };
+        })
+        .filter(
+            (item): item is { product_id: string; quantity: number } =>
+                item !== null
+        );
 }
 
 function getStringOrEmpty(value: unknown) {
@@ -360,6 +470,7 @@ export async function executeAiTool(
 ): Promise<string> {
     const handlers: Record<string, () => Promise<unknown>> = {
         get_store_info: () => handleGetStoreInfo(ctx),
+        get_customer_history: () => handleGetCustomerHistory(ctx),
         search_product_catalog: () => handleSearchProductCatalog(args, ctx),
         calculate_cart_total: () => handleCalculateCartTotal(args, ctx),
         submit_final_order: () => handleSubmitFinalOrder(args, ctx),
@@ -452,6 +563,105 @@ async function handleGetStoreInfo(ctx: ToolContext) {
     return result;
 }
 
+async function handleGetCustomerHistory(ctx: ToolContext) {
+    if (!ctx.chat_id) {
+        return { ok: false, error: "MISSING_CHAT_ID" };
+    }
+
+    const db = createAdminClient();
+    const { data: orders, error } = await db
+        .from("orders")
+        .select("id, created_at, items")
+        .eq("restaurant_id", ctx.restaurant_id)
+        .eq("chat_id", ctx.chat_id)
+        .order("created_at", { ascending: false })
+        .limit(6);
+
+    if (error) {
+        return { ok: false, error: error.message };
+    }
+
+    const typedOrders = (orders || []) as OrderHistoryRow[];
+    if (typedOrders.length === 0) {
+        return {
+            ok: true,
+            has_history: false,
+            total_orders: 0,
+            top_products: [],
+            last_order: null,
+        };
+    }
+
+    const allItems = typedOrders.flatMap((order) => parseOrderItems(order.items));
+    const productIds = Array.from(new Set(allItems.map((item) => item.product_id)));
+
+    const productNameMap = new Map<string, string>();
+    if (productIds.length > 0) {
+        const { data: products } = await db
+            .from("produtos_promo")
+            .select("id, nome")
+            .eq("restaurant_id", ctx.restaurant_id)
+            .in("id", productIds);
+        for (const product of products || []) {
+            if (typeof product?.id === "string") {
+                productNameMap.set(
+                    product.id,
+                    typeof product?.nome === "string" && product.nome.trim().length > 0
+                        ? product.nome.trim()
+                        : product.id
+                );
+            }
+        }
+    }
+
+    const frequencyMap = new Map<string, { product_id: string; title: string; quantity: number }>();
+    for (const item of allItems) {
+        const productId = item.product_id;
+        const current = frequencyMap.get(productId);
+        const title = productNameMap.get(productId) || productId;
+        if (current) {
+            current.quantity += item.quantity;
+        } else {
+            frequencyMap.set(productId, {
+                product_id: productId,
+                title,
+                quantity: item.quantity,
+            });
+        }
+    }
+
+    const topProducts = Array.from(frequencyMap.values())
+        .sort((a, b) => b.quantity - a.quantity)
+        .slice(0, 3);
+
+    const latestOrder = typedOrders[0];
+    const latestItems = parseOrderItems(latestOrder.items).map((item) => ({
+        product_id: item.product_id,
+        title: productNameMap.get(item.product_id) || item.product_id,
+        quantity: item.quantity,
+    }));
+    const latestSummary = latestItems
+        .slice(0, 3)
+        .map((item) => `${item.quantity}x ${item.title}`)
+        .join(", ");
+    const suggestionText = latestSummary
+        ? `Posso repetir seu pedido anterior: ${latestSummary}.`
+        : "Posso montar o pedido com base no seu historico.";
+
+    return {
+        ok: true,
+        has_history: true,
+        total_orders: typedOrders.length,
+        top_products: topProducts,
+        last_order: {
+            id: latestOrder.id,
+            created_at: latestOrder.created_at,
+            items: latestItems,
+        },
+        suggestion_text: suggestionText,
+    };
+}
+
 async function handleSearchProductCatalog(
     args: Record<string, unknown>,
     ctx: ToolContext
@@ -479,23 +689,56 @@ async function handleSearchProductCatalog(
         return cached.data;
     }
 
-    let query = db
-        .from("produtos_promo")
-        .select("id, nome, description, preco_original, preco_promo, imagem_url, category")
-        .eq("restaurant_id", ctx.restaurant_id);
+    const selectCandidates = [
+        "id, nome, description, preco_original, preco_promo, imagem_url, category, is_available, is_priority, expiration_date, stock_quantity, estoque",
+        "id, nome, description, preco_original, preco_promo, imagem_url, category, is_available, is_priority, stock_quantity, estoque",
+        "id, nome, description, preco_original, preco_promo, imagem_url, category, is_available, is_priority, estoque",
+        "id, nome, description, preco_original, preco_promo, imagem_url, category, is_available, is_priority",
+        "id, nome, description, preco_original, preco_promo, imagem_url, category, is_available, stock_quantity, estoque",
+        "id, nome, description, preco_original, preco_promo, imagem_url, category, is_available, estoque",
+        "id, nome, description, preco_original, preco_promo, imagem_url, category, stock_quantity, estoque",
+        "id, nome, description, preco_original, preco_promo, imagem_url, category, stock_quantity",
+        "id, nome, description, preco_original, preco_promo, imagem_url, category",
+    ];
 
-    if (categoryName) {
-        query = query.eq("category", categoryName);
+    let productsData: CatalogProductRow[] = [];
+    let lastErrorMessage: string | null = null;
+
+    for (const selectClause of selectCandidates) {
+        let query = db
+            .from("produtos_promo")
+            .select(selectClause)
+            .eq("restaurant_id", ctx.restaurant_id);
+
+        if (categoryName) {
+            query = query.eq("category", categoryName);
+        }
+
+        if (searchTerm) {
+            query = query.ilike("nome", `%${searchTerm}%`);
+        }
+
+        const { data, error } = await query.order("nome");
+        if (error) {
+            lastErrorMessage = error.message;
+            continue;
+        }
+
+        productsData = ((data || []) as unknown) as CatalogProductRow[];
+        lastErrorMessage = null;
+        break;
     }
 
-    if (searchTerm) {
-        query = query.ilike("nome", `%${searchTerm}%`);
+    if (lastErrorMessage) {
+        return { ok: false, error: lastErrorMessage };
     }
 
-    const { data, error } = await query.order("nome");
-    if (error) return { ok: false, error: error.message };
-
-    const mappedProducts = ((data || []) as CatalogProductRow[]).map((p) => ({
+    const availableProducts = productsData.filter(isCatalogProductAvailable);
+    const sortedAvailableProducts = sortCatalogProductsForSales(availableProducts);
+    const priorityProductsCount = sortedAvailableProducts.filter(
+        (product) => product.is_priority === true
+    ).length;
+    const mappedProducts = sortedAvailableProducts.map((p) => ({
         product_id: p.id,
         title: p.nome || "",
         description: p.description || "",
@@ -504,7 +747,12 @@ async function handleSearchProductCatalog(
         image_url: p.imagem_url || "",
     }));
 
-    const result = { ok: true, products: mappedProducts };
+    const result = {
+        ok: true,
+        products: mappedProducts,
+        filtered_unavailable: Math.max(productsData.length - availableProducts.length, 0),
+        prioritized_products: priorityProductsCount,
+    };
 
     if (CATALOG_CACHE.size > 1000) {
         const oldestKey = CATALOG_CACHE.keys().next().value;

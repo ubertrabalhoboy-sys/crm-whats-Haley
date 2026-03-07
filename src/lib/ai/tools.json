@@ -14,6 +14,18 @@
   {
     "type": "function",
     "function": {
+      "name": "get_customer_history",
+      "description": "Recupera o historico recente de pedidos deste chat para personalizar o atendimento (ex: 'o mesmo de sempre'). Use no inicio da conversa ou quando cliente pedir para repetir pedido.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "search_product_catalog",
       "description": "Busca produtos no banco de dados. REGRA DE OURO: Voce e ESTRITAMENTE PROIBIDO de criar itens da sua cabeca. E OBRIGATORIO chamar esta ferramenta ANTES de exibir qualquer carrossel. Siga a ordem estrita de vendas: 1 oferecer Principal, 2 fazer Cross-sell/Upsell ativo (oferecer acompanhamentos e bebidas). Sempre use 'category' para filtrar.",
       "parameters": {

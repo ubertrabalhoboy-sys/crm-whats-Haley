@@ -17,14 +17,12 @@ import {
   LayoutDashboard,
   Tag,
   Image as ImageIcon,
-  Zap,
   Smartphone,
   Settings,
   ArrowRight,
   CheckCircle2,
   Circle,
   Dices,
-  MessageSquare,
   FileDown
 } from "lucide-react";
 
@@ -38,10 +36,12 @@ const fetcher = async (url: string) => {
 type ProdutoPromo = {
   id: string;
   nome: string;
-  preco_original: number;
-  preco_promo: number;
-  estoque: number;
-  imagem_url?: string;
+  preco_original: number | null;
+  preco_promo: number | null;
+  estoque: number | null;
+  imagem_url?: string | null;
+  category?: string | null;
+  is_extra?: boolean | null;
 };
 
 type DashboardData = {
@@ -51,7 +51,6 @@ type DashboardData = {
     leadsSemana: number;
     taxaConversao: number;
     girosRoleta: number;
-    mensagensEnviadas: number;
     chatsComVenda: number;
     totalLeads: number;
   };
@@ -67,14 +66,25 @@ type DashboardData = {
     successfulAiTurnsMonth: number;
     estimatedHoursSavedMonth: number;
     averageHumanMinutesPerTurn: number;
+    aiCost7dUsd: number;
+    aiCost7dBrl: number;
+    aiCostMonthUsd: number;
+    aiCostMonthBrl: number;
+    aiCostByModelMonth: Array<{
+      model: string;
+      promptTokens: number;
+      completionTokens: number;
+      costUsd: number;
+      costBrl: number;
+    }>;
+    netRecoveredAfterAiCostMonth: number;
   };
   topProdutos: ProdutoPromo[];
-  webhookStats?: {
-    total7d: number;
-    hoje: number;
-    successCount: number;
-    errorCount: number;
-    porDia: { dia: string; success: number; error: number }[];
+  topHighlights?: {
+    principal: ProdutoPromo | null;
+    adicional: ProdutoPromo | null;
+    bebida: ProdutoPromo | null;
+    complemento: ProdutoPromo | null;
   };
   onboarding?: {
     whatsappConnected: boolean;
@@ -103,13 +113,17 @@ export default function DashboardPage() {
     leadsSemana: 0,
     taxaConversao: 0,
     girosRoleta: 0,
-    mensagensEnviadas: 0,
     chatsComVenda: 0,
     totalLeads: 0
   };
 
   const produtos = data?.topProdutos || [];
-  const webhookStats = data?.webhookStats || { total7d: 0, hoje: 0, successCount: 0, errorCount: 0, porDia: [] };
+  const topHighlights = data?.topHighlights || {
+    principal: null,
+    adicional: null,
+    bebida: null,
+    complemento: null,
+  };
   const roi = data?.roi || {
     recoveredSales7d: 0,
     recoveredOrders7d: 0,
@@ -122,8 +136,13 @@ export default function DashboardPage() {
     successfulAiTurnsMonth: 0,
     estimatedHoursSavedMonth: 0,
     averageHumanMinutesPerTurn: 2.5,
+    aiCost7dUsd: 0,
+    aiCost7dBrl: 0,
+    aiCostMonthUsd: 0,
+    aiCostMonthBrl: 0,
+    aiCostByModelMonth: [],
+    netRecoveredAfterAiCostMonth: 0,
   };
-  const maxDayCount = Math.max(1, ...webhookStats.porDia.map(d => d.success + d.error));
   const onboarding = data?.onboarding || { whatsappConnected: false, storeConfigured: false, automationConfigured: false, firstLeadMoved: false };
   const whatsappHealth = data?.whatsappHealth || {
     state: "unknown",
@@ -144,21 +163,21 @@ export default function DashboardPage() {
   })();
 
   return (
-    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pb-12">
+    <div className="w-full h-full overflow-y-auto custom-scroll px-4 pb-12 text-slate-900 dark:text-slate-100">
       {/* Pattern de fundo */}
       <div className="pointer-events-none fixed inset-0 opacity-[0.03] bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat z-0" />
 
       {/* Header */}
-      <div className="mb-8 mt-2 flex items-center justify-between rounded-[2.5rem] border border-white/60 bg-white/40 px-8 py-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl relative z-10 shrink-0">
+      <div className="mb-8 mt-2 flex items-center justify-between rounded-[2.5rem] border border-white/60 dark:border-slate-700/70 bg-white/40 dark:bg-slate-900/60 px-8 py-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl relative z-10 shrink-0">
         <div className="flex items-center gap-4">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#086788] to-[#07a0c3] text-white shadow-lg shadow-[#086788]/20">
             <LayoutDashboard size={24} />
           </div>
           <div>
-            <h1 className="text-3xl font-[950] uppercase tracking-tighter text-[#086788] leading-none">
+            <h1 className="text-3xl font-[950] uppercase tracking-tighter text-[#086788] dark:text-cyan-200 leading-none">
               Resumo da Operação
             </h1>
-            <p className="mt-1 text-[10px] font-black uppercase tracking-[0.3em] text-[#07a0c3]">
+            <p className="mt-1 text-[10px] font-black uppercase tracking-[0.3em] text-[#07a0c3] dark:text-cyan-300">
               Visão Geral do Seu Delivery
             </p>
           </div>
@@ -230,13 +249,13 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6 mb-8 relative z-10">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8 relative z-10">
         {/* KPI 1 - Leads Hoje */}
-        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
+        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 dark:border-slate-700/70 bg-white/40 dark:bg-slate-900/60 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60 dark:hover:bg-slate-800/70">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Leads Hoje</p>
-              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
+              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788] dark:text-slate-100">
                 {isLoading ? "..." : metrics.leadsHoje}
               </h3>
             </div>
@@ -250,11 +269,11 @@ export default function DashboardPage() {
         </div>
 
         {/* KPI 2 - Leads Semana */}
-        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
+        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 dark:border-slate-700/70 bg-white/40 dark:bg-slate-900/60 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60 dark:hover:bg-slate-800/70">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Leads Semana</p>
-              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
+              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788] dark:text-slate-100">
                 {isLoading ? "..." : metrics.leadsSemana}
               </h3>
             </div>
@@ -268,11 +287,11 @@ export default function DashboardPage() {
         </div>
 
         {/* KPI 3 - Taxa de Conversão */}
-        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
+        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 dark:border-slate-700/70 bg-white/40 dark:bg-slate-900/60 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60 dark:hover:bg-slate-800/70">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Conversão Kanban</p>
-              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
+              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788] dark:text-slate-100">
                 {isLoading ? "..." : `${metrics.taxaConversao.toFixed(1)}%`}
               </h3>
             </div>
@@ -286,11 +305,11 @@ export default function DashboardPage() {
         </div>
 
         {/* KPI 4 - Giros da Roleta */}
-        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
+        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 dark:border-slate-700/70 bg-white/40 dark:bg-slate-900/60 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60 dark:hover:bg-slate-800/70">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Giros da Roleta</p>
-              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
+              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788] dark:text-slate-100">
                 {isLoading ? "..." : metrics.girosRoleta}
               </h3>
             </div>
@@ -303,23 +322,6 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* KPI 5 - Mensagens Enviadas */}
-        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Msg Enviadas</p>
-              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
-                {isLoading ? "..." : metrics.mensagensEnviadas}
-              </h3>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 text-amber-500 transition-transform group-hover:scale-110 group-hover:bg-amber-500 group-hover:text-white">
-              <MessageSquare size={24} />
-            </div>
-          </div>
-          <p className="mt-4 text-xs font-bold text-amber-500 flex items-center gap-1">
-            {webhookStats.hoje} apenas hoje
-          </p>
-        </div>
       </div>
 
       <div className="mb-8 relative z-10">
@@ -351,7 +353,7 @@ export default function DashboardPage() {
           href="/api/dashboard/roi/pdf"
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-2 rounded-xl border border-[#086788]/20 bg-white/70 px-4 py-2 text-[11px] font-black uppercase tracking-widest text-[#086788] transition-colors hover:bg-white"
+          className="inline-flex items-center gap-2 rounded-xl border border-[#086788]/20 dark:border-cyan-500/30 bg-white/70 dark:bg-slate-900/70 px-4 py-2 text-[11px] font-black uppercase tracking-widest text-[#086788] dark:text-cyan-200 transition-colors hover:bg-white dark:hover:bg-slate-800"
         >
           <FileDown size={14} />
           Exportar ROI em PDF
@@ -359,7 +361,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ROI / Monetization */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 relative z-10">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8 relative z-10">
         <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
           <div className="flex items-start justify-between">
             <div>
@@ -410,46 +412,64 @@ export default function DashboardPage() {
             Estimativa: {roi.successfulAiTurnsMonth} turnos x {roi.averageHumanMinutesPerTurn} min
           </p>
         </div>
+
+        <div className="group relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/40 p-6 shadow-lg shadow-[#086788]/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#086788]/10 hover:bg-white/60">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3]">Custo IA no mes</p>
+              <h3 className="mt-2 text-3xl font-black tracking-tight text-[#086788]">
+                {isLoading ? "..." : formatCurrency(roi.aiCostMonthBrl)}
+              </h3>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 text-amber-600 transition-transform group-hover:scale-110 group-hover:bg-amber-600 group-hover:text-white">
+              <Wallet size={24} />
+            </div>
+          </div>
+          <p className="mt-4 text-xs font-bold text-amber-600">
+            7 dias: {formatCurrency(roi.aiCost7dBrl)} • Liquido apos IA: {formatCurrency(roi.netRecoveredAfterAiCostMonth)}
+          </p>
+        </div>
       </div>
 
-      {/* Webhook Per-Day Chart */}
-      {webhookStats.porDia.length > 0 && (
-        <div className="w-full bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5 rounded-[2.5rem] p-8 mb-8 relative z-10">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 text-amber-500">
-              <Zap size={20} />
-            </div>
-            <h2 className="text-xl font-black text-[#086788] tracking-tight">Automação</h2>
+      <div className="mb-8 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 relative z-10">
+        {[
+          { key: "principal", label: "Top Principal", data: topHighlights.principal },
+          { key: "adicional", label: "Top Adicional", data: topHighlights.adicional },
+          { key: "bebida", label: "Top Bebida", data: topHighlights.bebida },
+          { key: "complemento", label: "Top Complemento", data: topHighlights.complemento },
+        ].map((item) => (
+          <div
+            key={item.key}
+            className="rounded-[2rem] border border-white/60 dark:border-slate-700/70 bg-white/50 dark:bg-slate-900/60 p-5 shadow-lg shadow-[#086788]/5 backdrop-blur-xl"
+          >
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#07a0c3] dark:text-cyan-300">
+              {item.label}
+            </p>
+            {item.data ? (
+              <>
+                <p className="mt-2 text-sm font-black text-[#086788] dark:text-slate-100 line-clamp-2">
+                  {item.data.nome}
+                </p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-300">
+                  {formatCurrency(Number(item.data.preco_promo || 0))} • Estoque {Number(item.data.estoque || 0)}
+                </p>
+              </>
+            ) : (
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">
+                Sem item nesta categoria.
+              </p>
+            )}
           </div>
-          <div className="flex items-end gap-3 h-32">
-            {webhookStats.porDia.map((d) => {
-              const total = d.success + d.error;
-              const heightPct = (total / maxDayCount) * 100;
-              const diaLabel = new Date(d.dia + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' });
-              return (
-                <div key={d.dia} className="flex-1 flex flex-col items-center gap-2">
-                  <span className="text-[11px] font-black text-[#086788]">{total}</span>
-                  <div className="w-full flex flex-col justify-end rounded-xl overflow-hidden" style={{ height: '80px' }}>
-                    <div
-                      className="w-full bg-gradient-to-t from-[#086788] to-[#07a0c3] rounded-xl transition-all duration-500"
-                      style={{ height: `${Math.max(heightPct, 5)}%` }}
-                    />
-                  </div>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase">{diaLabel}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+        ))}
+      </div>
 
       {/* Top Produtos Section */}
-      <div className="w-full bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg shadow-[#086788]/5 rounded-[2.5rem] p-8 relative z-10">
+      <div className="w-full bg-white/40 dark:bg-slate-900/60 backdrop-blur-xl border border-white/60 dark:border-slate-700/70 shadow-lg shadow-[#086788]/5 rounded-[2.5rem] p-8 relative z-10">
         <div className="flex items-center gap-3 mb-8">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#086788]/10 to-[#07a0c3]/10 text-[#086788]">
             <Tag size={20} />
           </div>
-          <h2 className="text-xl font-black text-[#086788] tracking-tight">Top Produtos da Gamificação</h2>
+          <h2 className="text-xl font-black text-[#086788] dark:text-cyan-200 tracking-tight">Top Produtos da Gamificação</h2>
         </div>
 
         {error && (
@@ -505,14 +525,14 @@ export default function DashboardPage() {
                       </div>
                     </td>
                     <td className="py-4 px-4 text-right">
-                      <span className="text-sm font-semibold text-slate-400 line-through">{formatCurrency(p.preco_original)}</span>
+                      <span className="text-sm font-semibold text-slate-400 line-through">{formatCurrency(Number(p.preco_original || 0))}</span>
                     </td>
                     <td className="py-4 px-4 text-right">
-                      <span className="text-sm font-black text-emerald-600">{formatCurrency(p.preco_promo)}</span>
+                      <span className="text-sm font-black text-emerald-600">{formatCurrency(Number(p.preco_promo || 0))}</span>
                     </td>
                     <td className="py-4 px-4 text-center">
-                      <span className={`inline-block px-2 py-1 rounded-md text-[10px] font-black ${p.estoque > 0 ? 'bg-indigo-50 text-indigo-500' : 'bg-red-50 text-red-500'}`}>
-                        {p.estoque > 0 ? `${p.estoque} Disponíveis` : 'Esgotado'}
+                      <span className={`inline-block px-2 py-1 rounded-md text-[10px] font-black ${Number(p.estoque || 0) > 0 ? 'bg-indigo-50 text-indigo-500' : 'bg-red-50 text-red-500'}`}>
+                        {Number(p.estoque || 0) > 0 ? `${Number(p.estoque || 0)} Disponíveis` : 'Esgotado'}
                       </span>
                     </td>
                   </tr>

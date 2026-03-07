@@ -35,6 +35,7 @@ export type ChatContextRecord = {
     stage_id?: string | null;
     kanban_status?: string | null;
     cupom_ganho?: string | null;
+    last_activity_at?: string | null;
     cart_snapshot?: unknown;
     kanban_stages?: KanbanStageRelation | KanbanStageRelation[] | null;
 };

@@ -9,6 +9,7 @@ type ChatFollowupRow = {
     cart_snapshot?: unknown;
     kanban_status?: string | null;
     cupom_ganho?: string | null;
+    last_activity_at?: string | null;
 } | null;
 
 type QueryError = {
@@ -62,7 +63,7 @@ export async function getChatFollowupState(
 
     const chatsTable = db.from("chats") as ChatsTableClient;
     const { data: chatData } = await chatsTable
-        .select("cart_snapshot, kanban_status, cupom_ganho")
+        .select("cart_snapshot, kanban_status, cupom_ganho, last_activity_at")
         .eq("id", chatId)
         .maybeSingle();
 

@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { buildFollowupReminderText } from "@/lib/ai/toolRules";
+import { processAiMessage } from "@/lib/ai/orchestrator";
 import {
+    AI_WEBHOOK_QUEUE_BATCH_SIZE,
+    AI_WEBHOOK_QUEUE_ENABLED,
     CRON_SECRET,
     SUPABASE_SERVICE_ROLE_KEY,
     SUPABASE_URL,
     UAZAPI_BASE_URL,
     UAZAPI_GLOBAL_API_KEY,
 } from "@/lib/shared/env";
+import { rateLimitRedis } from "@/lib/shared/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +34,16 @@ type ChatRow = {
 type RestaurantRow = {
     name?: string | null;
     uaz_instance_token?: string | null;
+};
+
+type AiQueueJob = {
+    restaurantId: string;
+    chatId: string;
+    waChatId: string;
+    instanceName?: string;
+    incomingText: string;
+    mediaBase64?: string;
+    mediaMimeType?: string;
 };
 
 function createSupabaseAdminClient() {
@@ -82,6 +96,41 @@ function cleanNumberFromWaChatId(waChatId: string | null) {
     return waChatId.split("@")[0]?.replace(/\D/g, "") || "";
 }
 
+function parseAiQueueJob(value: string | null): AiQueueJob | null {
+    if (!value) return null;
+    const parsed = parseJsonSafe(value);
+    const record = asRecord(parsed);
+    if (!record) return null;
+
+    if (
+        typeof record.restaurantId !== "string" ||
+        typeof record.chatId !== "string" ||
+        typeof record.waChatId !== "string" ||
+        typeof record.incomingText !== "string"
+    ) {
+        return null;
+    }
+
+    return {
+        restaurantId: record.restaurantId,
+        chatId: record.chatId,
+        waChatId: record.waChatId,
+        incomingText: record.incomingText,
+        instanceName:
+            typeof record.instanceName === "string" && record.instanceName.trim()
+                ? record.instanceName
+                : undefined,
+        mediaBase64:
+            typeof record.mediaBase64 === "string" && record.mediaBase64.trim()
+                ? record.mediaBase64
+                : undefined,
+        mediaMimeType:
+            typeof record.mediaMimeType === "string" && record.mediaMimeType.trim()
+                ? record.mediaMimeType
+                : undefined,
+    };
+}
+
 /**
  * Cron Worker: Process Scheduled Messages Queue
  * 
@@ -115,6 +164,36 @@ export async function POST(req: NextRequest) {
         );
     }
 
+    let aiQueueProcessed = 0;
+    let aiQueueFailed = 0;
+    let aiQueueInvalid = 0;
+
+    if (AI_WEBHOOK_QUEUE_ENABLED && rateLimitRedis) {
+        for (let i = 0; i < AI_WEBHOOK_QUEUE_BATCH_SIZE; i++) {
+            const rawJob = await rateLimitRedis.rpop("ai_processing_queue");
+            if (!rawJob) {
+                break;
+            }
+
+            const job = parseAiQueueJob(typeof rawJob === "string" ? rawJob : String(rawJob));
+            if (!job) {
+                aiQueueInvalid += 1;
+                continue;
+            }
+
+            try {
+                await processAiMessage(job);
+                aiQueueProcessed += 1;
+            } catch (error) {
+                aiQueueFailed += 1;
+                console.error("[CRON][AI QUEUE] Failed to process AI job", {
+                    chatId: job.chatId,
+                    error,
+                });
+            }
+        }
+    }
+
     // Fetch pending messages ready to fire
     const { data: pendingMessages, error: fetchError } = await supabase
         .from("scheduled_messages")
@@ -130,7 +209,16 @@ export async function POST(req: NextRequest) {
     }
 
     if (!pendingMessages || pendingMessages.length === 0) {
-        return NextResponse.json({ ok: true, processed: 0, message: "No pending messages." });
+        return NextResponse.json({
+            ok: true,
+            processed: 0,
+            message: "No pending messages.",
+            ai_queue: {
+                processed: aiQueueProcessed,
+                failed: aiQueueFailed,
+                invalid: aiQueueInvalid,
+            },
+        });
     }
 
     let processedCount = 0;
@@ -320,5 +408,10 @@ export async function POST(req: NextRequest) {
         ok: true,
         processed: processedCount,
         total_found: pendingMessages.length,
+        ai_queue: {
+            processed: aiQueueProcessed,
+            failed: aiQueueFailed,
+            invalid: aiQueueInvalid,
+        },
     });
 }

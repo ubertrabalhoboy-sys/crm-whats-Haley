@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
+  PUBLIC_BASE_URL,
   UAZAPI_ADMIN_TOKEN,
   UAZAPI_BASE_URL,
   UAZAPI_GLOBAL_API_KEY,
+  WEBHOOK_SECRET_TOKEN,
 } from "@/lib/shared/env";
 
 export const runtime = "nodejs";
@@ -14,6 +16,65 @@ function parseJsonSafe(text: string) {
   } catch {
     return {};
   }
+}
+
+function normalizeBaseUrl(url: string) {
+  return url.replace(/\/$/, "");
+}
+
+async function configureWebhookAfterEnsure(params: {
+  baseUrl: string;
+  instanceToken: string;
+}) {
+  const publicBaseUrl = PUBLIC_BASE_URL;
+  if (!publicBaseUrl) {
+    return {
+      ok: false as const,
+      error: "PUBLIC_BASE_URL_NOT_CONFIGURED",
+    };
+  }
+
+  const secretParam = WEBHOOK_SECRET_TOKEN
+    ? `&secret=${encodeURIComponent(WEBHOOK_SECRET_TOKEN)}`
+    : "";
+  const webhookUrl =
+    `${normalizeBaseUrl(publicBaseUrl)}` +
+    `/api/webhook/uazapi?token=${encodeURIComponent(params.instanceToken)}${secretParam}`;
+
+  const payload = {
+    enabled: true,
+    url: webhookUrl,
+    events: ["messages", "connection", "messages_update"],
+    excludeMessages: ["wasSentByApi", "isGroupYes"],
+    addUrlEvents: false,
+    addUrlTypesMessages: false,
+  };
+
+  const upstream = await fetch(
+    `${normalizeBaseUrl(params.baseUrl)}/webhook?token=${encodeURIComponent(params.instanceToken)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: UAZAPI_GLOBAL_API_KEY || "",
+        token: params.instanceToken,
+      },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    }
+  );
+
+  const raw = await upstream.text();
+  const data = parseJsonSafe(raw);
+
+  if (!upstream.ok || upstream.status !== 200) {
+    return {
+      ok: false as const,
+      error: (typeof data?.error === "string" && data.error) || "UAZAPI_WEBHOOK_CONFIG_FAILED",
+    };
+  }
+
+  return { ok: true as const };
 }
 
 function normalizeDeleteError(value: unknown) {
@@ -307,5 +368,24 @@ export async function POST(req: Request) {
   if (updateError) {
     return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
   }
+
+  try {
+    const webhookSync = await configureWebhookAfterEnsure({
+      baseUrl,
+      instanceToken: String(instanceToken),
+    });
+    if (!webhookSync.ok) {
+      console.warn("[whatsapp/instance/ensure] webhook auto-config failed", {
+        restaurantId,
+        error: webhookSync.error,
+      });
+    }
+  } catch (error) {
+    console.warn("[whatsapp/instance/ensure] webhook auto-config threw", {
+      restaurantId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   return NextResponse.json({ ok: true, status, phone: null }, { status: 200 });
 }

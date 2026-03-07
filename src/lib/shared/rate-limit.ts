@@ -17,6 +17,8 @@ const redis = (UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN)
     })
     : null;
 
+export const rateLimitRedis = redis;
+
 // Create a new ratelimiter that allows 15 requests per minute
 export const webhookRateLimit = redis
     ? new Ratelimit({

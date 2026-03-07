@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { calculateRecoveredSales, estimateHumanHoursSaved } from "@/lib/metrics/roi";
 import { deriveWhatsappHealth } from "@/lib/whatsapp/health";
+import { AI_COST_USD_TO_BRL } from "@/lib/shared/env";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,24 @@ type OrderRow = {
 type AiTurnOutcomeRow = {
     outcome: string | null;
 };
+type AiLogCostRow = {
+    model: string | null;
+    prompt_tokens: number | null;
+    completion_tokens: number | null;
+    created_at: string | null;
+};
+
+type ProdutoPromoRow = {
+    id: string;
+    nome: string;
+    preco_original: number | null;
+    preco_promo: number | null;
+    estoque: number | null;
+    imagem_url: string | null;
+    category: string | null;
+    is_extra: boolean | null;
+    created_at: string | null;
+};
 
 type NotificationWarningRow = {
     title: string | null;
@@ -30,11 +49,48 @@ type NotificationWarningRow = {
     created_at: string | null;
 };
 
+type ModelCostRollup = {
+    model: string;
+    promptTokens: number;
+    completionTokens: number;
+    costUsd: number;
+    costBrl: number;
+};
+
+const MODEL_PRICING_USD_PER_1M: Record<string, { input: number; output: number }> = {
+    "gemini-2.5-flash": { input: 0.3, output: 2.5 },
+    "gemini-2.5-flash-lite": { input: 0.1, output: 0.4 },
+    "gpt-4o-mini": { input: 0.15, output: 0.6 },
+};
+
+function normalizeCategory(value: string | null | undefined) {
+    return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function normalizeModelPricingKey(value: string | null | undefined) {
+    const model = String(value || "").trim().toLowerCase();
+    if (model.includes("gemini-2.5-flash-lite")) return "gemini-2.5-flash-lite";
+    if (model.includes("gemini-2.5-flash")) return "gemini-2.5-flash";
+    if (model.includes("gpt-4o-mini")) return "gpt-4o-mini";
+    return "";
+}
+
+function pickTopProduct(
+    products: ProdutoPromoRow[],
+    predicate: (row: ProdutoPromoRow) => boolean
+) {
+    return products.find(predicate) || null;
+}
+
 export async function GET() {
     const supabase = await createSupabaseServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
 
-    if (!user) return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+    if (!user) {
+        return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+    }
 
     const { data: profile } = await supabase
         .from("profiles")
@@ -46,87 +102,104 @@ export async function GET() {
         return NextResponse.json({ ok: false, error: "RESTAURANT_NOT_SET" }, { status: 409 });
     }
 
-    // 1. Fetch Chats for metrics computation
-    const { data: chats, error: chatsError } = await supabase
-        .from("chats")
-        .select("created_at, kanban_status, origem_lead")
-        .eq("restaurant_id", profile.restaurant_id);
-
-    if (chatsError) {
-        return NextResponse.json({ ok: false, error: chatsError.message }, { status: 500 });
-    }
-
-    // 2. Fetch Top Promo Products
-    // Assuming the top products are just the recently added ones or we just show them in a list.
-    const { data: produtos, error: produtosError } = await supabase
-        .from("produtos_promo")
-        .select("*")
-        .eq("restaurant_id", profile.restaurant_id)
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-    if (produtosError) {
-        return NextResponse.json({ ok: false, error: produtosError.message }, { status: 500 });
-    }
-
-    // 3. Fetch Webhook Logs (last 7 days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const { data: webhookLogs } = await supabase
-        .from("webhook_logs")
-        .select("status, created_at, tag_disparada")
-        .eq("restaurant_id", profile.restaurant_id)
-        .gte("created_at", sevenDaysAgo.toISOString())
-        .order("created_at", { ascending: true });
-
-    // Filter out internal system logs from being counted as Marketing/WhatsApp "Sent Messages"
-    const logs = (webhookLogs || []).filter(log => log.tag_disparada !== "ORDER_CREATED");
-
-    const today = new Date().toISOString().slice(0, 10);
-
-    // Group by day
-    const porDia: Record<string, { success: number; error: number }> = {};
-    for (const log of logs) {
-        const dia = log.created_at?.slice(0, 10) || today;
-        if (!porDia[dia]) porDia[dia] = { success: 0, error: 0 };
-        porDia[dia][log.status === "error" ? "error" : "success"]++;
-    }
-
-    const webhookStats = {
-        total7d: logs.length,
-        hoje: logs.filter(l => (l.created_at?.slice(0, 10) || "") === today).length,
-        successCount: logs.filter(l => l.status === "success").length,
-        errorCount: logs.filter(l => l.status === "error").length,
-        porDia: Object.entries(porDia).map(([dia, counts]) => ({ dia, ...counts }))
-    };
-
-    const chatsList = chats || [];
-
-    // Metrics calculation
     const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
-
-    // Leads Hoje
-    const leadsHoje = chatsList.filter(chat => chat.created_at?.startsWith(todayStr)).length;
-
-    // Leads Semana
-    const leadsSemana = chatsList.filter(chat => chat.created_at && chat.created_at >= sevenDaysAgo.toISOString()).length;
-
-    // Taxa de Conversão: (Chats ganho / Total) * 100
-    const chatsComVenda = chatsList.filter(chat => chat.kanban_status === 'ganho').length;
-    const taxaConversao = chatsList.length > 0 ? (chatsComVenda / chatsList.length) * 100 : 0;
-
-    // Giros da Roleta (origem_lead == 'Roleta')
-    const girosRoleta = chatsList.filter(chat => chat.origem_lead?.toLowerCase() === 'roleta').length;
-
-    // Mensagens Enviadas (webhook logs success)
-    const mensagensEnviadas = webhookStats.successCount;
-
-    // 4. ROI metrics (monetization proof)
-    const thirtyDaysAgo = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const sevenDaysAgo = new Date(now);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const thirtyDaysAgo = new Date(now);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const AVERAGE_HUMAN_MINUTES_PER_TURN = 2.5;
+
+    const [
+        totalLeadsCountResult,
+        leadsHojeCountResult,
+        leadsSemanaCountResult,
+        chatsComVendaCountResult,
+        girosRoletaCountResult,
+        produtosResult,
+    ] = await Promise.all([
+        supabase
+            .from("chats")
+            .select("id", { count: "exact", head: true })
+            .eq("restaurant_id", profile.restaurant_id),
+        supabase
+            .from("chats")
+            .select("id", { count: "exact", head: true })
+            .eq("restaurant_id", profile.restaurant_id)
+            .gte("created_at", todayStart.toISOString()),
+        supabase
+            .from("chats")
+            .select("id", { count: "exact", head: true })
+            .eq("restaurant_id", profile.restaurant_id)
+            .gte("created_at", sevenDaysAgo.toISOString()),
+        supabase
+            .from("chats")
+            .select("id", { count: "exact", head: true })
+            .eq("restaurant_id", profile.restaurant_id)
+            .eq("kanban_status", "ganho"),
+        supabase
+            .from("chats")
+            .select("id", { count: "exact", head: true })
+            .eq("restaurant_id", profile.restaurant_id)
+            .ilike("origem_lead", "roleta"),
+        supabase
+            .from("produtos_promo")
+            .select("id, nome, preco_original, preco_promo, estoque, imagem_url, category, is_extra, created_at")
+            .eq("restaurant_id", profile.restaurant_id)
+            .order("created_at", { ascending: false })
+            .limit(120),
+    ]);
+
+    if (totalLeadsCountResult.error) {
+        return NextResponse.json({ ok: false, error: totalLeadsCountResult.error.message }, { status: 500 });
+    }
+    if (leadsHojeCountResult.error) {
+        return NextResponse.json({ ok: false, error: leadsHojeCountResult.error.message }, { status: 500 });
+    }
+    if (leadsSemanaCountResult.error) {
+        return NextResponse.json({ ok: false, error: leadsSemanaCountResult.error.message }, { status: 500 });
+    }
+    if (chatsComVendaCountResult.error) {
+        return NextResponse.json({ ok: false, error: chatsComVendaCountResult.error.message }, { status: 500 });
+    }
+    if (girosRoletaCountResult.error) {
+        return NextResponse.json({ ok: false, error: girosRoletaCountResult.error.message }, { status: 500 });
+    }
+    if (produtosResult.error) {
+        return NextResponse.json({ ok: false, error: produtosResult.error.message }, { status: 500 });
+    }
+
+    const totalLeads = totalLeadsCountResult.count || 0;
+    const leadsHoje = leadsHojeCountResult.count || 0;
+    const leadsSemana = leadsSemanaCountResult.count || 0;
+    const chatsComVenda = chatsComVendaCountResult.count || 0;
+    const girosRoleta = girosRoletaCountResult.count || 0;
+    const taxaConversao = totalLeads > 0 ? (chatsComVenda / totalLeads) * 100 : 0;
+    const produtos = (produtosResult.data || []) as ProdutoPromoRow[];
+
+    const topHighlights = {
+        principal: pickTopProduct(
+            produtos,
+            (row) => normalizeCategory(row.category) === "principal"
+        ),
+        adicional:
+            pickTopProduct(
+                produtos,
+                (row) =>
+                    normalizeCategory(row.category) === "adicional" &&
+                    !Boolean(row.is_extra)
+            ) ||
+            pickTopProduct(
+                produtos,
+                (row) => normalizeCategory(row.category) === "adicional"
+            ),
+        bebida: pickTopProduct(
+            produtos,
+            (row) => normalizeCategory(row.category) === "bebida"
+        ),
+        complemento: pickTopProduct(produtos, (row) => Boolean(row.is_extra)),
+    };
 
     let roi = {
         recoveredSales7d: 0,
@@ -140,6 +213,12 @@ export async function GET() {
         successfulAiTurnsMonth: 0,
         estimatedHoursSavedMonth: 0,
         averageHumanMinutesPerTurn: AVERAGE_HUMAN_MINUTES_PER_TURN,
+        aiCost7dUsd: 0,
+        aiCost7dBrl: 0,
+        aiCostMonthUsd: 0,
+        aiCostMonthBrl: 0,
+        aiCostByModelMonth: [] as ModelCostRollup[],
+        netRecoveredAfterAiCostMonth: 0,
     };
 
     const { data: automationRuns, error: automationRunsError } = await supabase
@@ -188,9 +267,7 @@ export async function GET() {
                     const typedOrders = (orders || []) as OrderRow[];
                     const sevenDaysIso = sevenDaysAgo.toISOString();
                     const runs7d = successfulRecoveryRuns.filter(
-                        (run) =>
-                            typeof run.created_at === "string" &&
-                            run.created_at >= sevenDaysIso
+                        (run) => typeof run.created_at === "string" && run.created_at >= sevenDaysIso
                     );
 
                     const summaryMonth = calculateRecoveredSales({
@@ -244,11 +321,95 @@ export async function GET() {
         };
     }
 
-    // 5. Onboarding status
+    const { data: aiLogsCostRows, error: aiLogsCostError } = await supabase
+        .from("ai_logs")
+        .select("model, prompt_tokens, completion_tokens, created_at")
+        .eq("restaurant_id", profile.restaurant_id)
+        .gte("created_at", thirtyDaysAgo.toISOString())
+        .limit(10000);
+
+    if (aiLogsCostError) {
+        console.warn("[dashboard] ROI ai_logs cost unavailable:", aiLogsCostError.message);
+    } else {
+        const sevenDaysIso = sevenDaysAgo.toISOString();
+        const typedLogs = (aiLogsCostRows || []) as AiLogCostRow[];
+        const modelRollup = new Map<string, ModelCostRollup>();
+        let monthUsd = 0;
+        let sevenDaysUsd = 0;
+
+        for (const row of typedLogs) {
+            const modelKey = normalizeModelPricingKey(row.model);
+            const pricing = MODEL_PRICING_USD_PER_1M[modelKey];
+            if (!pricing) continue;
+
+            const promptTokens = Math.max(0, Number(row.prompt_tokens || 0));
+            const completionTokens = Math.max(0, Number(row.completion_tokens || 0));
+            const costUsd =
+                (promptTokens / 1_000_000) * pricing.input +
+                (completionTokens / 1_000_000) * pricing.output;
+
+            monthUsd += costUsd;
+            if (typeof row.created_at === "string" && row.created_at >= sevenDaysIso) {
+                sevenDaysUsd += costUsd;
+            }
+
+            const current = modelRollup.get(modelKey) || {
+                model: modelKey,
+                promptTokens: 0,
+                completionTokens: 0,
+                costUsd: 0,
+                costBrl: 0,
+            };
+            current.promptTokens += promptTokens;
+            current.completionTokens += completionTokens;
+            current.costUsd += costUsd;
+            current.costBrl = current.costUsd * AI_COST_USD_TO_BRL;
+            modelRollup.set(modelKey, current);
+        }
+
+        const monthBrl = monthUsd * AI_COST_USD_TO_BRL;
+        const sevenDaysBrl = sevenDaysUsd * AI_COST_USD_TO_BRL;
+        const rollupList = Array.from(modelRollup.values()).sort(
+            (a, b) => b.costBrl - a.costBrl
+        );
+
+        roi = {
+            ...roi,
+            aiCost7dUsd: Number(sevenDaysUsd.toFixed(4)),
+            aiCost7dBrl: Number(sevenDaysBrl.toFixed(2)),
+            aiCostMonthUsd: Number(monthUsd.toFixed(4)),
+            aiCostMonthBrl: Number(monthBrl.toFixed(2)),
+            aiCostByModelMonth: rollupList.map((item) => ({
+                ...item,
+                costUsd: Number(item.costUsd.toFixed(4)),
+                costBrl: Number(item.costBrl.toFixed(2)),
+            })),
+            netRecoveredAfterAiCostMonth: Number(
+                Math.max(roi.recoveredSalesMonth - monthBrl, 0).toFixed(2)
+            ),
+        };
+    }
+
     const [restaurantRow, automationRow, firstLog, lastWarning] = await Promise.all([
-        supabase.from("restaurants").select("uaz_status, store_address, pix_key").eq("id", profile.restaurant_id).single(),
-        supabase.from("automations").select("id").eq("restaurant_id", profile.restaurant_id).eq("enabled", true).not("trigger", "is", null).limit(1).maybeSingle(),
-        supabase.from("webhook_logs").select("id").eq("restaurant_id", profile.restaurant_id).limit(1).maybeSingle(),
+        supabase
+            .from("restaurants")
+            .select("uaz_status, store_address, pix_key")
+            .eq("id", profile.restaurant_id)
+            .single(),
+        supabase
+            .from("automations")
+            .select("id")
+            .eq("restaurant_id", profile.restaurant_id)
+            .eq("enabled", true)
+            .not("trigger", "is", null)
+            .limit(1)
+            .maybeSingle(),
+        supabase
+            .from("webhook_logs")
+            .select("id")
+            .eq("restaurant_id", profile.restaurant_id)
+            .limit(1)
+            .maybeSingle(),
         supabase
             .from("notifications")
             .select("title, message, created_at")
@@ -277,21 +438,23 @@ export async function GET() {
         firstLeadMoved: !!firstLog.data,
     };
 
-    return NextResponse.json({
-        ok: true,
-        metrics: {
-            leadsHoje,
-            leadsSemana,
-            taxaConversao,
-            girosRoleta,
-            mensagensEnviadas,
-            chatsComVenda,
-            totalLeads: chatsList.length
+    return NextResponse.json(
+        {
+            ok: true,
+            metrics: {
+                leadsHoje,
+                leadsSemana,
+                taxaConversao,
+                girosRoleta,
+                chatsComVenda,
+                totalLeads,
+            },
+            topProdutos: produtos.slice(0, 10),
+            topHighlights,
+            roi,
+            whatsappHealth,
+            onboarding,
         },
-        topProdutos: produtos || [],
-        webhookStats,
-        roi,
-        whatsappHealth,
-        onboarding
-    }, { status: 200 });
+        { status: 200 }
+    );
 }

@@ -52,6 +52,7 @@ const RESTAURANT_PLAYBOOK_CACHE = new Map<
     { expiresAt: number; playbook: RestaurantPlaybook }
 >();
 let PLAYBOOK_OVERRIDE_TABLE_MODE: "unknown" | "enabled" | "unavailable" = "unknown";
+let AI_CHAT_MEMORY_TABLE_MODE: "unknown" | "enabled" | "unavailable" = "unknown";
 
 // ---------------------------------------------------------------------------
 // Supabase Admin
@@ -760,5 +761,84 @@ export async function persistAiTurnMetrics(
         console.error("[AI OBS] Failed to persist ai_turn_metrics:", error.message);
         return false;
     }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Summary Buffer (Persistent Chat Memory)
+// ---------------------------------------------------------------------------
+
+type AiChatMemoryRow = {
+    summary_text?: string | null;
+    updated_at?: string | null;
+} | null;
+
+export async function readChatSummaryMemory(
+    supabase: ReturnType<typeof getSupabaseAdmin>,
+    chatId: string
+) {
+    if (!chatId || AI_CHAT_MEMORY_TABLE_MODE === "unavailable") {
+        return null;
+    }
+
+    const { data, error } = await supabase
+        .from("ai_chat_memory")
+        .select("summary_text, updated_at")
+        .eq("chat_id", chatId)
+        .maybeSingle();
+
+    if (error) {
+        const code = String((error as { code?: string }).code || "").toLowerCase();
+        const message = String(error.message || "").toLowerCase();
+        if (
+            code === "42p01" ||
+            (message.includes("ai_chat_memory") &&
+                (message.includes("does not exist") || message.includes("not found")))
+        ) {
+            AI_CHAT_MEMORY_TABLE_MODE = "unavailable";
+        }
+        return null;
+    }
+
+    AI_CHAT_MEMORY_TABLE_MODE = "enabled";
+    return (data as AiChatMemoryRow) || null;
+}
+
+export async function persistChatSummaryMemory(
+    supabase: ReturnType<typeof getSupabaseAdmin>,
+    params: { restaurantId: string; chatId: string; waChatId: string },
+    summaryText: string
+) {
+    if (!params.chatId || !summaryText.trim() || AI_CHAT_MEMORY_TABLE_MODE === "unavailable") {
+        return false;
+    }
+
+    const { error } = await supabase
+        .from("ai_chat_memory")
+        .upsert(
+            {
+                restaurant_id: params.restaurantId,
+                chat_id: params.chatId,
+                wa_chat_id: params.waChatId,
+                summary_text: summaryText.trim(),
+                updated_at: new Date().toISOString(),
+            },
+            { onConflict: "chat_id" }
+        );
+
+    if (error) {
+        const code = String((error as { code?: string }).code || "").toLowerCase();
+        const message = String(error.message || "").toLowerCase();
+        if (
+            code === "42p01" ||
+            (message.includes("ai_chat_memory") &&
+                (message.includes("does not exist") || message.includes("not found")))
+        ) {
+            AI_CHAT_MEMORY_TABLE_MODE = "unavailable";
+        }
+        return false;
+    }
+
+    AI_CHAT_MEMORY_TABLE_MODE = "enabled";
     return true;
 }

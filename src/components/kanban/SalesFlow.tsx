@@ -65,6 +65,10 @@ interface SalesFlowProps {
     handleDragEnter: (stageId: string) => void;
     handleDragLeave: (e: React.DragEvent<HTMLDivElement>) => void;
     handleDrop: (e: React.DragEvent<HTMLDivElement>, stage: Stage) => Promise<void>;
+    draggedStageId: string | null;
+    handleStageDragStart: (e: React.DragEvent<HTMLDivElement>, stageId: string) => void;
+    handleStageDragEnd: () => void;
+    handleStageDrop: (e: React.DragEvent<HTMLDivElement>, targetStageId: string) => Promise<void>;
     scrollRef: React.RefObject<HTMLDivElement | null>;
     scrollByAmount: (amount: number) => void;
 }
@@ -84,6 +88,10 @@ export default function SalesFlow({
     handleDragEnter,
     handleDragLeave,
     handleDrop,
+    draggedStageId,
+    handleStageDragStart,
+    handleStageDragEnd,
+    handleStageDrop,
     scrollRef,
     scrollByAmount,
 }: SalesFlowProps) {
@@ -92,14 +100,14 @@ export default function SalesFlow({
             {/* Setas Flutuantes */}
             <button
                 onClick={() => scrollByAmount(-350)}
-                className="absolute left-[-1rem] top-1/2 -translate-y-1/2 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-white/90 shadow-[0_5px_15px_rgba(8,103,136,0.15)] backdrop-blur hover:bg-white text-[#086788] border border-slate-200 transition-all active:scale-95"
+                className="absolute left-[-1rem] top-1/2 -translate-y-1/2 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-white/90 dark:bg-slate-900/90 shadow-[0_5px_15px_rgba(8,103,136,0.15)] backdrop-blur hover:bg-white dark:hover:bg-slate-800 text-[#086788] dark:text-cyan-200 border border-slate-200 dark:border-slate-700 transition-all active:scale-95"
                 aria-label="Rolar para esquerda"
             >
                 <ChevronLeft size={24} strokeWidth={3} />
             </button>
             <button
                 onClick={() => scrollByAmount(350)}
-                className="absolute right-[-1rem] top-1/2 -translate-y-1/2 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-white/90 shadow-[0_5px_15px_rgba(8,103,136,0.15)] backdrop-blur hover:bg-white text-[#086788] border border-slate-200 transition-all active:scale-95"
+                className="absolute right-[-1rem] top-1/2 -translate-y-1/2 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-white/90 dark:bg-slate-900/90 shadow-[0_5px_15px_rgba(8,103,136,0.15)] backdrop-blur hover:bg-white dark:hover:bg-slate-800 text-[#086788] dark:text-cyan-200 border border-slate-200 dark:border-slate-700 transition-all active:scale-95"
                 aria-label="Rolar para direita"
             >
                 <ChevronRight size={24} strokeWidth={3} />
@@ -115,9 +123,25 @@ export default function SalesFlow({
                     );
 
                     return (
-                        <div key={stage.id} className="w-80 shrink-0 flex flex-col h-[calc(100vh-250px)]">
+                        <div
+                            key={stage.id}
+                            className={`w-80 shrink-0 flex flex-col h-[calc(100vh-250px)] transition-opacity ${draggedStageId === stage.id ? "opacity-55" : "opacity-100"
+                                }`}
+                        >
                             {/* Cabeçalho da coluna */}
-                            <div className="flex shrink-0 items-center justify-between rounded-[2rem] border border-white/70 bg-white/55 px-6 py-5 shadow-lg shadow-[#086788]/5 backdrop-blur-xl mb-4 group transition-colors">
+                            <div
+                                draggable={editingStageId !== stage.id}
+                                onDragStart={(e) => handleStageDragStart(e, stage.id)}
+                                onDragEnd={handleStageDragEnd}
+                                onDragOver={(e) => {
+                                    if (e.dataTransfer.getData("dragType") === "stage") {
+                                        e.preventDefault();
+                                        e.dataTransfer.dropEffect = "move";
+                                    }
+                                }}
+                                onDrop={(e) => handleStageDrop(e, stage.id)}
+                                className="flex shrink-0 items-center justify-between rounded-[2rem] border border-white/70 dark:border-slate-700/70 bg-white/55 dark:bg-slate-900/70 px-6 py-5 shadow-lg shadow-[#086788]/5 backdrop-blur-xl mb-4 group transition-colors cursor-grab active:cursor-grabbing"
+                            >
                                 {editingStageId === stage.id ? (
                                     <div className="flex-1 flex flex-col gap-2">
                                         <div className="flex items-center gap-2">
@@ -130,7 +154,7 @@ export default function SalesFlow({
                                                     else if (e.key === "Escape") setEditingStageId(null);
                                                 }}
                                                 autoFocus
-                                                className="flex-1 bg-white/80 border border-[#07a0c3]/40 rounded-lg px-2 py-1 text-[12px] font-black uppercase tracking-[0.1em] text-[#086788] outline-none"
+                                                className="flex-1 bg-white/80 dark:bg-slate-800 border border-[#07a0c3]/40 dark:border-cyan-500/40 rounded-lg px-2 py-1 text-[12px] font-black uppercase tracking-[0.1em] text-[#086788] dark:text-cyan-200 outline-none"
                                             />
                                             <button onClick={() => saveStageName(stage.id)} className="p-1.5 bg-emerald-100 text-emerald-600 rounded-md hover:bg-emerald-200">
                                                 <Check size={14} />
@@ -143,12 +167,12 @@ export default function SalesFlow({
                                 ) : (
                                     <div className="flex items-center gap-3 flex-1 min-w-0">
                                         <div className="h-2 w-2 rounded-full bg-[#07a0c3] shadow-[0_0_8px_#07a0c3] shrink-0" />
-                                        <h2 className="text-[12px] font-[900] uppercase tracking-[0.15em] text-[#086788] truncate mr-2 flex-1">
+                                        <h2 className="text-[12px] font-[900] uppercase tracking-[0.15em] text-[#086788] dark:text-cyan-200 truncate mr-2 flex-1">
                                             {stage.name}
                                         </h2>
                                         <button
                                             onClick={() => startEditing(stage)}
-                                            className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-[#07a0c3] hover:bg-cyan-50 rounded-lg transition-all"
+                                            className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 dark:text-slate-300 hover:text-[#07a0c3] dark:hover:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-slate-800 rounded-lg transition-all"
                                             title="Editar Nome do Estágio"
                                         >
                                             <Pencil size={14} />
@@ -157,7 +181,7 @@ export default function SalesFlow({
                                 )}
 
                                 {editingStageId !== stage.id && (
-                                    <span className="rounded-xl bg-[#086788] px-3 py-1 text-[10px] font-black text-white shadow-lg shadow-[#086788]/20 shrink-0 ml-2">
+                                    <span className="rounded-xl bg-[#086788] dark:bg-cyan-700 px-3 py-1 text-[10px] font-black text-white shadow-lg shadow-[#086788]/20 shrink-0 ml-2">
                                         {stageChats.length}
                                     </span>
                                 )}
@@ -172,8 +196,8 @@ export default function SalesFlow({
                                 onDrop={(e) => handleDrop(e, stage)}
                             >
                                 {stageChats.length === 0 ? (
-                                    <div className="rounded-[2.5rem] border-2 border-dashed border-[#086788]/10 p-10 text-center">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-[#086788]/30">Vazio</p>
+                                    <div className="rounded-[2.5rem] border-2 border-dashed border-[#086788]/10 dark:border-slate-700 p-10 text-center">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-[#086788]/30 dark:text-slate-400">Vazio</p>
                                     </div>
                                 ) : (
                                     stageChats.map((chat) => (
@@ -182,8 +206,8 @@ export default function SalesFlow({
                                             draggable
                                             onDragStart={(e) => handleDragStart(e, chat.id)}
                                             className={`group relative overflow-hidden rounded-[2.2rem] border p-6 shadow-sm transition-all duration-500 hover:-translate-y-[5px] hover:shadow-[0_15px_30px_-5px_rgba(8,103,136,0.15)] backdrop-blur-lg cursor-grab active:cursor-grabbing ${stage.name === "Atendimento Humano"
-                                                    ? "bg-red-50/90 border-red-200"
-                                                    : "bg-white/80 border-white"
+                                                    ? "bg-red-50/90 dark:bg-red-950/25 border-red-200 dark:border-red-900/60"
+                                                    : "bg-white/80 dark:bg-slate-900/65 border-white dark:border-slate-700/70"
                                                 }`}
                                         >
                                             {/* Indicador lateral */}
@@ -201,27 +225,27 @@ export default function SalesFlow({
                                                     )}
                                                 </div>
                                                 <span
-                                                    className="rounded-full border border-slate-200 bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-700"
+                                                    className="rounded-full border border-slate-200 dark:border-slate-600 bg-white/90 dark:bg-slate-800/90 px-2 py-1 text-[10px] font-semibold text-slate-700 dark:text-slate-200"
                                                     title={`Sentimento: ${getSentimentBadge(chat.sentiment).label}`}
                                                 >
                                                     {getSentimentBadge(chat.sentiment).emoji} {getSentimentBadge(chat.sentiment).label}
                                                 </span>
                                             </div>
 
-                                            <p className="truncate text-[14px] font-[900] uppercase tracking-tight text-[#086788]">{getChatName(chat)}</p>
+                                            <p className="truncate text-[14px] font-[900] uppercase tracking-tight text-[#086788] dark:text-cyan-200">{getChatName(chat)}</p>
 
                                             <div className="mt-1 flex items-center gap-2 text-[#07a0c3]/70">
                                                 <span className="text-[10px] font-bold tracking-widest">{getChatPhone(chat)}</span>
                                             </div>
 
-                                            <div className="mt-4 rounded-[1.5rem] border border-[#086788]/5 bg-[#f0f8f9] p-4">
-                                                <p className="line-clamp-2 text-[12px] italic leading-relaxed text-slate-600">
+                                            <div className="mt-4 rounded-[1.5rem] border border-[#086788]/5 dark:border-slate-700 bg-[#f0f8f9] dark:bg-slate-800/80 p-4">
+                                                <p className="line-clamp-2 text-[12px] italic leading-relaxed text-slate-600 dark:text-slate-200">
                                                     &quot;{chat.last_message?.trim() || "Sem última mensagem"}&quot;
                                                 </p>
                                             </div>
 
-                                            <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
-                                                <span className="text-[10px] font-black uppercase tracking-tighter text-slate-400">
+                                            <div className="mt-5 flex items-center justify-between border-t border-slate-100 dark:border-slate-700 pt-4">
+                                                <span className="text-[10px] font-black uppercase tracking-tighter text-slate-400 dark:text-slate-300">
                                                     {formatDate(chat.updated_at)}
                                                 </span>
 

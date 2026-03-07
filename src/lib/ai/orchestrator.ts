@@ -27,6 +27,7 @@ import {
     buildActiveCategoryPitch,
     buildObjectionRecoveryPitch,
     buildPostAddToCartSalesPlan,
+    detectRepeatOrderIntent,
     detectSalesObjectionIntent,
     detectRouletteChoiceIntent,
     detectStructuredReplyIntent,
@@ -36,6 +37,7 @@ import {
     normalizeOutboundText,
     parseAddToCartClientAction,
     resolveCategoryForPlaybook,
+    shouldApplyRetentionCoupon,
     shouldAutoCalculateAfterOperationalInput,
     shouldHandleDelayedCouponDeferral,
     stripThoughtBlocks,
@@ -54,6 +56,7 @@ import {
     markTextSent,
     markToolCompleted,
 } from "./aiMetrics";
+import { inferFollowupNextStep } from "./toolRules";
 
 // ---------------------------------------------------------------------------
 // Re-exports from extracted modules
@@ -91,6 +94,8 @@ import {
     getRestaurantSalesPlaybook,
     wasTurnSupersededByNewInbound,
     persistAiTurnMetrics,
+    readChatSummaryMemory,
+    persistChatSummaryMemory,
 } from "./orchestrator-utils";
 
 import {
@@ -118,7 +123,23 @@ import {
     sendRichPayload,
     persistOutgoingMessage,
 } from "./message-sender";
-import { APP_URL, GEMINI_API_KEY, OPENAI_API_KEY } from "../shared/env";
+import {
+    AI_CHAT_BUDGET_POLICY,
+    AI_CHAT_TOKEN_BUDGET_24H,
+    AI_CHAT_TURN_BUDGET_24H,
+    AI_GOOGLE_CONTEXT_CACHE_ENABLED,
+    AI_GOOGLE_CONTEXT_CACHE_TTL_SECONDS,
+    AI_MODEL_ROUTING_ENABLED,
+    AI_MODEL_ROUTING_SHORT_TEXT_THRESHOLD,
+    AI_SUMMARY_BUFFER_ENABLED,
+    AI_SUMMARY_BUFFER_RECENT_MESSAGES,
+    AI_RETENTION_COUPON_CODE,
+    AI_RETENTION_COUPON_ENABLED,
+    GEMINI_TRIAGE_MODEL_NAME,
+    APP_URL,
+    GEMINI_API_KEY,
+    OPENAI_API_KEY,
+} from "../shared/env";
 
 type SentimentLabel = "Satisfeito" | "Frustrado" | "Neutro";
 
@@ -128,10 +149,236 @@ type OpenAiFallbackResult = {
     completionTokens: number;
     totalTokens: number;
 };
+type AiLogUsageRow = {
+    total_tokens: number | null;
+};
+type CustomerHistoryToolResult = {
+    ok?: boolean;
+    has_history?: boolean;
+    suggestion_text?: string;
+    last_order?: {
+        items?: Array<{ title?: string; quantity?: number }>;
+    } | null;
+    top_products?: Array<{ title?: string; quantity?: number }>;
+};
+type ProductAvailabilityRow = {
+    id: string;
+    nome?: string | null;
+    category?: string | null;
+    is_available?: boolean | null;
+    stock_quantity?: number | null;
+    estoque?: number | null;
+};
+type BudgetUsageSummary = {
+    turns: number;
+    totalTokens: number;
+    overTurnBudget: boolean;
+    overTokenBudget: boolean;
+};
 
 const OPENAI_FALLBACK_MODEL_NAME = "gpt-4o-mini";
 const SENTIMENT_LLM_EVERY_N_TURNS = 5;
 const SENTIMENT_LLM_TIMEOUT_MS = 5000;
+const INACTIVITY_RECOVERY_THRESHOLD_MIN = 60;
+const INACTIVITY_RECOVERY_HINT_MAX_MIN = 24 * 60;
+
+function normalizeChatBudgetPolicy(value: string) {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "off") return "off" as const;
+    if (normalized === "economic_mode") return "economic_mode" as const;
+    return "human_handoff" as const;
+}
+
+async function readAiBudgetUsage24h(
+    supabase: ReturnType<typeof getSupabaseAdmin>,
+    params: OrchestratorParams
+): Promise<BudgetUsageSummary> {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+        .from("ai_logs")
+        .select("total_tokens")
+        .eq("restaurant_id", params.restaurantId)
+        .eq("wa_chat_id", params.waChatId)
+        .gte("created_at", since)
+        .limit(2000);
+
+    if (error) {
+        logAiEvent("budget_usage_read_failed", {
+            chatId: params.chatId,
+            error: error.message,
+        });
+        return {
+            turns: 0,
+            totalTokens: 0,
+            overTurnBudget: false,
+            overTokenBudget: false,
+        };
+    }
+
+    const rows = (data || []) as AiLogUsageRow[];
+    const turns = rows.length;
+    const totalTokens = rows.reduce((acc, row) => {
+        const numeric = Number(row.total_tokens);
+        return Number.isFinite(numeric) ? acc + numeric : acc;
+    }, 0);
+
+    const turnBudget = Math.max(0, AI_CHAT_TURN_BUDGET_24H);
+    const tokenBudget = Math.max(0, AI_CHAT_TOKEN_BUDGET_24H);
+
+    return {
+        turns,
+        totalTokens,
+        overTurnBudget: turnBudget > 0 && turns >= turnBudget,
+        overTokenBudget: tokenBudget > 0 && totalTokens >= tokenBudget,
+    };
+}
+
+function readStockNumber(row: ProductAvailabilityRow) {
+    const stockCandidates = [row.stock_quantity, row.estoque];
+    for (const candidate of stockCandidates) {
+        const numeric = Number(candidate);
+        if (Number.isFinite(numeric)) {
+            return numeric;
+        }
+    }
+    return null;
+}
+
+function isProductAvailable(row: ProductAvailabilityRow) {
+    if (typeof row.is_available === "boolean" && row.is_available === false) {
+        return false;
+    }
+
+    const stockNumber = readStockNumber(row);
+    if (stockNumber !== null) {
+        return stockNumber > 0;
+    }
+
+    return true;
+}
+
+async function readProductAvailabilityForAddToCart(params: {
+    supabase: ReturnType<typeof getSupabaseAdmin>;
+    restaurantId: string;
+    productId: string;
+}) {
+    const selectCandidates = [
+        "id, nome, category, is_available, stock_quantity, estoque",
+        "id, nome, category, is_available, estoque",
+        "id, nome, category, is_available",
+        "id, nome, category, stock_quantity",
+        "id, nome, category",
+    ];
+
+    for (const selectClause of selectCandidates) {
+        const { data, error } = await params.supabase
+            .from("produtos_promo")
+            .select(selectClause)
+            .eq("restaurant_id", params.restaurantId)
+            .eq("id", params.productId)
+            .maybeSingle();
+
+        if (error) {
+            continue;
+        }
+
+        const row = (data || null) as ProductAvailabilityRow | null;
+        if (!row) {
+            return null;
+        }
+
+        return {
+            ...row,
+            available: isProductAvailable(row),
+        };
+    }
+
+    return null;
+}
+
+function buildCustomerHistoryHint(history: CustomerHistoryToolResult) {
+    const lastOrderItems = Array.isArray(history.last_order?.items)
+        ? history.last_order?.items || []
+        : [];
+    const topProducts = Array.isArray(history.top_products) ? history.top_products : [];
+    const latestItemsText = lastOrderItems
+        .slice(0, 3)
+        .map((item) => `${item.quantity || 1}x ${item.title || "item"}`)
+        .join(", ");
+    const topItemsText = topProducts
+        .slice(0, 3)
+        .map((item) => `${item.title || "item"} (${item.quantity || 0})`)
+        .join(", ");
+
+    return [
+        "[Contexto cliente recorrente]",
+        latestItemsText ? `ultima_compra=${latestItemsText}` : null,
+        topItemsText ? `top_itens=${topItemsText}` : null,
+        "instrucao=se cliente pedir o mesmo, confirme esse historico antes de montar novo roteiro",
+    ]
+        .filter(Boolean)
+        .join("\n");
+}
+
+function resolveRoutedModelName(details: {
+    incomingText: string;
+    hasMedia: boolean;
+    hasCartItems: boolean;
+    hasOperationalSignals: boolean;
+    hasImmediateActions: boolean;
+}) {
+    if (!AI_MODEL_ROUTING_ENABLED) {
+        return GEMINI_MODEL_NAME;
+    }
+
+    const trimmedText = details.incomingText.trim();
+    const isShortText =
+        trimmedText.length > 0 &&
+        trimmedText.length <= AI_MODEL_ROUTING_SHORT_TEXT_THRESHOLD;
+    const looksLikeSimpleGreeting =
+        /^(oi|ola|opa|bom dia|boa tarde|boa noite|ok|blz|beleza|valeu|obrigado|obrigada)$/i.test(
+            trimmedText
+        );
+
+    const canUseTriageModel =
+        !details.hasMedia &&
+        !details.hasCartItems &&
+        !details.hasOperationalSignals &&
+        !details.hasImmediateActions &&
+        (isShortText || looksLikeSimpleGreeting);
+
+    return canUseTriageModel ? GEMINI_TRIAGE_MODEL_NAME : GEMINI_MODEL_NAME;
+}
+
+function buildRollingSummaryBuffer(details: {
+    kanbanStatus: string;
+    cupomGanho: string;
+    inactivityMinutes: number | null;
+    locationConfirmed: boolean;
+    addressConfirmed: boolean;
+    referenceConfirmed: boolean;
+    lastInboundText: string;
+    lastModelText: string;
+    nextStepHint: string;
+    hasCartItems: boolean;
+    hasOrder: boolean;
+}) {
+    const inbound = details.lastInboundText.trim() || "sem_texto";
+    const modelText = details.lastModelText.trim() || "sem_resposta";
+    return [
+        `kanban=${details.kanbanStatus}`,
+        `cupom=${details.cupomGanho}`,
+        `cart_items=${details.hasCartItems ? "sim" : "nao"}`,
+        `order_finalized=${details.hasOrder ? "sim" : "nao"}`,
+        `location_confirmed=${details.locationConfirmed ? "sim" : "nao"}`,
+        `address_confirmed=${details.addressConfirmed ? "sim" : "nao"}`,
+        `reference_confirmed=${details.referenceConfirmed ? "sim" : "nao"}`,
+        `inactivity_minutes=${details.inactivityMinutes ?? 0}`,
+        `next_step=${details.nextStepHint}`,
+        `last_user=${inbound.slice(0, 220)}`,
+        `last_assistant=${modelText.slice(0, 220)}`,
+    ].join(" | ");
+}
 
 function parseSentimentLabel(raw: string): SentimentLabel | null {
     const normalized = raw.trim().toLowerCase();
@@ -140,6 +387,36 @@ function parseSentimentLabel(raw: string): SentimentLabel | null {
     if (normalized.includes("satisfeito")) return "Satisfeito";
     if (normalized.includes("neutro")) return "Neutro";
     return null;
+}
+
+function parseTimestampMs(value: string | null | undefined): number | null {
+    if (!value) return null;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildInactivityResumeHint(details: {
+    inactivityMinutes: number;
+    nextStep: string;
+    kanbanStatus: string;
+    cupomGanho: string;
+}) {
+    const normalizedCoupon = details.cupomGanho.trim().toLowerCase();
+    const hasCoupon =
+        normalizedCoupon.length > 0 &&
+        normalizedCoupon !== "nenhum";
+    const couponText = hasCoupon
+        ? `Cupom ativo: ${details.cupomGanho.trim()}.`
+        : "Sem cupom ativo.";
+
+    return [
+        "memoria_retomada=sim",
+        `retorno_apos_minutos=${details.inactivityMinutes}`,
+        `etapa_recomendada=${details.nextStep}`,
+        `kanban_atual=${details.kanbanStatus}`,
+        couponText,
+        "instrucao_retomada=retomar do ponto salvo sem reabrir principal sem necessidade",
+    ].join(" | ");
 }
 
 function extractConversationTranscript(
@@ -275,7 +552,8 @@ export async function processAiMessage(params: OrchestratorParams) {
         { data: restData },
         { data: messages },
         { data: chatContext },
-        restaurantPlaybook
+        restaurantPlaybook,
+        persistedSummaryMemory,
     ] = await Promise.all([
         normalizeIncomingText(supabase, params),
         supabase
@@ -291,10 +569,11 @@ export async function processAiMessage(params: OrchestratorParams) {
             .limit(15),
         supabase
             .from("chats")
-            .select("stage_id, kanban_status, cupom_ganho, cart_snapshot, kanban_stages(name)")
+            .select("stage_id, kanban_status, cupom_ganho, last_activity_at, cart_snapshot, kanban_stages(name)")
             .eq("id", params.chatId)
             .single(),
-        getRestaurantSalesPlaybook(supabase, params.restaurantId)
+        getRestaurantSalesPlaybook(supabase, params.restaurantId),
+        readChatSummaryMemory(supabase, params.chatId),
     ]);
 
     const instanceToken = restData?.uaz_instance_token || "";
@@ -359,6 +638,9 @@ export async function processAiMessage(params: OrchestratorParams) {
     const latestOutboundText =
         typeof latestOutboundMessage?.text === "string" ? latestOutboundMessage.text : "";
     const cartSnapshotMeta = readCartSnapshotMeta(typedChatContext?.cart_snapshot);
+    const lastActivityMs = parseTimestampMs(typedChatContext?.last_activity_at);
+    const inactivityMinutes =
+        lastActivityMs !== null ? Math.max(0, Math.floor((Date.now() - lastActivityMs) / 60000)) : null;
 
     let geminiHistory: Content[] = [];
     if (typedMessages.length > 0) {
@@ -416,9 +698,42 @@ export async function processAiMessage(params: OrchestratorParams) {
         typedChatContext?.kanban_status ||
         "Desconhecido";
     const cupomGanho = typedChatContext?.cupom_ganho || "Nenhum";
+    const shouldInjectInactivityResumeHint = Boolean(
+        inactivityMinutes !== null &&
+        inactivityMinutes >= INACTIVITY_RECOVERY_THRESHOLD_MIN &&
+        inactivityMinutes <= INACTIVITY_RECOVERY_HINT_MAX_MIN &&
+        cartSnapshotMeta.hasItems &&
+        !cartSnapshotMeta.hasOrder &&
+        (normalizedIncomingText || "").trim().length > 0
+    );
+    const inactivityResumeHint = shouldInjectInactivityResumeHint
+        ? buildInactivityResumeHint({
+            inactivityMinutes: inactivityMinutes || 0,
+            nextStep: inferFollowupNextStep(typedChatContext?.cart_snapshot),
+            kanbanStatus,
+            cupomGanho,
+        })
+        : "";
     const prefixCacheMode = getPrefixCacheMode();
     const baseConversationContext = sanitizeGeminiHistory(geminiHistory);
-    const operationalSummary = buildOperationalChatSummary({
+    const persistedSummaryText =
+        typeof persistedSummaryMemory?.summary_text === "string"
+            ? persistedSummaryMemory.summary_text.trim()
+            : "";
+    const summaryBufferApplied =
+        AI_SUMMARY_BUFFER_ENABLED &&
+        persistedSummaryText.length > 0 &&
+        baseConversationContext.length > AI_SUMMARY_BUFFER_RECENT_MESSAGES;
+    const summaryBufferedConversationContext = summaryBufferApplied
+        ? [
+            {
+                role: "user" as const,
+                parts: [{ text: `[Resumo persistido do chat]\n${persistedSummaryText}` }],
+            },
+            ...baseConversationContext.slice(-AI_SUMMARY_BUFFER_RECENT_MESSAGES),
+        ]
+        : baseConversationContext;
+    const operationalSummaryBase = buildOperationalChatSummary({
         kanbanStatus,
         cupomGanho,
         cartSnapshot: typedChatContext?.cart_snapshot,
@@ -426,10 +741,13 @@ export async function processAiMessage(params: OrchestratorParams) {
         addressConfirmed,
         referenceConfirmed,
         latestInboundText: normalizedIncomingText || "Nenhuma",
-        conversationContext: baseConversationContext,
+        conversationContext: summaryBufferedConversationContext,
     });
+    const operationalSummary = inactivityResumeHint
+        ? `${operationalSummaryBase}\n${inactivityResumeHint}`
+        : operationalSummaryBase;
     const conversationContext = optimizeConversationContext(
-        baseConversationContext,
+        summaryBufferedConversationContext,
         operationalSummary,
         prefixCacheMode
     );
@@ -452,12 +770,22 @@ export async function processAiMessage(params: OrchestratorParams) {
             }
         }
 
+        const applyRetentionCoupon = shouldApplyRetentionCoupon({
+            enabled: AI_RETENTION_COUPON_ENABLED,
+            sentiment: finalSentiment,
+            currentCoupon: cupomGanho,
+        });
+        const updatePayload: Record<string, unknown> = {
+            sentiment: finalSentiment,
+            last_activity_at: new Date().toISOString(),
+        };
+        if (applyRetentionCoupon) {
+            updatePayload.cupom_ganho = AI_RETENTION_COUPON_CODE;
+        }
+
         const { error } = await supabase
             .from("chats")
-            .update({
-                sentiment: finalSentiment,
-                last_activity_at: new Date().toISOString(),
-            })
+            .update(updatePayload)
             .eq("id", params.chatId);
 
         if (error) {
@@ -465,11 +793,20 @@ export async function processAiMessage(params: OrchestratorParams) {
             return;
         }
 
+        if (applyRetentionCoupon) {
+            logAiEvent("retention_coupon_applied", {
+                chatId: params.chatId,
+                couponCode: AI_RETENTION_COUPON_CODE,
+                sentiment: finalSentiment,
+            });
+        }
+
         logAiEvent("sentiment_updated", {
             chatId: params.chatId,
             sentiment: finalSentiment,
             source,
             userTurnCount,
+            retentionCouponApplied: applyRetentionCoupon,
         });
     })();
 
@@ -492,6 +829,10 @@ export async function processAiMessage(params: OrchestratorParams) {
         triggerMessageCreatedAt: latestInboundMessage?.created_at || null,
         promptSanitized: promptSanitization.sanitized,
         promptSanitizationReason: promptSanitization.reason,
+        inactivityMinutes,
+        inactivityResumeHintInjected: shouldInjectInactivityResumeHint,
+        summaryBufferApplied,
+        persistedSummaryLoaded: Boolean(persistedSummaryText),
     });
 
     if (prefixCacheMode === "shadow") {
@@ -563,6 +904,7 @@ export async function processAiMessage(params: OrchestratorParams) {
         preferredDomain: restaurantPlaybook.vertical,
         availability: restaurantPlaybook.availableCategories,
     });
+    const immediateRepeatOrderIntent = detectRepeatOrderIntent(normalizedIncomingText);
     const inboundIsNeutralWithoutCatalogIntent =
         isNeutralInboundWithoutCatalogIntent(normalizedIncomingText);
 
@@ -571,6 +913,221 @@ export async function processAiMessage(params: OrchestratorParams) {
         hasFreightCalculation: false,
         hasPixQuote: false,
     };
+    const hasImmediateActions =
+        Boolean(immediatePostLocationFollowUp) ||
+        Boolean(immediateRoulettePrizePrompt) ||
+        Boolean(immediateRouletteChoice) ||
+        Boolean(immediateDelayedCouponFollowUp) ||
+        Boolean(immediateAddToCartAction) ||
+        Boolean(immediateOperationalCalculation) ||
+        Boolean(immediateSalesObjection) ||
+        Boolean(immediateRepeatOrderIntent);
+    const selectedModelName = resolveRoutedModelName({
+        incomingText: normalizedIncomingText,
+        hasMedia: Boolean(params.mediaBase64),
+        hasCartItems: cartSnapshotMeta.hasItems,
+        hasOperationalSignals: incomingHasLocation || incomingHasAddress || incomingHasReference,
+        hasImmediateActions,
+    });
+    logAiEvent("model_routed", {
+        chatId: params.chatId,
+        selectedModel: selectedModelName,
+        defaultModel: GEMINI_MODEL_NAME,
+        triageModel: GEMINI_TRIAGE_MODEL_NAME,
+    });
+
+    const chatBudgetPolicy = normalizeChatBudgetPolicy(AI_CHAT_BUDGET_POLICY);
+    if (chatBudgetPolicy !== "off") {
+        const budgetUsage = await readAiBudgetUsage24h(supabase, params);
+        if (budgetUsage.overTurnBudget || budgetUsage.overTokenBudget) {
+            logAiEvent("chat_budget_guard_triggered", {
+                chatId: params.chatId,
+                policy: chatBudgetPolicy,
+                turns24h: budgetUsage.turns,
+                tokens24h: budgetUsage.totalTokens,
+                turnBudget24h: AI_CHAT_TURN_BUDGET_24H,
+                tokenBudget24h: AI_CHAT_TOKEN_BUDGET_24H,
+            });
+
+            if (chatBudgetPolicy === "human_handoff") {
+                const stageMoveRaw = await executeAiTool(
+                    "move_kanban_stage",
+                    { stage_name: "Atendimento Humano" },
+                    ctx
+                );
+                try {
+                    const stageMoveResult = asRecord(JSON.parse(stageMoveRaw));
+                    markToolCompleted(turnMetrics, {
+                        toolName: "move_kanban_stage",
+                        blocked: false,
+                        skipped: stageMoveResult?.skipped === true,
+                        ok: stageMoveResult?.ok === true,
+                    });
+                } catch {
+                    // ignore parse issue
+                }
+            }
+
+            const budgetText =
+                chatBudgetPolicy === "economic_mode"
+                    ? "Estou em modo economico agora e vou seguir com respostas objetivas. Me manda so o proximo passo do pedido."
+                    : "Vou chamar um especialista humano para continuar seu atendimento sem atrasos.";
+            const budgetSendResult = await sendTextMessage(
+                params.waChatId,
+                budgetText,
+                instanceToken
+            );
+
+            if (wasOutboundDeliveryAccepted(budgetSendResult)) {
+                markTextSent(turnMetrics);
+                await persistOutgoingMessage(supabase, params, budgetText);
+            } else {
+                markTextFailed(turnMetrics);
+            }
+
+            const turnSummary = buildAiTurnSummary(turnMetrics, {
+                maxIterationsReached: false,
+            });
+            const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+            logAiEvent("process_completed", {
+                chatId: params.chatId,
+                metricsPersisted,
+                ...turnSummary,
+            });
+            return;
+        }
+    }
+
+    const shouldProbeCustomerHistory =
+        !cartSnapshotMeta.hasItems &&
+        normalizedIncomingText.trim().length > 0 &&
+        (immediateRepeatOrderIntent || incomingMessages.length <= 2);
+    let customerHistoryResult: CustomerHistoryToolResult | null = null;
+
+    if (shouldProbeCustomerHistory) {
+        const customerHistoryRaw = await executeAiTool("get_customer_history", {}, ctx);
+        let parsedCustomerHistory: Record<string, unknown> | null = null;
+        try {
+            parsedCustomerHistory = asRecord(JSON.parse(customerHistoryRaw));
+        } catch {
+            parsedCustomerHistory = null;
+        }
+        markToolCompleted(turnMetrics, {
+            toolName: "get_customer_history",
+            blocked: false,
+            skipped: parsedCustomerHistory?.has_history !== true,
+            ok: parsedCustomerHistory?.ok === true,
+        });
+        if (parsedCustomerHistory?.ok === true && parsedCustomerHistory?.has_history === true) {
+            customerHistoryResult = parsedCustomerHistory as CustomerHistoryToolResult;
+            conversationContext.push({
+                role: "user",
+                parts: [{ text: buildCustomerHistoryHint(customerHistoryResult) }],
+            });
+            logAiEvent("customer_history_loaded", {
+                chatId: params.chatId,
+                hasHistory: true,
+            });
+        }
+    }
+
+    if (
+        immediateRepeatOrderIntent &&
+        customerHistoryResult?.has_history &&
+        !immediateRoulettePrizePrompt &&
+        !immediateRouletteChoice &&
+        !immediateDelayedCouponFollowUp &&
+        !immediateAddToCartAction
+    ) {
+        const suggestionText =
+            typeof customerHistoryResult.suggestion_text === "string" &&
+                customerHistoryResult.suggestion_text.trim().length > 0
+                ? customerHistoryResult.suggestion_text.trim()
+                : "Posso repetir seu pedido mais recente. Quer que eu siga assim?";
+        const replayButtonsRaw = await executeAiTool(
+            "send_uaz_buttons",
+            {
+                text: `${suggestionText} Quer repetir ou prefere montar outro?`,
+                choices: ["Repetir pedido", "Montar novo"],
+                footerText: "Escolha uma opcao",
+            },
+            ctx
+        );
+        const replayButtonsResult = asRecord(JSON.parse(replayButtonsRaw));
+        const replayButtonsPayload = asRecord(replayButtonsResult?.uazapi_payload);
+        markToolCompleted(turnMetrics, {
+            toolName: "send_uaz_buttons",
+            blocked: false,
+            skipped: false,
+            ok: replayButtonsResult?.ok === true,
+        });
+
+        if (
+            replayButtonsPayload &&
+            !(
+                await wasOutgoingPayloadAlreadySent(
+                    supabase,
+                    params.chatId,
+                    replayButtonsPayload,
+                    ctx.trigger_message_created_at
+                )
+            )
+        ) {
+            const payloadSendResult = await sendRichPayload(
+                replayButtonsPayload,
+                instanceToken
+            );
+            if (wasOutboundDeliveryAccepted(payloadSendResult)) {
+                markPayloadSent(turnMetrics);
+                await persistOutgoingMessage(
+                    supabase,
+                    params,
+                    typeof replayButtonsPayload.text === "string"
+                        ? replayButtonsPayload.text
+                        : suggestionText,
+                    replayButtonsPayload
+                );
+                const turnSummary = buildAiTurnSummary(turnMetrics, {
+                    maxIterationsReached: false,
+                });
+                const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+                logAiEvent("process_completed", {
+                    chatId: params.chatId,
+                    metricsPersisted,
+                    ...turnSummary,
+                });
+                return;
+            }
+            markPayloadFailed(turnMetrics);
+        }
+
+        const replayFallback = await sendTextMessage(
+            params.waChatId,
+            `${suggestionText} Me responde "repetir" ou "montar novo".`,
+            instanceToken
+        );
+        if (wasOutboundDeliveryAccepted(replayFallback)) {
+            markTextSent(turnMetrics);
+            await persistOutgoingMessage(
+                supabase,
+                params,
+                `${suggestionText} Me responde "repetir" ou "montar novo".`
+            );
+        } else {
+            markTextFailed(turnMetrics);
+        }
+
+        const turnSummary = buildAiTurnSummary(turnMetrics, {
+            maxIterationsReached: false,
+        });
+        const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+        logAiEvent("process_completed", {
+            chatId: params.chatId,
+            metricsPersisted,
+            ...turnSummary,
+        });
+        return;
+    }
 
     if (immediatePostLocationFollowUp) {
         const sendResult = await sendTextMessage(
@@ -1215,17 +1772,147 @@ export async function processAiMessage(params: OrchestratorParams) {
     }
 
     if (immediateAddToCartAction) {
+        const availabilityInfo = await readProductAvailabilityForAddToCart({
+            supabase,
+            restaurantId: params.restaurantId,
+            productId: immediateAddToCartAction.productId,
+        });
+        const dbCategory = String(availabilityInfo?.category || "").toLowerCase();
+        const effectiveCategory: "principal" | "adicional" | "bebida" =
+            dbCategory === "principal" || dbCategory === "adicional" || dbCategory === "bebida"
+                ? dbCategory
+                : immediateAddToCartAction.category;
+        const effectiveProductName =
+            typeof availabilityInfo?.nome === "string" && availabilityInfo.nome.trim().length > 0
+                ? availabilityInfo.nome.trim()
+                : immediateAddToCartAction.productName;
+
+        if (!availabilityInfo || availabilityInfo.available !== true) {
+            logAiEvent("add_to_cart_blocked_unavailable", {
+                chatId: params.chatId,
+                productId: immediateAddToCartAction.productId,
+                category: effectiveCategory,
+            });
+
+            const unavailableText =
+                "Esse item acabou agora. Ja separei opcoes parecidas para voce escolher.";
+            const searchRaw = await executeAiTool(
+                "search_product_catalog",
+                { category: effectiveCategory },
+                ctx
+            );
+            const searchResult = asRecord(JSON.parse(searchRaw));
+            const categoryProducts = asProductList(searchResult?.products);
+            markToolCompleted(turnMetrics, {
+                toolName: "search_product_catalog",
+                blocked: false,
+                skipped: false,
+                ok: searchResult?.ok === true,
+            });
+
+            if (categoryProducts.length > 0) {
+                const carouselRaw = await executeAiTool(
+                    "send_uaz_carousel",
+                    {
+                        products: categoryProducts,
+                        text: unavailableText,
+                    },
+                    ctx
+                );
+                const carouselResult = asRecord(JSON.parse(carouselRaw));
+                const carouselPayload = asRecord(carouselResult?.uazapi_payload);
+                markToolCompleted(turnMetrics, {
+                    toolName: "send_uaz_carousel",
+                    blocked: false,
+                    skipped: false,
+                    ok: carouselResult?.ok === true,
+                });
+
+                if (
+                    carouselPayload &&
+                    !(
+                        await wasOutgoingPayloadAlreadySent(
+                            supabase,
+                            params.chatId,
+                            carouselPayload,
+                            ctx.trigger_message_created_at
+                        )
+                    )
+                ) {
+                    const payloadSendResult = await sendRichPayload(
+                        carouselPayload,
+                        instanceToken
+                    );
+                    if (wasOutboundDeliveryAccepted(payloadSendResult)) {
+                        markPayloadSent(turnMetrics);
+                        await persistOutgoingMessage(
+                            supabase,
+                            params,
+                            typeof carouselPayload.text === "string"
+                                ? carouselPayload.text
+                                : unavailableText,
+                            carouselPayload
+                        );
+                        const turnSummary = buildAiTurnSummary(turnMetrics, {
+                            maxIterationsReached: false,
+                        });
+                        const metricsPersisted = await persistAiTurnMetrics(
+                            supabase,
+                            params,
+                            turnSummary
+                        );
+                        logAiEvent("process_completed", {
+                            chatId: params.chatId,
+                            metricsPersisted,
+                            ...turnSummary,
+                        });
+                        return;
+                    }
+
+                    markPayloadFailed(turnMetrics);
+                }
+            }
+
+            const unavailableFallbackResult = await sendTextMessage(
+                params.waChatId,
+                unavailableText,
+                instanceToken
+            );
+            if (wasOutboundDeliveryAccepted(unavailableFallbackResult)) {
+                markTextSent(turnMetrics);
+                await persistOutgoingMessage(supabase, params, unavailableText);
+            } else {
+                markTextFailed(turnMetrics);
+            }
+
+            const turnSummary = buildAiTurnSummary(turnMetrics, {
+                maxIterationsReached: false,
+            });
+            const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+            logAiEvent("process_completed", {
+                chatId: params.chatId,
+                metricsPersisted,
+                ...turnSummary,
+            });
+            return;
+        }
+
+        const normalizedAddToCartAction = {
+            ...immediateAddToCartAction,
+            category: effectiveCategory,
+            productName: effectiveProductName,
+        };
         const updatedSnapshot = await persistCartSelectionFromAction(
             supabase,
             params,
             typedChatContext?.cart_snapshot ?? null,
-            immediateAddToCartAction
+            normalizedAddToCartAction
         );
         const updatedSnapshotMeta = readCartSnapshotMeta(updatedSnapshot);
 
         const postAddPlan = buildPostAddToCartSalesPlan({
-            addedCategory: immediateAddToCartAction.category,
-            addedProductName: immediateAddToCartAction.productName,
+            addedCategory: normalizedAddToCartAction.category,
+            addedProductName: normalizedAddToCartAction.productName,
             latestOutboundText,
             hasAdditional: updatedSnapshotMeta.hasAdditional,
             hasDrink: updatedSnapshotMeta.hasDrink,
@@ -1738,14 +2425,19 @@ export async function processAiMessage(params: OrchestratorParams) {
 
     try {
         const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        const model = getOrCreateGeminiModel(
-            genAI,
-            prefixCacheMode === "enabled"
-                ? promptPlan.stableSystemInstruction
-                : promptPlan.legacySystemInstruction,
-            promptPlan.cacheKey,
-            prefixCacheMode === "enabled"
-        );
+        const model = await getOrCreateGeminiModel(genAI, {
+            modelName: selectedModelName,
+            systemInstruction:
+                prefixCacheMode === "enabled"
+                    ? promptPlan.stableSystemInstruction
+                    : promptPlan.legacySystemInstruction,
+            cacheKey: `${selectedModelName}:${promptPlan.cacheKey}`,
+            usePrefixModelCache: prefixCacheMode === "enabled",
+            googleContextCacheEnabled:
+                prefixCacheMode === "enabled" && AI_GOOGLE_CONTEXT_CACHE_ENABLED,
+            googleContextCacheTtlSeconds: AI_GOOGLE_CONTEXT_CACHE_TTL_SECONDS,
+            googleContextCacheApiKey: GEMINI_API_KEY,
+        });
 
         while (loopActive && iteration < MAX_ITERATIONS) {
             iteration++;
@@ -1777,7 +2469,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                 logAiEvent("llm_primary_failed", {
                     chatId: params.chatId,
                     iteration,
-                    model: GEMINI_MODEL_NAME,
+                    model: selectedModelName,
                     error: getErrorMessage(primaryError),
                 });
 
@@ -1913,7 +2605,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                 restaurant_id: params.restaurantId,
                 chat_id: params.chatId,
                 wa_chat_id: params.waChatId,
-                model: GEMINI_MODEL_NAME,
+                model: selectedModelName,
                 prompt_tokens: usage?.promptTokenCount || 0,
                 completion_tokens: usage?.candidatesTokenCount || 0,
                 total_tokens: usage?.totalTokenCount || 0,
@@ -2748,6 +3440,34 @@ export async function processAiMessage(params: OrchestratorParams) {
             error: getErrorMessage(error),
         });
     } finally {
+        if (AI_SUMMARY_BUFFER_ENABLED) {
+            const latestModelMessage = [...conversationContext]
+                .reverse()
+                .find((message) => message.role === "model");
+            const persistedSummary = buildRollingSummaryBuffer({
+                kanbanStatus,
+                cupomGanho,
+                inactivityMinutes,
+                locationConfirmed,
+                addressConfirmed,
+                referenceConfirmed,
+                lastInboundText: normalizedIncomingText,
+                lastModelText: getContentText(latestModelMessage),
+                nextStepHint: inferFollowupNextStep(typedChatContext?.cart_snapshot),
+                hasCartItems: cartSnapshotMeta.hasItems,
+                hasOrder: cartSnapshotMeta.hasOrder,
+            });
+            await persistChatSummaryMemory(
+                supabase,
+                {
+                    restaurantId: params.restaurantId,
+                    chatId: params.chatId,
+                    waChatId: params.waChatId,
+                },
+                persistedSummary
+            );
+        }
+
         const turnSummary = buildAiTurnSummary(turnMetrics, {
             maxIterationsReached: loopActive && iteration >= MAX_ITERATIONS,
         });

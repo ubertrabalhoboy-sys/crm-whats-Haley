@@ -6,6 +6,8 @@ import { runAutomations } from "@/lib/automations/engine";
 import { triggerFiqonWebhook } from "@/lib/fiqon-webhook";
 import { processAiMessage } from "@/lib/ai/orchestrator";
 import {
+  AI_AUDIO_MAX_SECONDS,
+  AI_WEBHOOK_QUEUE_ENABLED,
   FIQON_WEBHOOK_URL,
   SUPABASE_SERVICE_ROLE_KEY,
   SUPABASE_URL,
@@ -13,13 +15,24 @@ import {
   WEBHOOK_SECRET_REQUIRED,
   WEBHOOK_SECRET_TOKEN,
 } from "@/lib/shared/env";
-import { checkRateLimit } from "@/lib/shared/rate-limit";
+import { checkRateLimit, rateLimitRedis } from "@/lib/shared/rate-limit";
 
 export const runtime = "nodejs";
 
 interface WebhookPayload {
   [key: string]: WebhookPayload | undefined;
 }
+
+type AiQueueJob = {
+  restaurantId: string;
+  chatId: string;
+  waChatId: string;
+  instanceName?: string;
+  incomingText: string;
+  mediaBase64?: string;
+  mediaMimeType?: string;
+  queuedAt: string;
+};
 
 // Rate Limit Warning Function
 
@@ -43,11 +56,36 @@ async function sendRateLimitWarning(waChatId: string, instanceName: string, inst
   }
 }
 
+async function tryEnqueueAiJob(job: AiQueueJob) {
+  if (!AI_WEBHOOK_QUEUE_ENABLED || !rateLimitRedis) {
+    return false;
+  }
+
+  try {
+    await rateLimitRedis.lpush("ai_processing_queue", JSON.stringify(job));
+    console.log("[AI QUEUE] Job enqueued", {
+      chatId: job.chatId,
+      waChatId: job.waChatId,
+    });
+    return true;
+  } catch (error) {
+    console.warn("[AI QUEUE] Failed to enqueue job, falling back to direct processing", error);
+    return false;
+  }
+}
+
 export async function GET() {
   return NextResponse.json({ ok: true, route: "uazapi" }, { status: 200 });
 }
 
 export async function POST(req: Request) {
+  // Late initialization to avoid Next.js global caching crashes
+  const supabaseAdmin = createClient(
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY,
+    { auth: { persistSession: false } }
+  );
+
   if (WEBHOOK_SECRET_REQUIRED && !WEBHOOK_SECRET_TOKEN) {
     console.error("[webhook/uazapi] Missing required WEBHOOK_SECRET_TOKEN while WEBHOOK_SECRET_REQUIRED=true");
     return NextResponse.json(
@@ -61,7 +99,8 @@ export async function POST(req: Request) {
   // If the env var is set, every request MUST provide a matching token
   // via the `x-webhook-secret` header OR the `?secret=` query param.
   // If the env var is NOT set, auth is skipped (dev/migration mode).
-  if (WEBHOOK_SECRET_TOKEN) {
+  const enforceSecret = WEBHOOK_SECRET_REQUIRED && Boolean(WEBHOOK_SECRET_TOKEN);
+  if (enforceSecret) {
     const reqUrlForAuth = new URL(req.url);
     const providedSecret =
       req.headers.get("x-webhook-secret") ??
@@ -69,20 +108,33 @@ export async function POST(req: Request) {
 
     if (providedSecret !== WEBHOOK_SECRET_TOKEN) {
       console.warn("[webhook/uazapi] 🛡️ Unauthorized request rejected (invalid or missing secret)");
-      return NextResponse.json(
-        { ok: false, error: "unauthorized" },
-        { status: 401 }
-      );
+      const legacyToken = reqUrlForAuth.searchParams.get("token");
+      if (!legacyToken) {
+        console.warn("[webhook/uazapi] Unauthorized request rejected (secret mismatch and no token fallback)");
+        return NextResponse.json(
+          { ok: false, error: "unauthorized" },
+          { status: 401 }
+        );
+      }
+
+      const { data: tokenRestaurant, error: tokenLookupError } = await supabaseAdmin
+        .from("restaurants")
+        .select("id")
+        .eq("uaz_instance_token", legacyToken)
+        .maybeSingle();
+
+      if (tokenLookupError || !tokenRestaurant?.id) {
+        console.warn("[webhook/uazapi] Unauthorized request rejected (secret mismatch and invalid token fallback)");
+        return NextResponse.json(
+          { ok: false, error: "unauthorized" },
+          { status: 401 }
+        );
+      }
+
+      console.warn("[webhook/uazapi] Accepted legacy token fallback while secret mismatch");
     }
   }
   // ─────────────────────────────────
-
-  // Late initialization to avoid Next.js global caching crashes
-  const supabaseAdmin = createClient(
-    SUPABASE_URL,
-    SUPABASE_SERVICE_ROLE_KEY,
-    { auth: { persistSession: false } }
-  );
 
   const reqUrl = new URL(req.url);
   let parsedBody: unknown = null;
@@ -477,10 +529,35 @@ export async function POST(req: Request) {
     messageType === "audio" ||
     !!mediaMimeType
   );
+  const audioDurationSeconds = readNumber(
+    body?.message?.audioMessage?.seconds,
+    body?.data?.message?.audioMessage?.seconds,
+    body?.BODY?.message?.audioMessage?.seconds,
+    body?.message?.audioMessage?.duration,
+    body?.data?.message?.audioMessage?.duration,
+    body?.BODY?.message?.audioMessage?.duration,
+    body?.audio?.duration,
+    body?.data?.audio?.duration
+  );
+  const isAudioTooLong =
+    isAudioMessage &&
+    typeof audioDurationSeconds === "number" &&
+    audioDurationSeconds > AI_AUDIO_MAX_SECONDS;
 
   const chatInboundSummaryText = isAudioMessage
     ? "[Mensagem de Áudio]"
     : (text ?? (isLocationMessage ? "[Localizacao compartilhada]" : null));
+  const chatInboundStoredText = isAudioTooLong
+    ? `[Audio acima do limite de ${AI_AUDIO_MAX_SECONDS}s]`
+    : chatInboundSummaryText;
+
+  if (isAudioTooLong) {
+    console.warn("[webhook/uazapi] audio message above max duration", {
+      waChatId,
+      durationSeconds: audioDurationSeconds,
+      maxSeconds: AI_AUDIO_MAX_SECONDS,
+    });
+  }
 
   if (!waChatId || !phone) {
     return NextResponse.json({ ok: true, ignored: true, reason: "missing_fields" }, { status: 200 });
@@ -562,7 +639,7 @@ export async function POST(req: Request) {
       .from("chats")
       .update({
         contact_id: contactId,
-        last_message: chatInboundSummaryText ?? existingChat.last_message ?? "[Mensagem recebida]",
+        last_message: chatInboundStoredText ?? existingChat.last_message ?? "[Mensagem recebida]",
         unread_count: 1,
         updated_at: new Date().toISOString(),
         last_activity_at: new Date().toISOString(),
@@ -584,7 +661,7 @@ export async function POST(req: Request) {
         contact_id: contactId,
         stage_id: initialStage?.id ?? null,
         kanban_status: initialStage?.name ?? "Novo",
-        last_message: chatInboundSummaryText ?? "[Mensagem recebida]",
+        last_message: chatInboundStoredText ?? "[Mensagem recebida]",
         unread_count: 1,
         updated_at: new Date().toISOString(),
         last_activity_at: new Date().toISOString(),
@@ -602,6 +679,21 @@ export async function POST(req: Request) {
   }
 
   if (waMessageId) {
+    if (rateLimitRedis) {
+      try {
+        const lockResult = await rateLimitRedis.set(`msg_lock:${waMessageId}`, "1", {
+          nx: true,
+          ex: 15,
+        });
+        if (!lockResult) {
+          console.warn(`[DEDUPE] Message ${waMessageId} already locked by another worker.`);
+          return NextResponse.json({ ok: true, deduped: true }, { status: 200 });
+        }
+      } catch (lockError) {
+        console.warn("[DEDUPE] Redis lock unavailable, fallback to DB dedupe.", lockError);
+      }
+    }
+
     const { data: exists, error: dedupeError } = await supabaseAdmin
       .from("messages")
       .select("id")
@@ -622,7 +714,7 @@ export async function POST(req: Request) {
     restaurant_id: restaurantId,
     direction: "in",
     wa_message_id: waMessageId ?? null,
-    text: chatInboundSummaryText ?? text,
+    text: chatInboundStoredText ?? text,
     payload: body,
   });
 
@@ -646,33 +738,45 @@ export async function POST(req: Request) {
   // We only run this if it's a standard text message (not empty, not just a system event).
   const buttonAiIncomingText =
     extractedButtonClicked?.buttonId || extractedButtonClicked?.displayText || null;
+  const dispatchAiJob = async (job: Omit<AiQueueJob, "queuedAt">, errorLabel: string) => {
+    const queued = await tryEnqueueAiJob({
+      ...job,
+      queuedAt: new Date().toISOString(),
+    });
+
+    if (queued) {
+      return;
+    }
+
+    processAiMessage(job).catch(err => console.error(errorLabel, err));
+  };
 
   if (buttonAiIncomingText) {
-    processAiMessage({
+    await dispatchAiJob({
       restaurantId,
       chatId,
       waChatId,
       instanceName: instanceName || undefined,
       incomingText: buttonAiIncomingText,
-    }).catch(err => console.error("[AI LOOP] Button click failure:", err));
+    }, "[AI LOOP] Button click failure:");
   } else if (isLocationMessage) {
-    processAiMessage({
+    await dispatchAiJob({
       restaurantId,
       chatId,
       waChatId,
       instanceName: instanceName || undefined,
       incomingText: `CLIENT_ACTION:location_shared lat=${locationLat} lng=${locationLng}`,
-    }).catch(err => console.error("[AI LOOP] Location share failure:", err));
+    }, "[AI LOOP] Location share failure:");
   } else if ((text && text.trim().length > 0) || isAudioMessage) {
-    processAiMessage({
+    await dispatchAiJob({
       restaurantId,
       chatId,
       waChatId,
       instanceName: instanceName || undefined,
-      incomingText: chatInboundSummaryText || "",
-      mediaBase64: isAudioMessage ? mediaBase64 : undefined,
-      mediaMimeType: isAudioMessage ? mediaMimeType : undefined,
-    }).catch(err => console.error("[AI LOOP] Background failure:", err));
+      incomingText: chatInboundStoredText || "",
+      mediaBase64: isAudioMessage && !isAudioTooLong ? (mediaBase64 || undefined) : undefined,
+      mediaMimeType: isAudioMessage && !isAudioTooLong ? (mediaMimeType || undefined) : undefined,
+    }, "[AI LOOP] Background failure:");
   }
   // ───────────────────────────────
 

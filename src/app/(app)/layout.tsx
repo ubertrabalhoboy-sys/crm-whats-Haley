@@ -123,9 +123,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   };
 
   // Fetch unread count for badge
-  const sidebarFetcher = async (url: string) => { const r = await fetch(url); const j = await r.json(); return j; };
-  const { data: chatsData } = useSWR<{ ok: boolean; chats: Array<{ unread_count: number | null }> }>("/api/chats", sidebarFetcher, { refreshInterval: 10000 });
-  const totalUnread = chatsData?.chats?.reduce((sum, c) => sum + (c.unread_count || 0), 0) || 0;
+  const sidebarFetcher = async (url: string) => {
+    const r = await fetch(url);
+    const j = await r.json();
+    return j;
+  };
+  const { data: unreadData } = useSWR<{ ok: boolean; totalUnread: number }>(
+    "/api/chats/unread-count",
+    sidebarFetcher,
+    { refreshInterval: 15000 }
+  );
+  const totalUnread = unreadData?.totalUnread || 0;
 
   const navItems = [
     { id: "Dashboard", href: "/dashboard", icon: <LayoutDashboard size={20} /> },
@@ -164,10 +172,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         .animate-float { animation: float 6s ease-in-out infinite; }
 
         .wa-glass {
-          background: rgba(255, 255, 255, 0.3);
+          background: rgba(255, 255, 255, 0.45);
           backdrop-filter: blur(20px);
           -webkit-backdrop-filter: blur(20px);
-          border: 1px solid rgba(255, 255, 255, 0.5);
+          border: 1px solid rgba(255, 255, 255, 0.65);
+        }
+
+        .dark .wa-glass {
+          background: rgba(15, 23, 42, 0.7);
+          border: 1px solid rgba(148, 163, 184, 0.2);
         }
 
         /* Custom Scrollbar */
@@ -190,7 +203,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <Zap className="text-white fill-current" size={28} />
               </div>
               <div className="leading-tight">
-                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-600">
+                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-600 dark:text-cyan-300">
                   CRM Whats
                 </p>
                 <p className="text-2xl font-[900] text-[#0f172a] dark:text-white tracking-tighter uppercase leading-none">
@@ -217,7 +230,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   w-full flex items-center justify-between p-5 rounded-[1.5rem] transition-all duration-500 group relative overflow-hidden
                   ${active
                         ? "bg-blue-600 text-white shadow-[0_20px_40px_-15px_rgba(37,99,235,0.4),inset_0_0_20px_rgba(255,255,255,0.2)] border border-blue-400/50"
-                        : "bg-blue-500/5 backdrop-blur-md border border-blue-200/20 text-slate-500 hover:bg-blue-500/10 hover:text-blue-600 hover:border-blue-400/30 hover:shadow-[0_10px_30px_-10px_rgba(37,99,235,0.1)]"
+                        : "bg-blue-500/5 dark:bg-slate-800/60 backdrop-blur-md border border-blue-200/20 dark:border-slate-700/60 text-slate-600 dark:text-slate-200 hover:bg-blue-500/10 dark:hover:bg-slate-700/80 hover:text-blue-600 dark:hover:text-cyan-300 hover:border-blue-400/30 dark:hover:border-cyan-400/40 hover:shadow-[0_10px_30px_-10px_rgba(37,99,235,0.1)]"
                       }
                 `}
                   >
@@ -296,14 +309,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {/* --- CONTEÚDO (MAIN AREA) --- */}
           <main className="flex-1 h-full overflow-hidden flex flex-col gap-8 pr-2">
             {/* Top Header */}
-            <header className="relative z-50 flex items-center justify-between bg-white/20 backdrop-blur-xl border border-white/60 rounded-[3rem] px-10 py-7 shadow-sm">
+            <header className="relative z-50 flex items-center justify-between bg-white/35 dark:bg-slate-900/60 backdrop-blur-xl border border-white/70 dark:border-slate-700/70 rounded-[3rem] px-10 py-7 shadow-sm">
               <div>
-                <h2 className="text-3xl font-[900] text-[#0f172a] uppercase tracking-tighter mb-1">
+                <h2 className="text-3xl font-[900] text-[#0f172a] dark:text-slate-100 uppercase tracking-tighter mb-1">
                   {activeTitle}
                 </h2>
                 <div className="flex items-center gap-2">
                   <span className="h-2 w-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_10px_#22c55e]" />
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">
+                  <p className="text-[10px] font-black text-slate-400 dark:text-slate-300 uppercase tracking-[0.25em]">
                     Painel de Controlo em Tempo Real
                   </p>
                 </div>

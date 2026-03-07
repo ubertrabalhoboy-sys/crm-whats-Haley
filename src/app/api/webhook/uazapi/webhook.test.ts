@@ -33,7 +33,7 @@ describe("Webhook Uazapi Integration", () => {
         vi.clearAllMocks();
     });
 
-    it("should return 401 when WEBHOOK_SECRET_TOKEN is required but missing", async () => {
+    it("should allow request when WEBHOOK_SECRET_REQUIRED is false and secret is missing", async () => {
         // Forçamos o mock do secret se ele não estiver no .env do ambiente de teste
         // Mas no nosso setup.ts ele já é 'dummy-key'
 
@@ -43,19 +43,19 @@ describe("Webhook Uazapi Integration", () => {
         });
 
         const res = await POST(req);
-        expect(res.status).toBe(401);
+        expect(res.status).toBe(200);
         const data = await res.json();
-        expect(data.error).toBe("unauthorized");
+        expect(data.ok).toBe(true);
     });
 
-    it("should return 401 when provided secret is incorrect", async () => {
+    it("should allow request when WEBHOOK_SECRET_REQUIRED is false and secret is incorrect", async () => {
         const req = new Request(`${baseUrl}?secret=wrong-key`, {
             method: "POST",
             body: JSON.stringify({ event: "message", text: "Oi" }),
         });
 
         const res = await POST(req);
-        expect(res.status).toBe(401);
+        expect(res.status).toBe(200);
     });
 
     it("should allow request when secret is provided in query params", async () => {

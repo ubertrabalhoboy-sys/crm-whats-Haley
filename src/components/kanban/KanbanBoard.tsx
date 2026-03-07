@@ -60,6 +60,7 @@ export default function KanbanBoard({
 
     const [localChats, setLocalChats] = useState<Chat[]>(chatList);
     const [dragOverStageId, setDragOverStageId] = useState<string | null>(null);
+    const [draggedStageId, setDraggedStageId] = useState<string | null>(null);
 
     useEffect(() => {
         setLocalChats(chatList);
@@ -76,6 +77,7 @@ export default function KanbanBoard({
 
     const handleDragStart = (e: React.DragEvent<HTMLDivElement>, chatId: string) => {
         e.dataTransfer.setData("chatId", chatId);
+        e.dataTransfer.setData("dragType", "chat");
         e.dataTransfer.effectAllowed = "move";
     };
 
@@ -96,6 +98,7 @@ export default function KanbanBoard({
 
     const handleDrop = async (e: React.DragEvent<HTMLDivElement>, targetStage: Stage) => {
         e.preventDefault();
+        if (e.dataTransfer.getData("dragType") !== "chat") return;
         setDragOverStageId(null);
         const chatId = e.dataTransfer.getData("chatId");
         if (!chatId) return;
@@ -123,6 +126,65 @@ export default function KanbanBoard({
             console.error("Error updating kanban state:", error);
             setLocalChats(chatList);
             showToast("Erro ao alterar o estágio do card.", "error");
+        }
+    };
+
+    const reorderStages = (items: Stage[], fromStageId: string, toStageId: string) => {
+        const fromIndex = items.findIndex((stage) => stage.id === fromStageId);
+        const toIndex = items.findIndex((stage) => stage.id === toStageId);
+        if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return items;
+
+        const next = [...items];
+        const [moved] = next.splice(fromIndex, 1);
+        next.splice(toIndex, 0, moved);
+        return next;
+    };
+
+    const handleStageDragStart = (e: React.DragEvent<HTMLDivElement>, stageId: string) => {
+        setDraggedStageId(stageId);
+        e.dataTransfer.setData("dragType", "stage");
+        e.dataTransfer.setData("stageId", stageId);
+        e.dataTransfer.effectAllowed = "move";
+    };
+
+    const handleStageDragEnd = () => {
+        setDraggedStageId(null);
+    };
+
+    const handleStageDrop = async (e: React.DragEvent<HTMLDivElement>, targetStageId: string) => {
+        e.preventDefault();
+        if (e.dataTransfer.getData("dragType") !== "stage") return;
+
+        const sourceStageId = e.dataTransfer.getData("stageId");
+        if (!sourceStageId || sourceStageId === targetStageId) {
+            setDraggedStageId(null);
+            return;
+        }
+
+        const previous = stages;
+        const next = reorderStages(previous, sourceStageId, targetStageId);
+        if (next === previous) {
+            setDraggedStageId(null);
+            return;
+        }
+
+        setStages(next);
+
+        try {
+            const response = await fetch("/api/kanban-stages", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    orderedStageIds: next.map((stage) => stage.id),
+                }),
+            });
+            if (!response.ok) throw new Error("Failed to persist stage order");
+        } catch (error) {
+            console.error("Error updating stage order:", error);
+            setStages(previous);
+            showToast("Erro ao salvar ordem das colunas.", "error");
+        } finally {
+            setDraggedStageId(null);
         }
     };
 
@@ -158,7 +220,7 @@ export default function KanbanBoard({
                     onClick={() => setActiveTab("Vendas")}
                     className={`px-6 py-2.5 rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] transition-all flex items-center gap-2 border ${activeTab === "Vendas"
                         ? "bg-[#086788] text-white border-transparent shadow-[0_5px_15px_rgba(8,103,136,0.2)]"
-                        : "bg-white/40 text-[#086788] border-white/60 hover:bg-white/60 backdrop-blur-md"
+                        : "bg-white/40 dark:bg-slate-900/60 text-[#086788] dark:text-cyan-200 border-white/60 dark:border-slate-700 hover:bg-white/60 dark:hover:bg-slate-800/70 backdrop-blur-md"
                         }`}
                 >
                     Fluxo de Vendas
@@ -167,7 +229,7 @@ export default function KanbanBoard({
                     onClick={() => setActiveTab("Automacao")}
                     className={`px-6 py-2.5 rounded-[1.5rem] font-black uppercase tracking-widest text-[10px] transition-all flex items-center gap-2 border ${activeTab === "Automacao"
                         ? "bg-[#07a0c3] text-white border-transparent shadow-[0_5px_15px_rgba(7,160,195,0.2)]"
-                        : "bg-white/40 text-[#07a0c3] border-white/60 hover:bg-white/60 backdrop-blur-md"
+                        : "bg-white/40 dark:bg-slate-900/60 text-[#07a0c3] dark:text-cyan-300 border-white/60 dark:border-slate-700 hover:bg-white/60 dark:hover:bg-slate-800/70 backdrop-blur-md"
                         }`}
                 >
                     Automação de CRM
@@ -199,6 +261,10 @@ export default function KanbanBoard({
                         handleDragEnter={handleDragEnter}
                         handleDragLeave={handleDragLeave}
                         handleDrop={handleDrop}
+                        draggedStageId={draggedStageId}
+                        handleStageDragStart={handleStageDragStart}
+                        handleStageDragEnd={handleStageDragEnd}
+                        handleStageDrop={handleStageDrop}
                         scrollRef={scrollRef}
                         scrollByAmount={scrollByAmount}
                     />

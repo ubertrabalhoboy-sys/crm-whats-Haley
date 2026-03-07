@@ -69,26 +69,31 @@ export default async function KanbanPage() {
     );
   }
 
-  const { data: stages, error: stagesError } = await supabase
-    .from("kanban_stages")
-    .select("id, name")
-    .eq("restaurant_id", restaurantId)
-    .order("name", { ascending: true });
+  const [stagesResult, chatsPrimaryResult] = await Promise.all([
+    supabase
+      .from("kanban_stages")
+      .select("id, name")
+      .eq("restaurant_id", restaurantId)
+      .order("position", { ascending: true }),
+    supabase
+      .from("chats")
+      .select(CHAT_SELECTS[0])
+      .eq("restaurant_id", restaurantId)
+      .order("updated_at", { ascending: false })
+      .limit(180),
+  ]);
 
-  let chatsResult = await supabase
-    .from("chats")
-    .select(CHAT_SELECTS[0])
-    .eq("restaurant_id", restaurantId)
-    .order("updated_at", { ascending: false })
-    .limit(200);
+  const stages = stagesResult.data;
+  const stagesError = stagesResult.error;
 
-  if (chatsResult.error) {
+  let chatsResult = chatsPrimaryResult;
+  if (chatsPrimaryResult.error) {
     chatsResult = await supabase
       .from("chats")
       .select(CHAT_SELECTS[1])
       .eq("restaurant_id", restaurantId)
       .order("updated_at", { ascending: false })
-      .limit(200);
+      .limit(180);
   }
 
   const { data: chats, error: chatsError } = chatsResult;

@@ -372,6 +372,15 @@ export function isNeutralInboundWithoutCatalogIntent(text: string) {
     );
 }
 
+export function detectRepeatOrderIntent(text: string) {
+    const normalized = normalizeLooseText(text);
+    if (!normalized) return false;
+
+    return /(o mesmo|de sempre|pedido de sempre|mesma coisa|repete meu pedido|repetir pedido|igual da ultima|igual da ultima vez)/.test(
+        normalized
+    );
+}
+
 export function buildActiveCategoryPitch(
     category: "principal" | "adicional" | "bebida",
     cupomGanho?: string | null
@@ -566,6 +575,22 @@ export function buildObjectionRecoveryPitch(details: {
     return "Tem sim. Vou abrir mais opcoes de bebidas pra fechar seu pedido redondo.";
 }
 
+export function shouldApplyRetentionCoupon(details: {
+    enabled: boolean;
+    sentiment: "Satisfeito" | "Frustrado" | "Neutro";
+    currentCoupon?: string | null;
+}) {
+    if (!details.enabled || details.sentiment !== "Frustrado") {
+        return false;
+    }
+
+    const normalizedCoupon = (details.currentCoupon || "").trim().toLowerCase();
+    const hasActiveCoupon =
+        normalizedCoupon.length > 0 && normalizedCoupon !== "nenhum";
+
+    return !hasActiveCoupon;
+}
+
 function inferSalesDomainFromContextText(text: string): SalesDomain {
     const normalized = normalizeLooseText(text);
     if (!normalized) {
@@ -608,12 +633,21 @@ export function buildPostAddToCartSalesPlan(details: {
     availability?: Partial<CategoryAvailability> | null;
 }) {
     const availability = coerceAvailability(details.availability);
+    const normalizedAddedProductName = normalizeLooseText(details.addedProductName);
     const explicitDomain = inferSalesDomainFromProductName(details.addedProductName);
     const hintedDomain = details.preferredDomain && details.preferredDomain !== "generic"
         ? details.preferredDomain
         : explicitDomain !== "generic"
             ? explicitDomain
             : inferSalesDomainFromContextText(details.latestOutboundText);
+    const isSavoryMainFlow =
+        /(burger|hamburg|pizza|lanche|smash|sanduiche)/.test(normalizedAddedProductName) ||
+        hintedDomain === "burger" ||
+        hintedDomain === "pizza" ||
+        hintedDomain === "sushi";
+    const preferredDrinkSearchQuery = isSavoryMainFlow
+        ? "coca-cola guarana cerveja lata gelada"
+        : "suco natural agua de coco cha gelado";
 
     if (details.addedCategory === "bebida") {
         return {
@@ -789,6 +823,82 @@ export function buildPostAddToCartSalesPlan(details: {
         } as const;
     }
 
+    if (hintedDomain === "burger") {
+        if (!details.hasAdditional) {
+            const nextCategory = pickAvailableCategory(availability, [
+                "adicional",
+                "bebida",
+                "principal",
+            ]);
+            if (!nextCategory) {
+                return {
+                    nextCategory: null,
+                    searchQuery: null,
+                    followupText:
+                        `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+                    domain: hintedDomain,
+                } as const;
+            }
+            return {
+                nextCategory,
+                searchQuery:
+                    nextCategory === "adicional"
+                        ? "batata frita cheddar onion rings"
+                        : nextCategory === "bebida"
+                            ? preferredDrinkSearchQuery
+                            : null,
+                followupText:
+                    nextCategory === "adicional"
+                        ? `Boa escolha! Adicionei ${details.addedProductName}.\nAgora ja te mostro adicionais que combinam muito com esse lanche.`
+                        : nextCategory === "bebida"
+                            ? `Boa escolha! Adicionei ${details.addedProductName}.\nPedido de respeito! Comer no seco nao da, ja te mostro as bebidas mais geladas.`
+                            : `Boa escolha! Adicionei ${details.addedProductName}.\nAgora ja te mostro mais principais para reforcar seu pedido.`,
+                domain: hintedDomain,
+            } as const;
+        }
+
+        if (!details.hasDrink) {
+            const nextCategory = pickAvailableCategory(availability, [
+                "bebida",
+                "adicional",
+                "principal",
+            ]);
+            if (!nextCategory) {
+                return {
+                    nextCategory: null,
+                    searchQuery: null,
+                    followupText:
+                        `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+                    domain: hintedDomain,
+                } as const;
+            }
+            return {
+                nextCategory,
+                searchQuery:
+                    nextCategory === "bebida"
+                        ? preferredDrinkSearchQuery
+                        : nextCategory === "adicional"
+                            ? "batata frita cheddar onion rings"
+                            : null,
+                followupText:
+                    nextCategory === "bebida"
+                        ? `Perfeito! Adicionei ${details.addedProductName}.\nPedido de respeito! Vou te mostrar as bebidas que casam melhor com ele.`
+                        : nextCategory === "adicional"
+                            ? `Perfeito! Adicionei ${details.addedProductName}.\nAgora ja te mostro adicionais que fecham bem esse pedido.`
+                            : `Perfeito! Adicionei ${details.addedProductName}.\nAgora ja te mostro mais principais para reforcar o carrinho.`,
+                domain: hintedDomain,
+            } as const;
+        }
+
+        return {
+            nextCategory: null,
+            searchQuery: null,
+            followupText:
+                `Fechou! Adicionei ${details.addedProductName}.\nSe for so isso, me fala e eu ja te peco a localizacao.`,
+            domain: hintedDomain,
+        } as const;
+    }
+
     if (!details.hasAdditional) {
         const nextCategory = pickAvailableCategory(availability, [
             "adicional",
@@ -833,7 +943,7 @@ export function buildPostAddToCartSalesPlan(details: {
         }
         return {
             nextCategory,
-            searchQuery: null,
+            searchQuery: nextCategory === "bebida" ? preferredDrinkSearchQuery : null,
             followupText: nextCategory === "bebida"
                 ? `Fechou! Adicionei ${details.addedProductName}.\nPedido forte desse jeito nao vai no seco. Agora ja te mostro as bebidas.`
                 : nextCategory === "adicional"

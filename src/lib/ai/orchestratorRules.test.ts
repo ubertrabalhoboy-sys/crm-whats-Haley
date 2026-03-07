@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildPostAddToCartSalesPlan } from "./orchestratorRules";
+import {
+    buildPostAddToCartSalesPlan,
+    detectRepeatOrderIntent,
+    shouldApplyRetentionCoupon,
+} from "./orchestratorRules";
 
 describe("Orchestrator Rules — Post Add To Cart", () => {
     it("should suggest adicionales after adding a principal burger", () => {
@@ -12,8 +16,8 @@ describe("Orchestrator Rules — Post Add To Cart", () => {
         });
 
         expect(plan.nextCategory).toBe("adicional");
-        expect(plan.searchQuery).toBe(null);
-        expect(plan.followupText).toContain("adicionais mais pedidos");
+        expect(plan.searchQuery).toContain("batata");
+        expect(plan.followupText).toContain("adicionais");
     });
 
     it("should handle pizza size selection if missing", () => {
@@ -83,6 +87,20 @@ describe("Orchestrator Rules — Post Add To Cart", () => {
         expect(plan.followupText).toContain("Agora ja te mostro as bebidas");
     });
 
+    it("should use focused drink query for burger flow", () => {
+        const plan = buildPostAddToCartSalesPlan({
+            addedCategory: "adicional",
+            addedProductName: "Bacon Monster",
+            latestOutboundText: "Seu lanche ja esta no carrinho.",
+            hasAdditional: true,
+            hasDrink: false,
+        });
+
+        expect(plan.nextCategory).toBe("bebida");
+        expect(plan.searchQuery).toContain("coca-cola");
+        expect(plan.followupText).toContain("bebidas");
+    });
+
     it("should finish flow if all categories are present", () => {
         const plan = buildPostAddToCartSalesPlan({
             addedCategory: "bebida",
@@ -94,5 +112,49 @@ describe("Orchestrator Rules — Post Add To Cart", () => {
 
         expect(plan.nextCategory).toBe(null);
         expect(plan.followupText).toContain("me fala e eu ja te peco a localizacao");
+    });
+});
+
+describe("Orchestrator Rules — Retention Coupon", () => {
+    it("applies retention coupon when sentiment is frustrated and no active coupon", () => {
+        expect(
+            shouldApplyRetentionCoupon({
+                enabled: true,
+                sentiment: "Frustrado",
+                currentCoupon: "",
+            })
+        ).toBe(true);
+    });
+
+    it("does not apply retention coupon when sentiment is not frustrated", () => {
+        expect(
+            shouldApplyRetentionCoupon({
+                enabled: true,
+                sentiment: "Neutro",
+                currentCoupon: "",
+            })
+        ).toBe(false);
+    });
+
+    it("does not apply retention coupon when chat already has coupon", () => {
+        expect(
+            shouldApplyRetentionCoupon({
+                enabled: true,
+                sentiment: "Frustrado",
+                currentCoupon: "20OFF",
+            })
+        ).toBe(false);
+    });
+});
+
+describe("Orchestrator Rules - Repeat Order Intent", () => {
+    it("detects repeat order phrases", () => {
+        expect(detectRepeatOrderIntent("quero o mesmo de sempre")).toBe(true);
+        expect(detectRepeatOrderIntent("repete meu pedido da ultima vez")).toBe(true);
+    });
+
+    it("ignores unrelated messages", () => {
+        expect(detectRepeatOrderIntent("quero ver o cardapio")).toBe(false);
+        expect(detectRepeatOrderIntent("boa tarde")).toBe(false);
     });
 });

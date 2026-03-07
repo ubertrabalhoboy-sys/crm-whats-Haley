@@ -56,7 +56,10 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, nome, description, preco_original, preco_promo, estoque, imagem_url, category, is_extra } = body;
+    const { id, nome, description, preco_original, preco_promo, estoque, imagem_url, category, is_extra, is_available } = body;
+    const normalizedAvailable = typeof is_available === "boolean"
+        ? is_available
+        : (typeof estoque === "number" ? estoque > 0 : true);
 
     if (!nome || typeof preco_original !== 'number' || typeof preco_promo !== 'number') {
         return NextResponse.json({ ok: false, error: "MISSING_FIELDS" }, { status: 400 });
@@ -77,6 +80,7 @@ export async function POST(req: NextRequest) {
                 imagem_url: imagem_url || null,
                 category: category || "principal",
                 is_extra: is_extra || false,
+                is_available: normalizedAvailable,
             })
             .eq("id", id)
             .eq("restaurant_id", profile.restaurant_id)
@@ -96,6 +100,7 @@ export async function POST(req: NextRequest) {
                 imagem_url: imagem_url || null,
                 category: category || "principal",
                 is_extra: is_extra || false,
+                is_available: normalizedAvailable,
             })
             .select()
             .single());

@@ -15,6 +15,7 @@ type ProdutoPromo = {
     imagem_url?: string;
     category?: string;
     is_extra?: boolean;
+    is_available?: boolean | null;
     description?: string;
 };
 
@@ -37,6 +38,7 @@ export default function PromocoesPage() {
         imagem_url: "",
         category: "principal",
         is_extra: false,
+        is_available: true,
     });
 
     // File Upload States
@@ -67,7 +69,7 @@ export default function PromocoesPage() {
     const { data, error, mutate, isValidating } = useSWR<{ ok: boolean; products: ProdutoPromo[] }>(
         `/api/promocoes`,
         fetcher,
-        { refreshInterval: 5000 }
+        { refreshInterval: 0, revalidateOnFocus: true }
     );
 
     const products = data?.products || [];
@@ -118,6 +120,7 @@ export default function PromocoesPage() {
                     imagem_url: finalImageUrl,
                     category: formData.category,
                     is_extra: formData.is_extra,
+                    is_available: formData.is_available,
                 }),
             });
 
@@ -125,7 +128,7 @@ export default function PromocoesPage() {
             if (!json.ok) throw new Error(json.error || "Falha ao salvar produto");
 
             mutate(); // Traz a lista nova
-            setFormData({ id: null, nome: "", description: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "", category: "principal", is_extra: false });
+            setFormData({ id: null, nome: "", description: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "", category: "principal", is_extra: false, is_available: true });
             handleRemoveImage();
             setIsAdding(false);
         } catch (err: unknown) {
@@ -156,7 +159,8 @@ export default function PromocoesPage() {
             estoque: product.estoque.toString(),
             imagem_url: product.imagem_url || "",
             category: product.category || "principal",
-            is_extra: product.is_extra || false
+            is_extra: product.is_extra || false,
+            is_available: product.is_available !== false
         });
         setPreviewUrl(product.imagem_url || null);
         setImageFile(null);
@@ -168,7 +172,7 @@ export default function PromocoesPage() {
     const handleToggleAdding = () => {
         if (isAdding) {
             setIsAdding(false);
-            setFormData({ id: null, nome: "", description: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "", category: "principal", is_extra: false });
+            setFormData({ id: null, nome: "", description: "", preco_original: "", preco_promo: "", estoque: "0", imagem_url: "", category: "principal", is_extra: false, is_available: true });
             handleRemoveImage();
             setErrorMsg(null);
         } else {
@@ -177,21 +181,21 @@ export default function PromocoesPage() {
     };
 
     return (
-        <div className="relative h-full flex flex-col overflow-hidden w-full">
+        <div className="relative h-full flex flex-col overflow-hidden w-full text-slate-900 dark:text-slate-100">
             {/* Pattern de fundo */}
             <div className="pointer-events-none absolute inset-0 opacity-[0.04] [filter:hue-rotate(160deg)_saturate(0.5)] bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat" />
 
             {/* Header */}
-            <div className="mb-4 flex items-center justify-between rounded-[2.5rem] border border-white/70 bg-white/60 px-8 py-6 shadow-xl backdrop-blur-xl relative z-10 shrink-0 mx-2">
+            <div className="mb-4 flex items-center justify-between rounded-[2.5rem] border border-white/70 dark:border-slate-700/70 bg-white/60 dark:bg-slate-900/60 px-8 py-6 shadow-xl backdrop-blur-xl relative z-10 shrink-0 mx-2">
                 <div className="flex items-center gap-4">
                     <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-purple-500/20">
                         <Gift size={24} />
                     </div>
                     <div>
-                        <h1 className="text-3xl font-[950] uppercase tracking-tighter text-indigo-900 leading-none">
+                        <h1 className="text-3xl font-[950] uppercase tracking-tighter text-indigo-900 dark:text-indigo-100 leading-none">
                             Promoções
                         </h1>
-                        <p className="mt-1 text-[10px] font-black uppercase tracking-[0.3em] text-purple-600">
+                        <p className="mt-1 text-[10px] font-black uppercase tracking-[0.3em] text-purple-600 dark:text-purple-300">
                             Prêmios FiQon Roleta e Vitrine
                         </p>
                     </div>
@@ -208,12 +212,12 @@ export default function PromocoesPage() {
             <div className="relative flex-1 min-h-0 mx-2 flex gap-6">
                 {/* Painel Formulário */}
                 {isAdding && (
-                    <div className="w-full max-w-[450px] shrink-0 h-full flex flex-col rounded-[2.5rem] border border-white/70 bg-white/50 backdrop-blur-xl shadow-lg p-8 overflow-y-auto custom-scroll">
+                    <div className="w-full max-w-[450px] shrink-0 h-full flex flex-col rounded-[2.5rem] border border-white/70 dark:border-slate-700/70 bg-white/50 dark:bg-slate-900/60 backdrop-blur-xl shadow-lg p-8 overflow-y-auto custom-scroll">
                         <div className="flex items-center gap-3 mb-6">
                             <div className="h-8 w-8 rounded-xl bg-purple-100 flex items-center justify-center text-purple-600">
                                 <Tag size={16} />
                             </div>
-                            <h2 className="text-lg font-bold text-indigo-900">{formData.id ? "Editar Prêmio" : "Cadastrar Prêmio"}</h2>
+                            <h2 className="text-lg font-bold text-indigo-900 dark:text-indigo-100">{formData.id ? "Editar Prêmio" : "Cadastrar Prêmio"}</h2>
                         </div>
 
                         {errorMsg && (
@@ -232,7 +236,7 @@ export default function PromocoesPage() {
                                     type="text"
                                     value={formData.nome}
                                     onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
-                                    className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                                    className="rounded-2xl border border-white dark:border-slate-700 bg-white/80 dark:bg-slate-800 px-4 py-3.5 text-sm font-semibold text-slate-800 dark:text-slate-100 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white dark:focus:bg-slate-800 focus:ring-4 focus:ring-indigo-100"
                                     placeholder="Ex: Hambúrguer Duplo"
                                 />
                             </div>
@@ -244,7 +248,7 @@ export default function PromocoesPage() {
                                 <textarea
                                     value={formData.description}
                                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                    className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100 resize-none h-20"
+                                    className="rounded-2xl border border-white dark:border-slate-700 bg-white/80 dark:bg-slate-800 px-4 py-3.5 text-sm font-semibold text-slate-800 dark:text-slate-100 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white dark:focus:bg-slate-800 focus:ring-4 focus:ring-indigo-100 resize-none h-20"
                                     placeholder="Descreva o produto para a IA e para o carrossel do WhatsApp..."
                                 />
                             </div>
@@ -262,7 +266,7 @@ export default function PromocoesPage() {
                                         placeholder="0.00"
                                         value={formData.preco_original}
                                         onChange={(e) => setFormData({ ...formData, preco_original: e.target.value })}
-                                        className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                                        className="rounded-2xl border border-white dark:border-slate-700 bg-white/80 dark:bg-slate-800 px-4 py-3.5 text-sm font-semibold text-slate-800 dark:text-slate-100 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white dark:focus:bg-slate-800 focus:ring-4 focus:ring-indigo-100"
                                     />
                                 </div>
                                 <div className="flex flex-col gap-2">
@@ -277,7 +281,7 @@ export default function PromocoesPage() {
                                         placeholder="0.00"
                                         value={formData.preco_promo}
                                         onChange={(e) => setFormData({ ...formData, preco_promo: e.target.value })}
-                                        className="rounded-2xl border border-indigo-200 bg-indigo-50/80 px-4 py-3.5 text-sm font-semibold text-indigo-900 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-indigo-50 focus:ring-4 focus:ring-indigo-100"
+                                        className="rounded-2xl border border-indigo-200 dark:border-indigo-700 bg-indigo-50/80 dark:bg-indigo-950/40 px-4 py-3.5 text-sm font-semibold text-indigo-900 dark:text-indigo-100 shadow-sm outline-none transition-all focus:border-indigo-400 dark:focus:border-indigo-500 focus:bg-indigo-50 dark:focus:bg-indigo-950/60 focus:ring-4 focus:ring-indigo-100"
                                     />
                                 </div>
                             </div>
@@ -292,7 +296,7 @@ export default function PromocoesPage() {
                                     min="0"
                                     value={formData.estoque}
                                     onChange={(e) => setFormData({ ...formData, estoque: e.target.value })}
-                                    className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                                    className="rounded-2xl border border-white dark:border-slate-700 bg-white/80 dark:bg-slate-800 px-4 py-3.5 text-sm font-semibold text-slate-800 dark:text-slate-100 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white dark:focus:bg-slate-800 focus:ring-4 focus:ring-indigo-100"
                                 />
                             </div>
 
@@ -305,7 +309,7 @@ export default function PromocoesPage() {
                                     <select
                                         value={formData.category}
                                         onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                                        className="rounded-2xl border border-white bg-white/80 px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                                        className="rounded-2xl border border-white dark:border-slate-700 bg-white/80 dark:bg-slate-800 px-4 py-3.5 text-sm font-semibold text-slate-800 dark:text-slate-100 shadow-sm outline-none transition-all focus:border-indigo-400 focus:bg-white dark:focus:bg-slate-800 focus:ring-4 focus:ring-indigo-100"
                                     >
                                         <option value="principal">Principal</option>
                                         <option value="bebida">Bebida</option>
@@ -313,7 +317,7 @@ export default function PromocoesPage() {
                                     </select>
                                 </div>
                                 <div className="flex flex-col gap-2 justify-end">
-                                    <label className="flex items-center gap-2 cursor-pointer px-4 py-3.5 rounded-2xl border border-white bg-white/80 hover:bg-indigo-50 transition-colors">
+                                    <label className="flex items-center gap-2 cursor-pointer px-4 py-3.5 rounded-2xl border border-white dark:border-slate-700 bg-white/80 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors">
                                         <input
                                             type="checkbox"
                                             checked={formData.is_extra}
@@ -323,6 +327,23 @@ export default function PromocoesPage() {
                                         <span className="text-xs font-bold text-slate-700">É Complemento</span>
                                     </label>
                                 </div>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                                <label className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+                                    Disponibilidade
+                                </label>
+                                <label className="flex items-center justify-between gap-3 cursor-pointer px-4 py-3.5 rounded-2xl border border-white dark:border-slate-700 bg-white/80 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors">
+                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                                        Produto disponivel para venda
+                                    </span>
+                                    <input
+                                        type="checkbox"
+                                        checked={formData.is_available}
+                                        onChange={(e) => setFormData({ ...formData, is_available: e.target.checked })}
+                                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                    />
+                                </label>
                             </div>
 
                             <div className="flex flex-col gap-2">
@@ -389,9 +410,9 @@ export default function PromocoesPage() {
                 )}
 
                 {/* Painel Listagem (Grid) */}
-                <div className={`flex flex-col flex-1 h-full rounded-[2.5rem] border border-white/70 bg-white/40 backdrop-blur-xl shadow-lg p-8 overflow-y-auto custom-scroll`}>
+                <div className={`flex flex-col flex-1 h-full rounded-[2.5rem] border border-white/70 dark:border-slate-700/70 bg-white/40 dark:bg-slate-900/60 backdrop-blur-xl shadow-lg p-8 overflow-y-auto custom-scroll`}>
                     <div className="flex items-center justify-between mb-8">
-                        <h2 className="text-xl font-black text-indigo-900 shrink-0">Produtos Cadastrados</h2>
+                        <h2 className="text-xl font-black text-indigo-900 dark:text-indigo-100 shrink-0">Produtos Cadastrados</h2>
                         {(isLoading || isValidating) && (
                             <div className="flex gap-2">
                                 <div className="h-2 w-2 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: "0ms" }} />
@@ -424,8 +445,17 @@ export default function PromocoesPage() {
 
                     {/* Cards Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {products.map((p) => (
-                            <div key={p.id} className="group relative flex flex-col rounded-3xl bg-white border border-slate-100 p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+                        {products.map((p) => {
+                            const isAvailableForSale = p.is_available !== false && p.estoque > 0;
+                            const stockLabel = p.is_available === false
+                                ? "INDISPONIVEL"
+                                : (p.estoque > 0 ? `${p.estoque} UND` : "ESGOTADO");
+                            const stockBadgeClasses = isAvailableForSale
+                                ? "bg-emerald-50 text-emerald-600"
+                                : "bg-red-50 text-red-500";
+
+                            return (
+                            <div key={p.id} className="group relative flex flex-col rounded-3xl bg-white dark:bg-slate-900/70 border border-slate-100 dark:border-slate-700 p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
                                 <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
                                     <button onClick={() => handleEdit(p)} className="h-8 w-8 rounded-full bg-amber-50 text-amber-500 flex items-center justify-center hover:bg-amber-500 hover:text-white transition-colors">
                                         <Edit size={14} />
@@ -467,7 +497,7 @@ export default function PromocoesPage() {
                                     )}
                                 </div>
 
-                                <h3 className="text-base font-black text-slate-800 mb-4 line-clamp-2">{p.nome}</h3>
+                                <h3 className="text-base font-black text-slate-800 dark:text-slate-100 mb-4 line-clamp-2">{p.nome}</h3>
 
                                 <div className="flex flex-col gap-1 mb-4 mt-auto">
                                     <span className="text-xs text-slate-400 line-through font-semibold">De: R$ {p.preco_original.toFixed(2)}</span>
@@ -476,12 +506,13 @@ export default function PromocoesPage() {
 
                                 <div className="flex items-center justify-between border-t border-slate-50 pt-4 mt-2">
                                     <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Estoque</span>
-                                    <span className={`px-2.5 py-1 rounded-lg text-xs font-black ${p.estoque > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
-                                        {p.estoque > 0 ? `${p.estoque} UND` : 'ESGOTADO'}
+                                    <span className={`px-2.5 py-1 rounded-lg text-xs font-black ${stockBadgeClasses}`}>
+                                        {stockLabel}
                                     </span>
                                 </div>
                             </div>
-                        ))}
+                        );
+                        })}
                     </div>
                 </div>
             </div>

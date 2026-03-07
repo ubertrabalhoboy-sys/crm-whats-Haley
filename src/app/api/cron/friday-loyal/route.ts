@@ -24,6 +24,15 @@ type RestaurantRow = {
     uaz_instance_name: string | null;
 };
 
+type CampaignScheduleRow = {
+    restaurant_id: string;
+    campaign_key: string;
+    enabled: boolean;
+    weekdays: number[] | null;
+    hour_local: number | null;
+    timezone: string | null;
+};
+
 type FridayLoyalRow = {
     restaurant_id: string;
     chat_id: string;
@@ -169,6 +178,34 @@ function parseBooleanQuery(value: string | null, fallback: boolean) {
     if (["1", "true", "yes", "on"].includes(normalized)) return true;
     if (["0", "false", "no", "off"].includes(normalized)) return false;
     return fallback;
+}
+
+function resolveWeekdayInTimezone(now: Date, timezone: string) {
+    const weekday = new Intl.DateTimeFormat("en-US", {
+        weekday: "short",
+        timeZone: timezone,
+    }).format(now).toLowerCase();
+
+    const map: Record<string, number> = {
+        sun: 0,
+        mon: 1,
+        tue: 2,
+        wed: 3,
+        thu: 4,
+        fri: 5,
+        sat: 6,
+    };
+    return map[weekday] ?? null;
+}
+
+function resolveHourInTimezone(now: Date, timezone: string) {
+    const hour = new Intl.DateTimeFormat("en-US", {
+        hour: "2-digit",
+        hour12: false,
+        timeZone: timezone,
+    }).format(now);
+    const parsed = Number(hour);
+    return Number.isFinite(parsed) ? parsed : null;
 }
 
 function isFridayInSaoPaulo(now: Date) {
@@ -350,6 +387,41 @@ function buildFridayCampaignText(params: {
     return lines.join(" ");
 }
 
+function shouldRunRestaurantBySchedule(params: {
+    now: Date;
+    schedule: CampaignScheduleRow;
+}) {
+    const timezone = typeof params.schedule.timezone === "string" && params.schedule.timezone.trim()
+        ? params.schedule.timezone.trim()
+        : "America/Sao_Paulo";
+    const weekdays = Array.isArray(params.schedule.weekdays)
+        ? params.schedule.weekdays
+            .map((value) => Number(value))
+            .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6)
+        : [];
+    const hourLocal = Number(params.schedule.hour_local);
+
+    if (!weekdays.length || !Number.isInteger(hourLocal) || hourLocal < 0 || hourLocal > 23) {
+        return { run: false, reason: "SCHEDULE_INVALID" as const };
+    }
+
+    const nowWeekday = resolveWeekdayInTimezone(params.now, timezone);
+    const nowHour = resolveHourInTimezone(params.now, timezone);
+    if (nowWeekday === null || nowHour === null) {
+        return { run: false, reason: "SCHEDULE_TIME_RESOLVE_FAILED" as const };
+    }
+
+    if (!weekdays.includes(nowWeekday)) {
+        return { run: false, reason: "SCHEDULE_DAY_MISMATCH" as const };
+    }
+
+    if (nowHour !== hourLocal) {
+        return { run: false, reason: "SCHEDULE_HOUR_MISMATCH" as const };
+    }
+
+    return { run: true as const, reason: null };
+}
+
 export async function GET(req: NextRequest) {
     const authHeader = req.headers.get("authorization");
     if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
@@ -371,14 +443,6 @@ export async function GET(req: NextRequest) {
         AI_FRIDAY_LOYAL_DRY_RUN
     );
 
-    if (AI_FRIDAY_LOYAL_ONLY_FRIDAY && !forceRun && !isFridayInSaoPaulo(now)) {
-        return NextResponse.json({
-            ok: true,
-            skipped: true,
-            reason: "NOT_FRIDAY_IN_SAO_PAULO",
-        });
-    }
-
     const supabase = createSupabaseAdminClient();
     const { data: restaurants, error: restaurantsError } = await supabase
         .from("restaurants")
@@ -397,6 +461,37 @@ export async function GET(req: NextRequest) {
     const baseUrl = normalizeBaseUrl(UAZAPI_BASE_URL || "");
     const globalApiKey = UAZAPI_GLOBAL_API_KEY || "";
     const typedRestaurants = ((restaurants || []) as unknown) as RestaurantRow[];
+    const restaurantIds = typedRestaurants.map((restaurant) => restaurant.id);
+    const scheduleByRestaurant = new Map<string, CampaignScheduleRow>();
+
+    if (restaurantIds.length > 0) {
+        const { data: scheduleRows, error: scheduleError } = await supabase
+            .from("restaurant_campaign_schedules")
+            .select("restaurant_id, campaign_key, enabled, weekdays, hour_local, timezone")
+            .eq("campaign_key", "friday_loyal")
+            .eq("enabled", true)
+            .in("restaurant_id", restaurantIds);
+
+        const scheduleTableMissing =
+            String(scheduleError?.code || "") === "42P01" ||
+            String(scheduleError?.message || "").toLowerCase().includes("restaurant_campaign_schedules");
+
+        if (scheduleError && !scheduleTableMissing) {
+            return NextResponse.json(
+                { ok: false, error: scheduleError.message },
+                { status: 500 }
+            );
+        }
+
+        if (!scheduleError && Array.isArray(scheduleRows)) {
+            const typedScheduleRows = (scheduleRows as unknown) as CampaignScheduleRow[];
+            for (const row of typedScheduleRows) {
+                if (typeof row.restaurant_id === "string" && row.restaurant_id.trim()) {
+                    scheduleByRestaurant.set(row.restaurant_id, row);
+                }
+            }
+        }
+    }
 
     let sent = 0;
     let failed = 0;
@@ -408,6 +503,45 @@ export async function GET(req: NextRequest) {
             ? restaurant.uaz_instance_token.trim()
             : "";
         if (!token) {
+            continue;
+        }
+
+        const configuredSchedule = scheduleByRestaurant.get(restaurant.id) || null;
+        const useLegacyFridayGuard = !configuredSchedule;
+        if (!forceRun && configuredSchedule) {
+            const scheduleDecision = shouldRunRestaurantBySchedule({
+                now,
+                schedule: configuredSchedule,
+            });
+            if (!scheduleDecision.run) {
+                perRestaurant.push({
+                    restaurant_id: restaurant.id,
+                    restaurant_name: restaurant.name || "Restaurante",
+                    sent: 0,
+                    failed: 0,
+                    skipped: 1,
+                    reason: scheduleDecision.reason,
+                });
+                skipped += 1;
+                continue;
+            }
+        }
+
+        if (
+            !forceRun &&
+            useLegacyFridayGuard &&
+            AI_FRIDAY_LOYAL_ONLY_FRIDAY &&
+            !isFridayInSaoPaulo(now)
+        ) {
+            perRestaurant.push({
+                restaurant_id: restaurant.id,
+                restaurant_name: restaurant.name || "Restaurante",
+                sent: 0,
+                failed: 0,
+                skipped: 1,
+                reason: "NOT_FRIDAY_IN_SAO_PAULO",
+            });
+            skipped += 1;
             continue;
         }
 
@@ -639,6 +773,8 @@ export async function GET(req: NextRequest) {
             skipped: restaurantSkipped,
             priority_suggestion: prioritySuggestion,
             last_error: restaurantLastError,
+            schedule_configured: Boolean(configuredSchedule),
+            trigger_mode: configuredSchedule ? "scheduled" : "legacy",
         });
     }
 

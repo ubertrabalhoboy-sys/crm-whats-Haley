@@ -19,6 +19,21 @@ type StoreSettings = {
     ai_vertical?: RestaurantVertical | null;
 };
 
+type CampaignSchedule = {
+    enabled: boolean;
+    weekdays: number[];
+    hour_local: number;
+    timezone: string;
+};
+
+type CampaignScheduleResponse = {
+    ok: boolean;
+    configured: boolean;
+    migration_required: boolean;
+    schedule: CampaignSchedule | null;
+    error?: string;
+};
+
 const defaultHours: OperatingHours = {
     segunda: { open: "18:00", close: "23:00", isClosed: false },
     terca: { open: "18:00", close: "23:00", isClosed: false },
@@ -40,6 +55,16 @@ const daysLabels: Record<string, string> = {
     domingo: "Domingo"
 };
 
+const campaignDayOptions = [
+    { value: 0, label: "Domingo" },
+    { value: 1, label: "Segunda" },
+    { value: 2, label: "Terça" },
+    { value: 3, label: "Quarta" },
+    { value: 4, label: "Quinta" },
+    { value: 5, label: "Sexta" },
+    { value: 6, label: "Sábado" },
+];
+
 export default function StoreSettingsPage() {
     const fetcher = async (url: string) => {
         const r = await fetch(url);
@@ -49,6 +74,23 @@ export default function StoreSettingsPage() {
     };
 
     const { data, error, isLoading, mutate } = useSWR<StoreSettings>("/api/settings/store", fetcher);
+    const scheduleFetcher = async (url: string) => {
+        const response = await fetch(url, { cache: "no-store" });
+        const json = (await response.json()) as CampaignScheduleResponse;
+        if (!response.ok || !json.ok) {
+            throw new Error(json.error || "Falha ao carregar agenda da campanha.");
+        }
+        return json;
+    };
+    const {
+        data: campaignConfig,
+        error: campaignError,
+        isLoading: campaignLoading,
+        mutate: mutateCampaign,
+    } = useSWR<CampaignScheduleResponse>(
+        "/api/settings/campaigns/friday-loyal",
+        scheduleFetcher
+    );
 
     const [storeName, setStoreName] = useState("");
     const [aiVertical, setAiVertical] = useState<RestaurantVertical>("generic");
@@ -73,6 +115,13 @@ export default function StoreSettingsPage() {
 
     const [savingHours, setSavingHours] = useState(false);
     const [savedHours, setSavedHours] = useState(false);
+    const [campaignEnabled, setCampaignEnabled] = useState(true);
+    const [campaignWeekdays, setCampaignWeekdays] = useState<number[]>([5]);
+    const [campaignHour, setCampaignHour] = useState(20);
+    const [campaignTimezone, setCampaignTimezone] = useState("America/Sao_Paulo");
+    const [savingCampaign, setSavingCampaign] = useState(false);
+    const [savedCampaign, setSavedCampaign] = useState(false);
+    const [campaignSaveError, setCampaignSaveError] = useState("");
 
     useEffect(() => {
         if (data) {
@@ -86,6 +135,28 @@ export default function StoreSettingsPage() {
             }
         }
     }, [data]);
+
+    useEffect(() => {
+        if (!campaignConfig?.ok) return;
+        if (campaignConfig.schedule) {
+            setCampaignEnabled(Boolean(campaignConfig.schedule.enabled));
+            setCampaignWeekdays(
+                Array.isArray(campaignConfig.schedule.weekdays) && campaignConfig.schedule.weekdays.length
+                    ? campaignConfig.schedule.weekdays
+                    : [5]
+            );
+            setCampaignHour(
+                Number.isInteger(campaignConfig.schedule.hour_local)
+                    ? campaignConfig.schedule.hour_local
+                    : 20
+            );
+            setCampaignTimezone(
+                typeof campaignConfig.schedule.timezone === "string" && campaignConfig.schedule.timezone.trim()
+                    ? campaignConfig.schedule.timezone
+                    : "America/Sao_Paulo"
+            );
+        }
+    }, [campaignConfig]);
 
     const handleSaveDelivery = async () => {
         setSavingDelivery(true);
@@ -158,6 +229,48 @@ export default function StoreSettingsPage() {
         }
     };
 
+    const toggleCampaignWeekday = (dayValue: number) => {
+        setCampaignWeekdays((prev) => {
+            if (prev.includes(dayValue)) {
+                return prev.filter((item) => item !== dayValue);
+            }
+            if (prev.length >= 3) {
+                return prev;
+            }
+            return [...prev, dayValue].sort((a, b) => a - b);
+        });
+    };
+
+    const handleSaveCampaignSchedule = async () => {
+        setCampaignSaveError("");
+        setSavingCampaign(true);
+        setSavedCampaign(false);
+        try {
+            const response = await fetch("/api/settings/campaigns/friday-loyal", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    enabled: campaignEnabled,
+                    weekdays: campaignWeekdays,
+                    hour_local: campaignHour,
+                    timezone: campaignTimezone,
+                }),
+            });
+            const json = (await response.json()) as { ok: boolean; error?: string };
+            if (!response.ok || !json.ok) {
+                setCampaignSaveError(json.error || "Falha ao salvar agenda.");
+                return;
+            }
+            setSavedCampaign(true);
+            mutateCampaign();
+            setTimeout(() => setSavedCampaign(false), 3000);
+        } catch {
+            setCampaignSaveError("Erro de rede ao salvar agenda.");
+        } finally {
+            setSavingCampaign(false);
+        }
+    };
+
     const updateHour = <K extends keyof DayHours>(day: string, field: K, value: DayHours[K]) => {
         setHours(prev => ({
             ...prev,
@@ -217,6 +330,118 @@ export default function StoreSettingsPage() {
                             Salvar Vertical
                         </button>
                     </div>
+                </div>
+                <div className="lg:col-span-2 rounded-[2.5rem] border border-white/60 bg-white/40 dark:bg-slate-900/60 dark:border-white/10 p-8 shadow-lg shadow-[#086788]/5 backdrop-blur-xl">
+                    <h2 className="text-lg font-black uppercase tracking-widest text-[#086788] dark:text-white mb-6">
+                        Agenda da Campanha Automática
+                    </h2>
+
+                    {campaignLoading ? (
+                        <div className="flex items-center gap-2 text-sm font-semibold text-slate-500">
+                            <Loader2 size={16} className="animate-spin" />
+                            Carregando agenda...
+                        </div>
+                    ) : campaignError ? (
+                        <p className="text-sm font-bold text-red-500">Erro ao carregar agenda da campanha.</p>
+                    ) : campaignConfig?.migration_required ? (
+                        <p className="text-sm font-bold text-amber-600">
+                            Migration da agenda não aplicada. Rode o SQL de `restaurant_campaign_schedules`.
+                        </p>
+                    ) : (
+                        <div className="space-y-5">
+                            <label className="flex items-center gap-3 text-sm font-bold text-slate-700 dark:text-slate-300">
+                                <input
+                                    type="checkbox"
+                                    checked={campaignEnabled}
+                                    onChange={(e) => setCampaignEnabled(e.target.checked)}
+                                    className="h-4 w-4 rounded border-slate-300"
+                                />
+                                Ativar campanha por agenda
+                            </label>
+
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2">
+                                    Dias da semana (máximo 3)
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                    {campaignDayOptions.map((option) => {
+                                        const selected = campaignWeekdays.includes(option.value);
+                                        const disabled = !selected && campaignWeekdays.length >= 3 && campaignEnabled;
+                                        return (
+                                            <button
+                                                key={option.value}
+                                                type="button"
+                                                onClick={() => toggleCampaignWeekday(option.value)}
+                                                disabled={disabled || !campaignEnabled}
+                                                className={`rounded-xl border px-3 py-2 text-xs font-bold transition-all ${
+                                                    selected
+                                                        ? "border-[#086788] bg-[#086788] text-white"
+                                                        : "border-slate-200 bg-white/70 text-slate-700"
+                                                } disabled:opacity-40`}
+                                            >
+                                                {option.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2 block">
+                                        Hora local
+                                    </label>
+                                    <select
+                                        value={campaignHour}
+                                        onChange={(e) => setCampaignHour(Number(e.target.value))}
+                                        disabled={!campaignEnabled}
+                                        className="w-full rounded-xl border border-slate-200 bg-white/70 px-4 py-3 text-sm font-semibold text-slate-800 disabled:opacity-40"
+                                    >
+                                        {Array.from({ length: 24 }, (_, hour) => (
+                                            <option key={hour} value={hour}>
+                                                {String(hour).padStart(2, "0")}:00
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2 block">
+                                        Timezone
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={campaignTimezone}
+                                        onChange={(e) => setCampaignTimezone(e.target.value)}
+                                        disabled={!campaignEnabled}
+                                        className="w-full rounded-xl border border-slate-200 bg-white/70 px-4 py-3 text-sm font-semibold text-slate-800 disabled:opacity-40"
+                                    />
+                                </div>
+                            </div>
+
+                            {campaignSaveError && (
+                                <p className="text-xs font-bold text-red-500">{campaignSaveError}</p>
+                            )}
+
+                            <button
+                                onClick={handleSaveCampaignSchedule}
+                                disabled={
+                                    savingCampaign ||
+                                    (campaignEnabled && (campaignWeekdays.length < 1 || campaignWeekdays.length > 3))
+                                }
+                                className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest bg-[#086788] text-white hover:bg-[#07a0c3] shadow-md transition-all disabled:opacity-40"
+                            >
+                                {savingCampaign ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                                Salvar Agenda
+                            </button>
+
+                            {savedCampaign && (
+                                <p className="text-xs font-bold text-emerald-500 animate-pulse">
+                                    ✅ Agenda da campanha salva.
+                                </p>
+                            )}
+                        </div>
+                    )}
                 </div>
                 {/* Card 1 — Delivery */}
                 <div className="rounded-[2.5rem] border border-white/60 bg-white/40 dark:bg-slate-900/60 dark:border-white/10 p-8 shadow-lg shadow-[#086788]/5 backdrop-blur-xl">

@@ -87,6 +87,10 @@ function isInvalidTokenFailure(status: number, responseBody: unknown) {
     return message.includes("invalid token") || message.includes("token invalido");
 }
 
+function isMethodOrRouteMismatch(status: number) {
+    return status === 404 || status === 405;
+}
+
 type CampaignSendResult = {
     ok: boolean;
     status: number;
@@ -133,9 +137,9 @@ async function sendFridayCampaignMessage(params: {
     }
 
     const canFallback =
-        isInvalidTokenFailure(firstResponse.status, firstBody) &&
-        Boolean(params.globalApiKey) &&
-        Boolean(params.instanceName);
+        (isInvalidTokenFailure(firstResponse.status, firstBody) ||
+            isMethodOrRouteMismatch(firstResponse.status)) &&
+        Boolean(params.globalApiKey);
 
     if (!canFallback) {
         return {
@@ -146,30 +150,60 @@ async function sendFridayCampaignMessage(params: {
         };
     }
 
-    const fallbackResponse = await fetch(`${baseUrl}/v1/messages/send`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${params.globalApiKey}`,
-            "Instance-Token": params.instanceToken,
-        },
-        body: JSON.stringify({
-            number: params.number,
-            textMessage: { text: params.text },
-            instanceName: params.instanceName,
-        }),
-        cache: "no-store",
-    });
-
-    const fallbackRaw = await fallbackResponse.text();
-    const fallbackBody = parseJsonSafe(fallbackRaw) ?? fallbackRaw;
-
-    return {
-        ok: fallbackResponse.ok,
-        status: fallbackResponse.status || 502,
-        endpoint: "/v1/messages/send",
-        body: fallbackBody,
+    const fallbackEndpoints = ["/messages/send", "/v1/messages/send"];
+    let lastFailure: CampaignSendResult = {
+        ok: false,
+        status: firstResponse.status || 502,
+        endpoint: "/send/text",
+        body: firstBody,
     };
+
+    for (const fallbackEndpoint of fallbackEndpoints) {
+        const normalizedEndpoint =
+            baseUrl.endsWith("/v1") && fallbackEndpoint.startsWith("/v1/")
+                ? fallbackEndpoint.replace(/^\/v1/, "")
+                : fallbackEndpoint;
+
+        const fallbackResponse = await fetch(`${baseUrl}${normalizedEndpoint}`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${params.globalApiKey}`,
+                "Instance-Token": params.instanceToken,
+            },
+            body: JSON.stringify({
+                number: params.number,
+                textMessage: { text: params.text },
+                instanceName: params.instanceName || undefined,
+            }),
+            cache: "no-store",
+        });
+
+        const fallbackRaw = await fallbackResponse.text();
+        const fallbackBody = parseJsonSafe(fallbackRaw) ?? fallbackRaw;
+
+        if (fallbackResponse.ok) {
+            return {
+                ok: true,
+                status: fallbackResponse.status,
+                endpoint: normalizedEndpoint,
+                body: fallbackBody,
+            };
+        }
+
+        lastFailure = {
+            ok: false,
+            status: fallbackResponse.status || 502,
+            endpoint: normalizedEndpoint,
+            body: fallbackBody,
+        };
+
+        if (!isMethodOrRouteMismatch(fallbackResponse.status)) {
+            break;
+        }
+    }
+
+    return lastFailure;
 }
 
 function parseBooleanQuery(value: string | null, fallback: boolean) {

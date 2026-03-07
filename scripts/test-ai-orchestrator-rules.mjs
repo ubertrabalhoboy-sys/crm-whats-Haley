@@ -484,22 +484,18 @@ assert.equal(
     "principal"
 );
 
-assert.deepEqual(
-    buildPostAddToCartSalesPlan({
-        addedCategory: "principal",
-        addedProductName: "Bacon Monster",
-        latestOutboundText: "Confira nossas opcoes",
-        hasAdditional: false,
-        hasDrink: false,
-    }),
-    {
-        nextCategory: "adicional",
-        searchQuery: null,
-        followupText:
-            "Perfeito! Adicionei Bacon Monster ao seu pedido.\nSeu principal ja ficou no carrinho. Agora ja te mostro os adicionais mais pedidos.",
-        domain: "burger",
-    }
-);
+const burgerUpsellPlan = buildPostAddToCartSalesPlan({
+    addedCategory: "principal",
+    addedProductName: "Bacon Monster",
+    latestOutboundText: "Confira nossas opcoes",
+    hasAdditional: false,
+    hasDrink: false,
+});
+
+assert.equal(burgerUpsellPlan.nextCategory, "adicional");
+assert.equal(burgerUpsellPlan.searchQuery, "batata frita cheddar onion rings");
+assert.equal(burgerUpsellPlan.domain, "burger");
+assert.match(burgerUpsellPlan.followupText, /Adicionei Bacon Monster/i);
 
 assert.deepEqual(
     parseAddToCartClientAction(

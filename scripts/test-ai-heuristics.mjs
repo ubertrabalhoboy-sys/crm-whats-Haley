@@ -178,7 +178,7 @@ assert.equal(
             cartSnapshotMeta: fullCartWithPayment,
         })
     ),
-    "fechar_pedido"
+    "revisar_itens_e_confirmar_pedido"
 );
 assert.equal(
     deriveExplicitCommercialState(
@@ -186,7 +186,7 @@ assert.equal(
             cartSnapshotMeta: fullCartWithPayment,
         })
     ),
-    "fechamento"
+    "revisao_pedido"
 );
 
 const orderedCart = readCartSnapshotMeta({
@@ -325,6 +325,16 @@ assert.equal(
         })
     ),
     "coletar_dados_finais_e_avancar_fechamento"
+);
+
+assert.equal(
+    determineRecommendedCommercialObjective(
+        makeContext({
+            dominantCustomerIntent: "conversa_fiada",
+            cartSnapshotMeta: fullCartWithPayment,
+        })
+    ),
+    "trazer_de_volta_ao_fluxo_e_conduzir_fechamento"
 );
 
 assert.equal(

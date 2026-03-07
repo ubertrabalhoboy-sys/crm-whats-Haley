@@ -101,7 +101,7 @@ assert.equal(
             cartSnapshotMeta: fullCartWithPaymentMeta,
         })
     ),
-    "fechar_pedido"
+    "revisar_itens_e_confirmar_pedido"
 );
 
 const orderedSnapshot = buildCartSnapshotData({

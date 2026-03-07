@@ -59,6 +59,9 @@ type CartSnapshot = {
     source: "calculate_cart_total" | "submit_final_order";
     updated_at: string;
 };
+type ChatSnapshotRow = {
+    cart_snapshot?: unknown;
+};
 type ExistingOrderRow = {
     id: string;
     items: unknown;
@@ -148,6 +151,33 @@ function toCartItems(value: unknown): CartItem[] {
             product_id: typeof item.product_id === "string" ? item.product_id : undefined,
             quantity: Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 0,
         }));
+}
+
+function readSnapshotTotals(snapshot: unknown) {
+    const record =
+        typeof snapshot === "object" && snapshot !== null
+            ? (snapshot as Record<string, unknown>)
+            : null;
+    if (!record) {
+        return {
+            subtotal: null as number | null,
+            discount: null as number | null,
+            deliveryFee: null as number | null,
+            total: null as number | null,
+        };
+    }
+
+    const subtotal = Number(record.subtotal);
+    const discount = Number(record.discount);
+    const deliveryFee = Number(record.delivery_fee);
+    const total = Number(record.total);
+
+    return {
+        subtotal: Number.isFinite(subtotal) ? Number(subtotal.toFixed(2)) : null,
+        discount: Number.isFinite(discount) ? Number(discount.toFixed(2)) : null,
+        deliveryFee: Number.isFinite(deliveryFee) ? Number(deliveryFee.toFixed(2)) : null,
+        total: Number.isFinite(total) ? Number(total.toFixed(2)) : null,
+    };
 }
 
 function buildItemsSignature(items: CartItem[]) {
@@ -1011,6 +1041,8 @@ async function handleSubmitFinalOrder(
         return { ok: false, error: "INVALID_ORDER_TOTAL" };
     }
 
+    const itemsSignature = buildItemsSignature(items);
+
     const activeCouponCode = await getActiveChatCouponCode(db, chatId);
     const appliedDiscount = resolveAppliedDiscount(
         realSubtotal,
@@ -1028,7 +1060,48 @@ async function handleSubmitFinalOrder(
         return { ok: false, error: "INVALID_ORDER_TOTAL" };
     }
 
-    const itemsSignature = buildItemsSignature(items);
+    if (chatId) {
+        const { data: chatRow, error: chatRowError } = await db
+            .from("chats")
+            .select("cart_snapshot")
+            .eq("id", chatId)
+            .eq("restaurant_id", ctx.restaurant_id)
+            .maybeSingle();
+
+        if (!chatRowError && chatRow) {
+            const typedChatRow = chatRow as ChatSnapshotRow;
+            const snapshotRecord =
+                typeof typedChatRow.cart_snapshot === "object" &&
+                    typedChatRow.cart_snapshot !== null
+                    ? (typedChatRow.cart_snapshot as Record<string, unknown>)
+                    : null;
+            const snapshotItems = toCartItems(snapshotRecord?.items);
+            const snapshotItemsSignature = buildItemsSignature(snapshotItems);
+            if (snapshotItemsSignature && snapshotItemsSignature !== itemsSignature) {
+                return {
+                    ok: false,
+                    error: "ORDER_PREFLIGHT_SNAPSHOT_ITEMS_MISMATCH",
+                    message:
+                        "Os itens enviados nao batem com o ultimo carrinho calculado. Recalcule o carrinho antes de finalizar.",
+                };
+            }
+
+            const snapshotTotals = readSnapshotTotals(snapshotRecord);
+            const mismatchTolerance = 0.05;
+            if (
+                snapshotTotals.total !== null &&
+                Math.abs(snapshotTotals.total - finalTotal) > mismatchTolerance
+            ) {
+                return {
+                    ok: false,
+                    error: "ORDER_PREFLIGHT_SNAPSHOT_TOTAL_MISMATCH",
+                    message:
+                        "O total final divergiu do carrinho calculado. Rode calculate_cart_total novamente antes de finalizar.",
+                };
+            }
+        }
+    }
+
     let duplicateOrder: ExistingOrderRow | undefined;
 
     if (ctx.trigger_message_created_at) {

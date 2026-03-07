@@ -31,6 +31,7 @@ export type ExplicitCommercialState =
     | "coleta_endereco"
     | "coleta_referencia"
     | "confirmacao_total"
+    | "revisao_pedido"
     | "coleta_pagamento"
     | "fechamento"
     | "pos_venda"
@@ -146,6 +147,12 @@ export function determineRecommendedCommercialObjective(
         return "coletar_dados_finais_e_avancar_fechamento";
     }
 
+    if (details.dominantCustomerIntent === "conversa_fiada") {
+        return details.cartSnapshotMeta.hasItems
+            ? "trazer_de_volta_ao_fluxo_e_conduzir_fechamento"
+            : "trazer_de_volta_ao_fluxo";
+    }
+
     if (details.commercialPhase === "pagamento") {
         return "confirmar_pagamento";
     }
@@ -190,6 +197,12 @@ export function determineRecommendedCommercialObjective(
     }
 
     if (details.cartSnapshotMeta.hasItems && details.cartSnapshotMeta.hasPaymentMethod) {
+        if (
+            details.cartSnapshotMeta.source === "calculate_cart_total" &&
+            !details.cartSnapshotMeta.hasOrder
+        ) {
+            return "revisar_itens_e_confirmar_pedido";
+        }
         return "fechar_pedido";
     }
 
@@ -263,6 +276,14 @@ export function deriveExplicitCommercialState(
         details.salesSignals.closeAttemptStarted ||
         details.cartSnapshotMeta.hasPaymentMethod
     ) {
+        if (
+            details.cartSnapshotMeta.hasItems &&
+            details.cartSnapshotMeta.hasPaymentMethod &&
+            details.cartSnapshotMeta.source === "calculate_cart_total" &&
+            !details.cartSnapshotMeta.hasOrder
+        ) {
+            return "revisao_pedido";
+        }
         return "fechamento";
     }
 

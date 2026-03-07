@@ -9,9 +9,11 @@ import {
 const burgerExamples = resolveFewShotExamples({
     vertical: "burger",
     maxExamples: 4,
+    seedText: "quero um hamburguer e adicional",
 });
 assert.ok(burgerExamples.length > 0);
 assert.ok(burgerExamples.some((item) => item.id === "burger_after_principal"));
+assert.equal(burgerExamples[0].id, "burger_after_principal");
 
 const genericExamples = resolveFewShotExamples({
     vertical: "unknown",
@@ -22,12 +24,18 @@ assert.equal(genericExamples.length, 2);
 const bundle = buildFewShotContext({
     vertical: "pizza",
     maxExamples: 3,
+    seedText: "quero pizza grande com borda",
 });
 assert.equal(bundle.exampleCount, 3);
 assert.equal(bundle.datasetVersion, getFewShotDatasetVersion());
-assert.equal(bundle.contents.length, 1 + bundle.exampleCount * 2);
+assert.equal(bundle.negativeExampleApplied, true);
+assert.equal(bundle.contents.length, 2 + bundle.exampleCount * 2);
 assert.equal(bundle.contents[0].role, "user");
 assert.match(String(bundle.contents[0].parts?.[0]?.text || ""), /Exemplos internos/i);
+assert.match(
+    String(bundle.contents[bundle.contents.length - 1].parts?.[0]?.text || ""),
+    /Exemplo negativo/i
+);
 
 const baseContext = [{ role: "user", parts: [{ text: "Cliente real: oi" }] }];
 const merged = prependFewShotContext(baseContext, bundle.contents);

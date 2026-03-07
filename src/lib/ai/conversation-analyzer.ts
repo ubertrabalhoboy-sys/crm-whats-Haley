@@ -306,6 +306,8 @@ export function detectDominantCustomerIntent(details: {
         return "objecao";
     if (/(quero|vou querer|pode mandar|fechar pedido|finalizar|confirmo|sim pode|me ve|me vê)/i.test(latestInboundNormalized))
         return "compra";
+    if (/(kkk|kkkk|rs|rss|blz|beleza|de boa|tudo bem|ata|entendi|hmm|hum|show|top demais|valeu)/i.test(latestInboundNormalized))
+        return "conversa_fiada";
     if (/(endereco|endereço|rua|numero|número|localizacao|localização|pix|pagamento|dinheiro|cartao|cartão)/i.test(recentUserJoined))
         return "fechamento_operacional";
     if (/(oi|ola|olá|bom dia|boa tarde|boa noite)/i.test(latestInboundNormalized))
@@ -430,6 +432,8 @@ export function buildOperationalChatSummary(details: {
         `ultima_mensagem_cliente=${details.latestInboundText || "Nenhuma"}`,
         `ultima_resposta_assistente=${previousAssistantText}`,
         "Para catalogo, precos, frete, desconto e cobranca, consulte dados reais via tool antes de afirmar qualquer valor ou disponibilidade.",
+        "Regra absoluta: produto so existe se vier com product_id em search_product_catalog; se nao vier, nao existe e nao pode ser citado.",
+        "Regra absoluta de horario/status da loja: use somente get_store_info (is_open_now/business_hours). Nunca invente abertura ou fechamento.",
         "Se houver pendencias operacionais, resolva antes de calcular frete, cobrar ou finalizar pedido.",
         "Se objetivo_comercial_recomendado indicar variar abordagem, nao repita a mesma oferta ou a mesma frase recente.",
         "Use este resumo para manter contexto. Se houver divergencia, priorize a mensagem mais recente do cliente.",

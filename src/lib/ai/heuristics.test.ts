@@ -100,6 +100,25 @@ describe("AI Heuristics", () => {
             });
             expect(deriveExplicitCommercialState(context)).toBe("coleta_pagamento");
         });
+
+        it("should require review before final close when payment is already selected", () => {
+            const paidCart = readCartSnapshotMeta({
+                items: [
+                    { product_id: "1", quantity: 1, category: "principal" },
+                    { product_id: "2", quantity: 1, category: "adicional" },
+                    { product_id: "3", quantity: 1, category: "bebida" },
+                ],
+                subtotal: 40,
+                discount: 5,
+                delivery_fee: 7,
+                total: 42,
+                payment_method: "pix",
+                source: "calculate_cart_total",
+            });
+            const context = makeContext({ cartSnapshotMeta: paidCart });
+            expect(determineRecommendedCommercialObjective(context)).toBe("revisar_itens_e_confirmar_pedido");
+            expect(deriveExplicitCommercialState(context)).toBe("revisao_pedido");
+        });
     });
 
     describe("Edge Cases & Intent handling", () => {
@@ -130,6 +149,23 @@ describe("AI Heuristics", () => {
             });
             expect(malformedCart.subtotal).toBe(0);
             expect(malformedCart.hasPrincipal).toBe(true);
+        });
+
+        it("should bring conversation back to flow on small talk intent", () => {
+            const context = makeContext({
+                dominantCustomerIntent: "conversa_fiada",
+                cartSnapshotMeta: readCartSnapshotMeta({
+                    items: [{ product_id: "1", quantity: 1, category: "principal" }],
+                    subtotal: 20,
+                    discount: 0,
+                    delivery_fee: 0,
+                    total: 20,
+                    source: "calculate_cart_total",
+                }),
+            });
+            expect(determineRecommendedCommercialObjective(context)).toBe(
+                "trazer_de_volta_ao_fluxo_e_conduzir_fechamento"
+            );
         });
     });
 });

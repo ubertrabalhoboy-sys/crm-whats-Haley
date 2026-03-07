@@ -183,12 +183,21 @@ type BudgetUsageSummary = {
     overTurnBudget: boolean;
     overTokenBudget: boolean;
 };
+type StoreAbsoluteStatus = {
+    loaded: boolean;
+    isOpenNow: boolean | null;
+    businessHoursSummary: string | null;
+};
 
 const OPENAI_FALLBACK_MODEL_NAME = "gpt-4o-mini";
 const SENTIMENT_LLM_EVERY_N_TURNS = 5;
 const SENTIMENT_LLM_TIMEOUT_MS = 5000;
 const INACTIVITY_RECOVERY_THRESHOLD_MIN = 60;
 const INACTIVITY_RECOVERY_HINT_MAX_MIN = 24 * 60;
+const FRUSTRATION_SALES_BLOCKED_TOOLS = new Set([
+    "search_product_catalog",
+    "send_uaz_carousel",
+]);
 
 function normalizeChatBudgetPolicy(value: string) {
     const normalized = value.trim().toLowerCase();
@@ -356,6 +365,69 @@ function resolveRoutedModelName(details: {
         (isShortText || looksLikeSimpleGreeting);
 
     return canUseTriageModel ? GEMINI_TRIAGE_MODEL_NAME : GEMINI_MODEL_NAME;
+}
+
+function shouldActivateFrustrationSafetyMode(details: {
+    sentiment: SentimentLabel;
+    latestInboundText: string;
+}) {
+    if (details.sentiment !== "Frustrado") return false;
+    const normalizedInbound = details.latestInboundText
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+
+    return /(cancelar|atendente|humano|especialista|reclam|pessimo|horrivel|lixo|absurdo|nunca mais|raiva|odio|merda|porcaria)/i.test(
+        normalizedInbound
+    );
+}
+
+function buildStoreAbsoluteHint(storeStatus: StoreAbsoluteStatus) {
+    if (!storeStatus.loaded) return "";
+    return [
+        "[Fonte absoluta da loja]",
+        `loja_aberta_agora=${storeStatus.isOpenNow === null ? "desconhecido" : storeStatus.isOpenNow ? "sim" : "nao"}`,
+        storeStatus.businessHoursSummary
+            ? `business_hours=${storeStatus.businessHoursSummary}`
+            : null,
+        "Regra: nunca contradiga o status acima. Se houver duvida, consulte get_store_info novamente.",
+    ]
+        .filter(Boolean)
+        .join("\n");
+}
+
+function enforceStoreStatusTruth(
+    text: string,
+    storeStatus: StoreAbsoluteStatus
+) {
+    if (!storeStatus.loaded || storeStatus.isOpenNow === null) {
+        return { changed: false, text };
+    }
+
+    const normalized = text
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+    const saysOpen = /\b(abert|estamos abertos|loja aberta)\b/i.test(normalized);
+    const saysClosed = /\b(fechad|nao estamos abertos|loja fechada)\b/i.test(normalized);
+
+    if (storeStatus.isOpenNow && saysClosed) {
+        return {
+            changed: true,
+            text: "Estamos abertos agora. Posso seguir com seu pedido daqui.",
+            reason: "STORE_STATUS_CONTRADICTION_CLOSED_WHILE_OPEN",
+        };
+    }
+
+    if (!storeStatus.isOpenNow && saysOpen) {
+        return {
+            changed: true,
+            text: "A loja esta fechada no momento. Posso deixar agendado para retomar quando abrir.",
+            reason: "STORE_STATUS_CONTRADICTION_OPEN_WHILE_CLOSED",
+        };
+    }
+
+    return { changed: false, text };
 }
 
 function buildRollingSummaryBuffer(details: {
@@ -768,15 +840,66 @@ export async function processAiMessage(params: OrchestratorParams) {
         ? buildFewShotContext({
             vertical: restaurantPlaybook.vertical,
             maxExamples: AI_FEW_SHOT_MAX_EXAMPLES,
+            seedText: normalizedIncomingText,
         })
-        : { contents: [], exampleCount: 0, datasetVersion: getFewShotDatasetVersion() };
+        : {
+            contents: [],
+            exampleCount: 0,
+            negativeExampleApplied: false,
+            datasetVersion: getFewShotDatasetVersion(),
+        };
     const conversationContext = prependFewShotContext(
         optimizedConversationContext,
         fewShotBundle.contents
     );
+    const ctx: ToolContext = {
+        restaurant_id: params.restaurantId,
+        wa_chat_id: params.waChatId,
+        chat_id: params.chatId,
+        base_url: APP_URL,
+        trigger_message_created_at: latestInboundMessage?.created_at || undefined,
+    };
+    let storeAbsoluteStatus: StoreAbsoluteStatus = {
+        loaded: false,
+        isOpenNow: null,
+        businessHoursSummary: null,
+    };
+    try {
+        const storeInfoRaw = await executeAiTool("get_store_info", {}, ctx);
+        const storeInfoResult = asRecord(JSON.parse(storeInfoRaw));
+        const storeInfo = asRecord(storeInfoResult?.store_info);
+        if (storeInfoResult?.ok === true && storeInfo) {
+            storeAbsoluteStatus = {
+                loaded: true,
+                isOpenNow:
+                    typeof storeInfo.is_open_now === "boolean"
+                        ? storeInfo.is_open_now
+                        : null,
+                businessHoursSummary:
+                    typeof storeInfo.business_hours === "string"
+                        ? storeInfo.business_hours
+                        : storeInfo.business_hours
+                            ? JSON.stringify(storeInfo.business_hours)
+                            : null,
+            };
+            const storeAbsoluteHint = buildStoreAbsoluteHint(storeAbsoluteStatus);
+            if (storeAbsoluteHint) {
+                conversationContext.push({
+                    role: "user",
+                    parts: [{ text: storeAbsoluteHint }],
+                });
+            }
+        }
+    } catch {
+        // store absolute hint is optional
+    }
     const promptPlan = buildPromptExecutionPlan(rawPrompt, restaurantName, kanbanStatus, cupomGanho);
 
     const heuristicSentiment = detectSentiment(baseConversationContext);
+    const frustrationSafetyMode = shouldActivateFrustrationSafetyMode({
+        sentiment: heuristicSentiment,
+        latestInboundText: normalizedIncomingText,
+    });
     const shouldRunSentimentLlm =
         userTurnCount > 0 && userTurnCount % SENTIMENT_LLM_EVERY_N_TURNS === 0;
 
@@ -858,7 +981,11 @@ export async function processAiMessage(params: OrchestratorParams) {
         fewShotEnabled: AI_FEW_SHOT_ENABLED,
         fewShotApplied: shouldApplyFewShot,
         fewShotExamplesApplied: fewShotBundle.exampleCount,
+        fewShotNegativeExampleApplied: fewShotBundle.negativeExampleApplied,
         fewShotDatasetVersion: fewShotBundle.datasetVersion,
+        storeAbsoluteLoaded: storeAbsoluteStatus.loaded,
+        storeAbsoluteOpenNow: storeAbsoluteStatus.isOpenNow,
+        frustrationSafetyMode,
     });
 
     if (prefixCacheMode === "shadow") {
@@ -875,14 +1002,6 @@ export async function processAiMessage(params: OrchestratorParams) {
             dynamicSuffixChars: promptPlan.dynamicContextSuffix.length,
         });
     }
-
-    const ctx: ToolContext = {
-        restaurant_id: params.restaurantId,
-        wa_chat_id: params.waChatId,
-        chat_id: params.chatId,
-        base_url: APP_URL,
-        trigger_message_created_at: latestInboundMessage?.created_at || undefined,
-    };
 
     let loopActive = true;
     let iteration = 0;
@@ -1022,6 +1141,54 @@ export async function processAiMessage(params: OrchestratorParams) {
             });
             return;
         }
+    }
+
+    if (frustrationSafetyMode) {
+        const stageMoveRaw = await executeAiTool(
+            "move_kanban_stage",
+            { stage_name: "Atendimento Humano" },
+            ctx
+        );
+        try {
+            const stageMoveResult = asRecord(JSON.parse(stageMoveRaw));
+            markToolCompleted(turnMetrics, {
+                toolName: "move_kanban_stage",
+                blocked: false,
+                skipped: stageMoveResult?.skipped === true,
+                ok: stageMoveResult?.ok === true,
+            });
+        } catch {
+            // ignore parse issue
+        }
+
+        const frustrationText =
+            "Entendi sua insatisfacao. Vou te conectar com atendimento humano agora para resolver sem te enrolar.";
+        const frustrationSendResult = await sendTextMessage(
+            params.waChatId,
+            frustrationText,
+            instanceToken
+        );
+        if (wasOutboundDeliveryAccepted(frustrationSendResult)) {
+            markTextSent(turnMetrics);
+            await persistOutgoingMessage(supabase, params, frustrationText);
+        } else {
+            markTextFailed(turnMetrics);
+        }
+        logAiEvent("frustration_safety_handoff", {
+            chatId: params.chatId,
+            sentiment: heuristicSentiment,
+        });
+
+        const turnSummary = buildAiTurnSummary(turnMetrics, {
+            maxIterationsReached: false,
+        });
+        const metricsPersisted = await persistAiTurnMetrics(supabase, params, turnSummary);
+        logAiEvent("process_completed", {
+            chatId: params.chatId,
+            metricsPersisted,
+            ...turnSummary,
+        });
+        return;
     }
 
     const shouldProbeCustomerHistory =
@@ -2146,16 +2313,19 @@ export async function processAiMessage(params: OrchestratorParams) {
     }
 
     if (immediateRouletteChoice === "use_now") {
-        const storeInfoRaw = await executeAiTool("get_store_info", {}, ctx);
-        const storeInfoResult = asRecord(JSON.parse(storeInfoRaw));
-        const storeInfo = asRecord(storeInfoResult?.store_info);
-        const isOpenNow = storeInfo?.is_open_now === true;
-        markToolCompleted(turnMetrics, {
-            toolName: "get_store_info",
-            blocked: false,
-            skipped: false,
-            ok: storeInfoResult?.ok === true,
-        });
+        let isOpenNow = storeAbsoluteStatus.isOpenNow === true;
+        if (!storeAbsoluteStatus.loaded || storeAbsoluteStatus.isOpenNow === null) {
+            const storeInfoRaw = await executeAiTool("get_store_info", {}, ctx);
+            const storeInfoResult = asRecord(JSON.parse(storeInfoRaw));
+            const storeInfo = asRecord(storeInfoResult?.store_info);
+            isOpenNow = storeInfo?.is_open_now === true;
+            markToolCompleted(turnMetrics, {
+                toolName: "get_store_info",
+                blocked: false,
+                skipped: false,
+                ok: storeInfoResult?.ok === true,
+            });
+        }
 
         if (!isOpenNow) {
             const closedText =
@@ -2684,7 +2854,15 @@ export async function processAiMessage(params: OrchestratorParams) {
                 const requiresConfirmedLocation = ["calculate_cart_total", "submit_final_order", "get_pix_payment"].includes(toolName);
                 let toolBlockReason: string | null = null;
 
-                if (toolName === "request_user_location" && locationConfirmed) {
+                if (frustrationSafetyMode && FRUSTRATION_SALES_BLOCKED_TOOLS.has(toolName)) {
+                    toolBlockReason = "FRUSTRATION_SAFETY_MODE";
+                    parsedToolResult = {
+                        ok: true,
+                        skipped: true,
+                        reason: "FRUSTRATION_SAFETY_MODE",
+                        message: "Modo de seguranca ativo por frustracao do cliente. Evite ferramentas de venda e priorize resolucao/humano.",
+                    };
+                } else if (toolName === "request_user_location" && locationConfirmed) {
                     toolBlockReason = "LOCATION_ALREADY_SHARED";
                     parsedToolResult = {
                         ok: true,
@@ -3129,7 +3307,7 @@ export async function processAiMessage(params: OrchestratorParams) {
                     outboundText.text,
                     turnEvidence
                 );
-                const safeOutboundText = commercialClaimRisk.risky
+                const prelimSafeOutboundText = commercialClaimRisk.risky
                     ? commercialClaimRisk.safeFallbackText
                     : outboundText.text;
                 if (commercialClaimRisk.risky) {
@@ -3138,6 +3316,19 @@ export async function processAiMessage(params: OrchestratorParams) {
                         chatId: params.chatId,
                         iteration,
                         reason: commercialClaimRisk.reason,
+                    });
+                }
+                const storeStatusTruthResult = enforceStoreStatusTruth(
+                    prelimSafeOutboundText,
+                    storeAbsoluteStatus
+                );
+                const safeOutboundText = storeStatusTruthResult.text;
+                if (storeStatusTruthResult.changed) {
+                    markOutboundTextSanitized(turnMetrics);
+                    logAiEvent("outbound_text_sanitized", {
+                        chatId: params.chatId,
+                        iteration,
+                        reason: storeStatusTruthResult.reason || "STORE_STATUS_CONTRADICTION",
                     });
                 }
 

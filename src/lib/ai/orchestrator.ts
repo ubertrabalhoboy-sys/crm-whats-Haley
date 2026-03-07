@@ -124,9 +124,17 @@ import {
     persistOutgoingMessage,
 } from "./message-sender";
 import {
+    buildFewShotContext,
+    getFewShotDatasetVersion,
+    prependFewShotContext,
+} from "./few-shot";
+import {
     AI_CHAT_BUDGET_POLICY,
     AI_CHAT_TOKEN_BUDGET_24H,
     AI_CHAT_TURN_BUDGET_24H,
+    AI_FEW_SHOT_ENABLED,
+    AI_FEW_SHOT_MAX_EXAMPLES,
+    AI_FEW_SHOT_MAX_USER_TURNS,
     AI_GOOGLE_CONTEXT_CACHE_ENABLED,
     AI_GOOGLE_CONTEXT_CACHE_TTL_SECONDS,
     AI_MODEL_ROUTING_ENABLED,
@@ -746,15 +754,29 @@ export async function processAiMessage(params: OrchestratorParams) {
     const operationalSummary = inactivityResumeHint
         ? `${operationalSummaryBase}\n${inactivityResumeHint}`
         : operationalSummaryBase;
-    const conversationContext = optimizeConversationContext(
+    const optimizedConversationContext = optimizeConversationContext(
         summaryBufferedConversationContext,
         operationalSummary,
         prefixCacheMode
     );
+    const userTurnCount = baseConversationContext.filter((message) => message.role === "user").length;
+    const shouldApplyFewShot =
+        AI_FEW_SHOT_ENABLED &&
+        AI_FEW_SHOT_MAX_EXAMPLES > 0 &&
+        userTurnCount <= AI_FEW_SHOT_MAX_USER_TURNS;
+    const fewShotBundle = shouldApplyFewShot
+        ? buildFewShotContext({
+            vertical: restaurantPlaybook.vertical,
+            maxExamples: AI_FEW_SHOT_MAX_EXAMPLES,
+        })
+        : { contents: [], exampleCount: 0, datasetVersion: getFewShotDatasetVersion() };
+    const conversationContext = prependFewShotContext(
+        optimizedConversationContext,
+        fewShotBundle.contents
+    );
     const promptPlan = buildPromptExecutionPlan(rawPrompt, restaurantName, kanbanStatus, cupomGanho);
 
     const heuristicSentiment = detectSentiment(baseConversationContext);
-    const userTurnCount = baseConversationContext.filter((message) => message.role === "user").length;
     const shouldRunSentimentLlm =
         userTurnCount > 0 && userTurnCount % SENTIMENT_LLM_EVERY_N_TURNS === 0;
 
@@ -833,6 +855,10 @@ export async function processAiMessage(params: OrchestratorParams) {
         inactivityResumeHintInjected: shouldInjectInactivityResumeHint,
         summaryBufferApplied,
         persistedSummaryLoaded: Boolean(persistedSummaryText),
+        fewShotEnabled: AI_FEW_SHOT_ENABLED,
+        fewShotApplied: shouldApplyFewShot,
+        fewShotExamplesApplied: fewShotBundle.exampleCount,
+        fewShotDatasetVersion: fewShotBundle.datasetVersion,
     });
 
     if (prefixCacheMode === "shadow") {

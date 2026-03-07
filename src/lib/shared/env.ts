@@ -110,6 +110,18 @@ export const AI_SUMMARY_BUFFER_RECENT_MESSAGES = Math.max(
     4,
     Math.floor(parseNumberEnv(optionalEnv("AI_SUMMARY_BUFFER_RECENT_MESSAGES", "8"), 8))
 );
+export const AI_FEW_SHOT_ENABLED = parseBooleanEnv(
+    optionalEnv("AI_FEW_SHOT_ENABLED", "true"),
+    true
+);
+export const AI_FEW_SHOT_MAX_EXAMPLES = Math.max(
+    0,
+    Math.floor(parseNumberEnv(optionalEnv("AI_FEW_SHOT_MAX_EXAMPLES", "4"), 4))
+);
+export const AI_FEW_SHOT_MAX_USER_TURNS = Math.max(
+    1,
+    Math.floor(parseNumberEnv(optionalEnv("AI_FEW_SHOT_MAX_USER_TURNS", "6"), 6))
+);
 export const AI_RESTAURANT_PLAYBOOK_OVERRIDES_JSON = optionalEnv(
     "AI_RESTAURANT_PLAYBOOK_OVERRIDES_JSON"
 );

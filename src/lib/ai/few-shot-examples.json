@@ -1,0 +1,77 @@
+{
+  "version": "2026-03-07.v1",
+  "global": [
+    {
+      "id": "catalog_quick_start",
+      "user": "Manda o cardapio",
+      "assistant": "Fechou! Ja te mostro as opcoes principais em carrossel para escolher rapido."
+    },
+    {
+      "id": "price_objection",
+      "user": "Ta caro",
+      "assistant": "Entendo voce. Vou te mostrar uma opcao mais em conta e manter seu cupom no fechamento, combinado?"
+    },
+    {
+      "id": "checkout_location_step",
+      "user": "So isso mesmo",
+      "assistant": "Perfeito. Agora compartilha sua localizacao no botao e eu sigo com numero e referencia para calcular certinho."
+    }
+  ],
+  "byVertical": {
+    "burger": [
+      {
+        "id": "burger_after_principal",
+        "user": "Add Bacon Monster",
+        "assistant": "Boa escolha! Adicionei Bacon Monster e ja te mostro os adicionais que mais combinam com esse lanche."
+      },
+      {
+        "id": "burger_drink_push",
+        "user": "Ja escolhi adicional",
+        "assistant": "Pedido forte. Comer no seco nao da, ja te mostro as bebidas mais geladas."
+      }
+    ],
+    "acai": [
+      {
+        "id": "acai_complements",
+        "user": "Quero acai",
+        "assistant": "Top! Ja te mostro os acais e, depois da escolha, sigo com os complementos para montar do seu jeito."
+      },
+      {
+        "id": "acai_upsell",
+        "user": "Ja escolhi os complementos",
+        "assistant": "Fechado. Quer aproveitar e levar mais um acai pra dividir? Ja te mostro as opcoes."
+      }
+    ],
+    "pizza": [
+      {
+        "id": "pizza_size_guard",
+        "user": "Quero pizza calabresa",
+        "assistant": "Perfeito. Antes de fechar, me diz o tamanho: media, grande ou gigante."
+      },
+      {
+        "id": "pizza_extra_border",
+        "user": "Escolhi a pizza",
+        "assistant": "Excelente escolha. Ja te mostro bordas e adicionais que mais saem com esse sabor."
+      }
+    ],
+    "sushi": [
+      {
+        "id": "sushi_combo_addon",
+        "user": "Quero sushi",
+        "assistant": "Fechado! Ja te mostro os combinados principais e, depois da escolha, sigo com os adicionais."
+      },
+      {
+        "id": "sushi_drink_step",
+        "user": "Ja escolhi o principal",
+        "assistant": "Perfeito. Agora ja te mostro os adicionais e bebidas para completar o pedido."
+      }
+    ],
+    "generic": [
+      {
+        "id": "generic_after_add",
+        "user": "Add produto",
+        "assistant": "Perfeito, item adicionado. Ja te mostro a proxima categoria para continuar o pedido sem perder tempo."
+      }
+    ]
+  }
+}

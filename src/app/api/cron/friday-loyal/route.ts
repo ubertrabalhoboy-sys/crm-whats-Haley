@@ -21,6 +21,7 @@ type RestaurantRow = {
     id: string;
     name: string | null;
     uaz_instance_token: string | null;
+    uaz_instance_name: string | null;
 };
 
 type FridayLoyalRow = {
@@ -53,6 +54,113 @@ function createSupabaseAdminClient() {
 
 function normalizeBaseUrl(url: string) {
     return url.replace(/\/$/, "");
+}
+
+function parseJsonSafe(text: string) {
+    try {
+        return text ? JSON.parse(text) : null;
+    } catch {
+        return null;
+    }
+}
+
+function extractErrorMessage(value: unknown) {
+    if (!value || typeof value !== "object") return null;
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.message === "string" && obj.message.trim()) return obj.message.trim();
+    if (typeof obj.error === "string" && obj.error.trim()) return obj.error.trim();
+    return null;
+}
+
+function isInvalidTokenFailure(status: number, responseBody: unknown) {
+    if (status === 401) return true;
+    const message = String(extractErrorMessage(responseBody) || "").toLowerCase();
+    return message.includes("invalid token") || message.includes("token invalido");
+}
+
+type CampaignSendResult = {
+    ok: boolean;
+    status: number;
+    endpoint: string;
+    body: unknown;
+};
+
+async function sendFridayCampaignMessage(params: {
+    baseUrl: string;
+    globalApiKey: string;
+    instanceToken: string;
+    instanceName: string | null;
+    number: string;
+    text: string;
+}): Promise<CampaignSendResult> {
+    const baseUrl = normalizeBaseUrl(params.baseUrl);
+    const headersV1: Record<string, string> = {
+        "Content-Type": "application/json",
+        token: params.instanceToken,
+    };
+    if (params.globalApiKey) {
+        headersV1.apikey = params.globalApiKey;
+    }
+
+    const firstResponse = await fetch(`${baseUrl}/send/text`, {
+        method: "POST",
+        headers: headersV1,
+        body: JSON.stringify({
+            number: params.number,
+            text: params.text,
+        }),
+        cache: "no-store",
+    });
+    const firstRaw = await firstResponse.text();
+    const firstBody = parseJsonSafe(firstRaw) ?? firstRaw;
+
+    if (firstResponse.ok) {
+        return {
+            ok: true,
+            status: firstResponse.status,
+            endpoint: "/send/text",
+            body: firstBody,
+        };
+    }
+
+    const canFallback =
+        isInvalidTokenFailure(firstResponse.status, firstBody) &&
+        Boolean(params.globalApiKey) &&
+        Boolean(params.instanceName);
+
+    if (!canFallback) {
+        return {
+            ok: false,
+            status: firstResponse.status || 502,
+            endpoint: "/send/text",
+            body: firstBody,
+        };
+    }
+
+    const fallbackResponse = await fetch(`${baseUrl}/v1/messages/send`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${params.globalApiKey}`,
+            "Instance-Token": params.instanceToken,
+        },
+        body: JSON.stringify({
+            number: params.number,
+            textMessage: { text: params.text },
+            instanceName: params.instanceName,
+        }),
+        cache: "no-store",
+    });
+
+    const fallbackRaw = await fallbackResponse.text();
+    const fallbackBody = parseJsonSafe(fallbackRaw) ?? fallbackRaw;
+
+    return {
+        ok: fallbackResponse.ok,
+        status: fallbackResponse.status || 502,
+        endpoint: "/v1/messages/send",
+        body: fallbackBody,
+    };
 }
 
 function parseBooleanQuery(value: string | null, fallback: boolean) {
@@ -274,7 +382,7 @@ export async function GET(req: NextRequest) {
     const supabase = createSupabaseAdminClient();
     const { data: restaurants, error: restaurantsError } = await supabase
         .from("restaurants")
-        .select("id, name, uaz_instance_token")
+        .select("id, name, uaz_instance_token, uaz_instance_name")
         .not("uaz_instance_token", "is", null)
         .limit(AI_FRIDAY_LOYAL_MAX_RESTAURANTS);
 
@@ -331,6 +439,7 @@ export async function GET(req: NextRequest) {
         let restaurantSent = 0;
         let restaurantFailed = 0;
         let restaurantSkipped = 0;
+        let restaurantLastError: string | null = null;
 
         for (const target of typedTargets) {
             const chatId = typeof target.chat_id === "string" ? target.chat_id : "";
@@ -424,32 +533,38 @@ export async function GET(req: NextRequest) {
             }
 
             try {
-                const response = await fetch(`${baseUrl}/send/text`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        apikey: globalApiKey,
-                        token,
-                    },
-                    body: JSON.stringify({
-                        number,
-                        text: messageText,
-                    }),
-                    cache: "no-store",
+                const sendResult = await sendFridayCampaignMessage({
+                    baseUrl,
+                    globalApiKey,
+                    instanceToken: token,
+                    instanceName:
+                        typeof restaurant.uaz_instance_name === "string"
+                            ? restaurant.uaz_instance_name
+                            : null,
+                    number,
+                    text: messageText,
                 });
 
-                if (!response.ok) {
-                    const responseError = await response.text();
+                if (!sendResult.ok) {
+                    const responseErrorPayload =
+                        typeof sendResult.body === "string"
+                            ? sendResult.body
+                            : JSON.stringify(sendResult.body);
+                    const responseError =
+                        responseErrorPayload || `UAZ_SEND_FAILED:${sendResult.status}`;
+                    restaurantLastError = responseError;
                     await recordCampaignRun({
                         supabase,
                         restaurantId: restaurant.id,
                         chatId,
                         fingerprint,
                         status: "failed",
-                        error: responseError || `UAZ_SEND_FAILED:${response.status}`,
+                        error: responseError,
                         context: {
                             source: "cron_friday_loyal",
                             dry_run: false,
+                            endpoint: sendResult.endpoint,
+                            status: sendResult.status,
                         },
                     });
                     restaurantFailed += 1;
@@ -511,6 +626,7 @@ export async function GET(req: NextRequest) {
                 });
                 restaurantFailed += 1;
                 failed += 1;
+                restaurantLastError = errorMessage;
             }
         }
 
@@ -522,6 +638,7 @@ export async function GET(req: NextRequest) {
             failed: restaurantFailed,
             skipped: restaurantSkipped,
             priority_suggestion: prioritySuggestion,
+            last_error: restaurantLastError,
         });
     }
 
